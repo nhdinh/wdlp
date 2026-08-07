@@ -26,7 +26,17 @@
   5. The user can copy a file into the drive; the per-user backing store contains authenticated encrypted data with no directly readable plaintext.
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Walking-skeleton tracer for workspace, real PostgreSQL/API, signed activation, encrypted roundtrip, and dependency approval
+- [ ] 01-02-PLAN.md — Exact fingerprint and dual-DC enrollment authority, mTLS issuance/revocation, migrations, APIs, and readiness
+- [ ] 01-03-PLAN.md — Automatic Windows-service enrollment, DPAPI credential custody, mTLS polling, and current/LKG configuration cache
+- [ ] 01-04-PLAN.md — Persisted encrypted-store format decision, durable AEAD generation commits, SID-safe paths, and operations
+- [ ] 01-05-PLAN.md — Crash/restart recovery, integrity denial/evidence retention, disk-full preservation, and plaintext-leak tests
+- [ ] 01-06-PLAN.md — Approved WinFsp real mount, complete callback semantics, error mapping, and runtime validation
+- [ ] 01-07-PLAN.md — Per-session/SID service mounts, drive-letter fallback, retry, sign-out drain, and restart remount
+- [ ] 01-08-PLAN.md — Production end-to-end and complete Windows/Office/size/operation/restart/abrupt-loss evidence matrix
 
 ### Phase 2: Policy Enforcement and User Feedback
 **Goal**: Turn the encrypted drive into a working DLP boundary with metadata rules, actions, and user-facing feedback.
@@ -78,7 +88,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 0/TBD | Not started | - |
+| 1. First Encrypted-Drive Vertical Slice | 0/8 | Not started | - |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |
