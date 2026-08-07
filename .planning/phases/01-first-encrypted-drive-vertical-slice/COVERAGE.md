@@ -58,4 +58,3 @@
 | http.fleet-lock-revoke-retire-admin-routes | OPT-OUT | Phase 3 owns fleet lifecycle administration; Phase 1 only performs credential replacement revocation required by D-06. |
 | http.audit-search-and-export | OPT-OUT | Phase 3 owns audit search and export. |
 | http.websocket-and-grpc-transports | OPT-OUT | ADR-002 fixes REST-style JSON over HTTP/1.1 and HTTP/2 for the MVP. |
-

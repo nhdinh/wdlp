@@ -1,6 +1,6 @@
 # Walking Skeleton — Windows Data Leakage Prevention
 
-**Phase:** 1  
+**Phase:** 1
 **Generated:** 2026-08-07
 
 ## Capability Proven End-to-End
@@ -48,4 +48,3 @@
 - Phase 2: Add deterministic metadata/content policy enforcement and authenticated user feedback on top of the protected drive.
 - Phase 3: Add offline resilience, ordered audit synchronization, and fleet administration.
 - Phase 4: Harden storage, packaging, compatibility, security, scale, and operations for the MVP release.
-
