@@ -21,7 +21,7 @@
 | Device trust | Short-lived single-use bootstrap token, exact pre-provisioned fingerprint, agreement from two explicitly configured AD domain controllers, then device mTLS | Implements D-02 through D-06 without treating client-reported hardware as remote attestation. |
 | Certificate lifecycle | Development private CA loaded from mounted secrets; device certificate identity mapped to the enrolled device and checked against the revocation record on every agent request | Makes issuance and revocation explicit while keeping the CA replaceable behind a `DeviceCertificateIssuer` trait. |
 | Configuration trust | Deterministic versioned bytes signed with Ed25519 and verified strictly before atomic current/LKG activation | Implements ADR-005, CRY-02, AGT-04, AGT-05, and AGT-06. |
-| Encrypted storage | Proposed AES-256-GCM, 4 MiB chunks, random persisted 96-bit nonce per record, identity-bound AAD, staged generations, authenticated commit record; gated by 01-04 Task 1 | Satisfies D-12 through D-15 and makes restart recovery deterministic once the persisted-format door is approved. |
+| Encrypted storage | Proposed AES-256-GCM, 4 MiB chunks, random persisted 96-bit nonce per record, identity-bound AAD, staged generations, authenticated commit record; decision-gated by 01-03 Task 2 and implemented only afterward in 01-04 | Satisfies D-12 through D-15 while ensuring no governed persisted byte exists before the one-way format approval. |
 | Endpoint secret protection | Machine-scope DPAPI with noninteractive operation plus service-SID-only directory and file ACLs | Implements D-05, D-06, CRY-04, and AGT-02. |
 | Virtual drive | WinFsp 2.1 through the `winfsp` Rust crate, isolated behind `ProtectedFileSystem` and `MountHost` traits | Implements ADR-001 while preserving a replaceable filesystem transport. |
 | Session lifecycle | One mount actor per eligible session and captured SID; preferred-letter scan, 30-second sign-out drain, exponential retry capped at five minutes | Implements D-07 through D-10 and the planner-discretion choices recorded by research. |
@@ -35,6 +35,14 @@
 - [ ] Database — migration-backed allowlist, token, device, credential, bundle, and health persistence with real reads and writes.
 - [ ] User interaction — normal Windows filesystem operations through a mounted WinFsp drive.
 - [ ] Deployment — Docker Compose server/PostgreSQL run command and a documented Windows validation command.
+
+## Revised Walking-Skeleton Execution Spine
+
+1. `01-01` and `01-02` establish portable/executable contracts without persisted encrypted data.
+2. `01-03` blocks on exact package legitimacy and persisted-format approval.
+3. `01-04` implements the approved encrypted store; `01-05` then proves the real PostgreSQL → HTTP → signed activation → encrypted write/read tracer.
+4. `01-06` through `01-11` replace external fixtures and add authenticated server, Windows agent, recovery, WinFsp, and session lifecycle.
+5. `01-12` proves the full production-provider Windows/Office/restart matrix.
 
 ## Out of Scope (Deferred to Later Slices)
 

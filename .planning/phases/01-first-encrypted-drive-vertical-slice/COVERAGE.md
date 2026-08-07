@@ -2,6 +2,8 @@
 
 > Full coverage by default. Opt-outs are explicit, reasoned decisions. Capability names are prefixed because AD, WinFsp, and the management-server HTTP surface are independently evaluated integrations.
 
+Revised plan ownership: AD authority is implemented in `01-06`; authenticated HTTP/TLS/readiness in `01-07`; real WinFsp host/callback coverage in `01-10`; final production-provider evidence in `01-12`. The decisions below are unchanged by plan splitting.
+
 | capability | decision | reason |
 |---|---|---|
 | ad.ldaps-server-identity-validation | INTEGRATE | |
