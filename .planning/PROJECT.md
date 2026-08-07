@@ -6,7 +6,7 @@ A centrally managed Data Leakage Prevention solution for Windows, written primar
 
 ## Core Value
 
-An authorized Windows user can mount a private protected drive, store files in it, and read them back through the drive, while the backing store contains only authenticated encrypted data that cannot be read outside the product.
+An authorized Windows user can mount a private protected drive, store files in it, and read them back through the drive, while the backing store does not contain directly readable plaintext.
 
 ## Business Context
 

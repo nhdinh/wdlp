@@ -1,7 +1,7 @@
 # Requirements: Windows Data Leakage Prevention (DLP) Solution
 
 **Defined:** 2026-08-07
-**Core Value:** An authorized Windows user can mount a private protected drive, store files in it, and read them back through the drive, while the backing store contains only authenticated encrypted data that cannot be read outside the product.
+**Core Value:** An authorized Windows user can mount a private protected drive, store files in it, and read them back through the drive, while the backing store does not contain directly readable plaintext.
 
 ## v1 Requirements
 
@@ -146,67 +146,67 @@
 | WRK-02 | Phase 1 | Pending |
 | WRK-03 | Phase 1 | Pending |
 | WRK-04 | Phase 1 | Pending |
-| SRV-01 | Phase 2 | Pending |
+| SRV-01 | Phase 1 | Pending |
 | SRV-02 | Phase 2 | Pending |
-| SRV-03 | Phase 2 | Pending |
-| SRV-04 | Phase 2 | Pending |
+| SRV-03 | Phase 1 | Pending |
+| SRV-04 | Phase 3 | Pending |
 | SRV-05 | Phase 2 | Pending |
 | SRV-06 | Phase 2 | Pending |
 | SRV-07 | Phase 2 | Pending |
-| SRV-08 | Phase 2 | Pending |
-| SRV-09 | Phase 2 | Pending |
-| SRV-10 | Phase 5 | Pending |
+| SRV-08 | Phase 3 | Pending |
+| SRV-09 | Phase 3 | Pending |
+| SRV-10 | Phase 3 | Pending |
 | SRV-11 | Phase 1 | Pending |
-| SRV-12 | Phase 2 | Pending |
-| POL-01 | Phase 1 | Pending |
-| POL-02 | Phase 1 | Pending |
-| POL-03 | Phase 1 | Pending |
-| POL-04 | Phase 1 | Pending |
-| POL-05 | Phase 1 | Pending |
-| POL-06 | Phase 1 | Pending |
-| POL-07 | Phase 1 | Pending |
-| POL-08 | Phase 1 | Pending |
-| POL-09 | Phase 1 | Pending |
-| POL-10 | Phase 1 | Pending |
+| SRV-12 | Phase 1 | Pending |
+| POL-01 | Phase 2 | Pending |
+| POL-02 | Phase 2 | Pending |
+| POL-03 | Phase 2 | Pending |
+| POL-04 | Phase 2 | Pending |
+| POL-05 | Phase 2 | Pending |
+| POL-06 | Phase 2 | Pending |
+| POL-07 | Phase 2 | Pending |
+| POL-08 | Phase 2 | Pending |
+| POL-09 | Phase 2 | Pending |
+| POL-10 | Phase 2 | Pending |
 | CRY-01 | Phase 1 | Pending |
 | CRY-02 | Phase 1 | Pending |
-| CRY-03 | Phase 4 | Pending |
+| CRY-03 | Phase 3 | Pending |
 | CRY-04 | Phase 1 | Pending |
 | CRY-05 | Phase 2 | Pending |
-| AGT-01 | Phase 3 | Pending |
-| AGT-02 | Phase 3 | Pending |
-| AGT-03 | Phase 3 | Pending |
-| AGT-04 | Phase 3 | Pending |
-| AGT-05 | Phase 3 | Pending |
-| AGT-06 | Phase 3 | Pending |
-| AGT-07 | Phase 3 | Pending |
+| AGT-01 | Phase 1 | Pending |
+| AGT-02 | Phase 1 | Pending |
+| AGT-03 | Phase 1 | Pending |
+| AGT-04 | Phase 1 | Pending |
+| AGT-05 | Phase 1 | Pending |
+| AGT-06 | Phase 1 | Pending |
+| AGT-07 | Phase 1 | Pending |
 | AGT-08 | Phase 3 | Pending |
 | AGT-09 | Phase 3 | Pending |
-| AGT-10 | Phase 3 | Pending |
+| AGT-10 | Phase 1/4 | Pending |
 | AGT-11 | Phase 3 | Pending |
-| DRV-01 | Phase 4 | Pending |
-| DRV-02 | Phase 4 | Pending |
-| DRV-03 | Phase 4 | Pending |
-| DRV-04 | Phase 4 | Pending |
-| DRV-05 | Phase 4 | Pending |
-| DRV-06 | Phase 4 | Pending |
-| DRV-07 | Phase 4 | Pending |
-| DRV-08 | Phase 4 | Pending |
-| DRV-09 | Phase 4 | Pending |
-| UI-01 | Phase 4 | Pending |
-| UI-02 | Phase 4 | Pending |
-| UI-03 | Phase 5 | Pending |
-| ADM-01 | Phase 5 | Pending |
-| ADM-02 | Phase 5 | Pending |
-| ADM-03 | Phase 5 | Pending |
-| ADM-04 | Phase 2 | Pending |
-| TST-01 | Phase 1 | Pending |
+| DRV-01 | Phase 1 | Pending |
+| DRV-02 | Phase 1 | Pending |
+| DRV-03 | Phase 1 | Pending |
+| DRV-04 | Phase 1 | Pending |
+| DRV-05 | Phase 2/4 | Pending |
+| DRV-06 | Phase 1 | Pending |
+| DRV-07 | Phase 1 | Pending |
+| DRV-08 | Phase 2 | Pending |
+| DRV-09 | Phase 1 | Pending |
+| UI-01 | Phase 2 | Pending |
+| UI-02 | Phase 2 | Pending |
+| UI-03 | Phase 2 | Pending |
+| ADM-01 | Phase 3 | Pending |
+| ADM-02 | Phase 3 | Pending |
+| ADM-03 | Phase 3 | Pending |
+| ADM-04 | Phase 3 | Pending |
+| TST-01 | Phase 2 | Pending |
 | TST-02 | Phase 1 | Pending |
 | TST-03 | Phase 1 | Pending |
-| TST-04 | Phase 1 | Pending |
-| TST-05 | Phase 2 | Pending |
+| TST-04 | Phase 3 | Pending |
+| TST-05 | Phase 1 | Pending |
 | TST-06 | Phase 3 | Pending |
-| TST-07 | Phase 4 | Pending |
+| TST-07 | Phase 2 | Pending |
 | TST-08 | Phase 1 | Pending |
 
 **Coverage:**
@@ -228,4 +228,4 @@ A feature is done only when:
 
 ---
 *Requirements defined: 2026-08-07*
-*Last updated: 2026-08-07 after initial definition*
+*Last updated: 2026-08-07 after roadmap restructuring*
