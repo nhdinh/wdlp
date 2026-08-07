@@ -2,6 +2,20 @@
 
 The revised 12-plan set was audited against the ROADMAP goal, all 30 Phase 1 requirements, every CONTEXT decision D-01 through D-19, RESEARCH.md features/constraints, all 36 deterministic spec-less edge-probe dispositions, the eight descriptor-less prohibitions, and the complete API coverage matrix. `COVERED` means a named plan task plus verification/acceptance criteria implement or prove the item. Deferred/out-of-phase research remains excluded, not missing.
 
+## Approval-First Wave Schedule
+
+| Wave | Plans | Dependency guarantee |
+|---:|---|---|
+| 1 | 01-03 | Blocking package-legitimacy and persisted-format decisions complete without modifying manifests, lockfiles, or production artifacts. |
+| 2 | 01-01 | Cargo workspace, manifests, and lockfile are created only after 01-03 approval. |
+| 3 | 01-02, 01-04 | Executable workspace and approved storage format expand independently from 01-01. |
+| 4 | 01-05, 01-09 | Portable end-to-end tracer and recovery/integrity expansion run without file overlap. |
+| 5 | 01-06 | Production enrollment authority builds on the tracer. |
+| 6 | 01-07, 01-10 | Authenticated server deployment and WinFsp integration run without file overlap. |
+| 7 | 01-08 | Windows agent enrollment, DPAPI custody, polling, and cache integrate the server and drive prerequisites. |
+| 8 | 01-11 | User-session drive lifecycle integrates the agent, recovery, and WinFsp work. |
+| 9 | 01-12 | Full production-provider Windows evidence matrix closes the phase. |
+
 ## Goal, Requirements, and Context Decisions
 
 | Source | ID | Feature / requirement | Plan | Status | Notes |

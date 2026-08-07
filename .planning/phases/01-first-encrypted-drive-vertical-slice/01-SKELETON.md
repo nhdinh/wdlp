@@ -38,11 +38,12 @@
 
 ## Revised Walking-Skeleton Execution Spine
 
-1. `01-01` and `01-02` establish portable/executable contracts and migration-before-bind behavior without persisted encrypted data.
-2. `01-03` blocks on exact package legitimacy and persisted-format approval.
-3. `01-04` implements the approved encrypted store; `01-05` then proves the real PostgreSQL → HTTP → signed activation → encrypted write/read tracer.
-4. `01-06` implements trusted-station provisioning plus the resolved offline-root/online-device-CA contract; `01-07` adds authenticated server routes and the final Compose deployment; `01-08` through `01-11` add endpoint-generated CSR/DPAPI custody, recovery, WinFsp, and the LocalSystem-to-user-session host lifecycle.
-5. `01-12` proves the full production-provider Windows/Office/restart matrix.
+1. Wave 1 runs blocking `01-03` package-legitimacy and persisted-format approval before any Cargo manifest or lockfile is created.
+2. Wave 2 runs `01-01` to establish the portable workspace and contracts using only the approved dependency set.
+3. Wave 3 runs `01-02` and `01-04` in parallel to complete executable boundaries/migration-before-bind behavior and implement the approved encrypted store.
+4. Wave 4 runs `01-05` and `01-09` in parallel to prove the PostgreSQL → HTTP → signed activation → encrypted write/read tracer and storage recovery/integrity behavior.
+5. Waves 5 through 8 run `01-06`, then `01-07` with `01-10`, then `01-08`, then `01-11` to add production authority, authenticated APIs, WinFsp, endpoint custody, and the LocalSystem-to-user-session host lifecycle.
+6. Wave 9 runs `01-12` to prove the full production-provider Windows/Office/restart matrix.
 
 ## Out of Scope (Deferred to Later Slices)
 
