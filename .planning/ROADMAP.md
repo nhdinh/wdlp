@@ -30,17 +30,17 @@
 
 Plans:
 - [ ] 01-01-PLAN.md — Portable workspace, typed domain/protocol/policy/signing/storage contracts, and TST-01/TST-02
-- [ ] 01-02-PLAN.md — Exact ten-crate executable workspace, migration/Compose prerequisites, and isolated Windows boundaries
+- [ ] 01-02-PLAN.md — Exact ten-crate executable workspace, migration-before-bind prerequisites, and isolated Windows boundaries
 - [ ] 01-03-PLAN.md — Blocking package-legitimacy and persisted encrypted-format approvals before installs/writes
 - [ ] 01-04-PLAN.md — Approved durable AEAD generation store, SID-safe paths, complete operations, and disk-full preservation
 - [ ] 01-05-PLAN.md — Production-quality PostgreSQL/API/signed-activation/encrypted-store tracer
-- [ ] 01-06-PLAN.md — Exact fingerprint, dual-DC enrollment authority, device certificate issuance/replacement, and migrations
-- [ ] 01-07-PLAN.md — Distinct admin/device mTLS APIs, signed configuration, health, and readiness
-- [ ] 01-08-PLAN.md — Automatic Windows enrollment, DPAPI credential custody, mTLS polling, and current/LKG cache
+- [ ] 01-06-PLAN.md — Trusted-station fingerprint provisioning, dual-DC authority, offline-root/online-device-CA issuance/replacement, and migrations
+- [ ] 01-07-PLAN.md — Distinct admin/device mTLS APIs, per-request revocation checks, signed configuration, health/readiness, and Compose deployment
+- [ ] 01-08-PLAN.md — Automatic Windows enrollment with endpoint-generated CSR, DPAPI credential custody, mTLS polling, and current/LKG cache
 - [ ] 01-09-PLAN.md — Crash/restart recovery, integrity evidence, disk-full preservation, and plaintext-leak tests
 - [ ] 01-10-PLAN.md — Approved real WinFsp mount, complete callbacks, status mapping, and runtime validation
-- [ ] 01-11-PLAN.md — Per-session/SID mounts, letter fallback, retry, sign-out drain, and restart remount
-- [ ] 01-12-PLAN.md — Production Windows/Office/size/operation/restart/abrupt-loss evidence matrix
+- [ ] 01-11-PLAN.md — LocalSystem-to-user-session drive-host launch, authenticated storage IPC, letter fallback, sign-out drain, and restart remount
+- [ ] 01-12-PLAN.md — Production provisioning/PKI/session-host plus Windows/Office/size/operation/restart/abrupt-loss evidence matrix
 
 ### Phase 2: Policy Enforcement and User Feedback
 **Goal**: Turn the encrypted drive into a working DLP boundary with metadata rules, actions, and user-facing feedback.

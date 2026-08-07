@@ -38,12 +38,12 @@ The revised 12-plan set was audited against the ROADMAP goal, all 30 Phase 1 req
 | REQ | TST-05 | Enrollment through first activation integration | 01-05, 01-06, 01-07, 01-08, 01-12 | COVERED | Fixture-trust tracer followed by production providers/agent. |
 | REQ | TST-08 | Representative real WinFsp validation | 01-10, 01-11, 01-12 | COVERED | Runtime smoke, session lifecycle, complete Office matrix. |
 | CONTEXT | D-01 | Agent auto-registers to configured server | 01-08 | COVERED | Service startup state machine. |
-| CONTEXT | D-02 | Exact allowlisted fingerprint incl. system disk | 01-06, 01-08 | COVERED | Three-source digest; MAC excluded. |
+| CONTEXT | D-02 | Exact allowlisted fingerprint incl. system disk | 01-06, 01-08, 01-12 | COVERED | Trusted station captures the three sources through Kerberos remote CIM; agent repeats the version-1 tuple; MAC excluded. |
 | CONTEXT | D-03 | Fingerprinted component change blocks enrollment | 01-06, 01-08 | COVERED | Exact digest mismatch denial. |
-| CONTEXT | D-04 | Query primary and secondary AD DC | 01-06 | COVERED | Direct trusted LDAPS results must agree. |
-| CONTEXT | D-05 | Device mTLS credential in DPAPI service file | 01-06, 01-08 | COVERED | Device CA + protected local custody. |
-| CONTEXT | D-06 | Missing/undecryptable credential re-enrolls/revokes prior | 01-06, 01-08 | COVERED | Complete rechecks and atomic replacement. |
-| CONTEXT | D-07 | Auto-mount isolated store per eligible user | 01-11 | COVERED | Session actor from token SID. |
+| CONTEXT | D-04 | Query primary and secondary AD DC | 01-06, 01-12 | COVERED | Provisioning and enrollment independently require authenticated direct LDAPS agreement on GUID/SID/state/domain/DNS identity. |
+| CONTEXT | D-05 | Device mTLS credential in DPAPI service file | 01-06, 01-07, 01-08, 01-12 | COVERED | Offline root/online device issuer, endpoint-generated CSR/key, constrained 30-day leaf, protected local custody, per-request active-serial authorization. |
+| CONTEXT | D-06 | Missing/undecryptable credential re-enrolls/revokes prior | 01-06, 01-07, 01-08, 01-12 | COVERED | Fresh endpoint key/CSR, complete rechecks, atomic old-serial revocation/new activation, and old-serial denial on every agent API. |
+| CONTEXT | D-07 | Auto-mount isolated store per eligible user | 01-11, 01-12 | COVERED | LocalSystem actor launches one `dlp-drive-host` with the WTS primary token; the host owns the user-session WinFsp mapping. |
 | CONTEXT | D-08 | Preferred letter then next available | 01-11 | COVERED | Deterministic collision-safe scan. |
 | CONTEXT | D-09 | Reject opens, grace, unmount at sign-out | 01-11 | COVERED | 30-second drain then cancel/unmount. |
 | CONTEXT | D-10 | Failed mount absent/retried/diagnosed | 01-11 | COVERED | No placeholder; capped exponential retry. |
@@ -64,17 +64,20 @@ The revised 12-plan set was audited against the ROADMAP goal, all 30 Phase 1 req
 | RESEARCH | R-01 | WinFsp and every SUS/ASSUMED package gate before install | 01-03, 01-10 | COVERED | Human exact-package approval precedes manifests. |
 | RESEARCH | R-02 | PostgreSQL migrations before readiness/traffic | 01-02, 01-05, 01-06, 01-07 | COVERED | Migration-before-listen and exact ledger probe. |
 | RESEARCH | R-03 | Fingerprint is not remote attestation | 01-06, 01-08 | COVERED | Admin digest + residual privileged-local risk. |
-| RESEARCH | R-04 | Development private CA contract | 01-06, 01-07 | COVERED | Mounted CA, constrained certificate, active lookup. |
+| RESEARCH | R-04 | Phase 1 offline-root/online-device-CA contract | 01-06, 01-07, 01-08, 01-12 | COVERED | ECDSA P-256 offline root, owner-readable online issuer, same-root DNS-bound server cert, endpoint CSR, constrained 30-day leaf, active lookup. |
 | RESEARCH | R-05 | Canonical signed bytes/current-LKG | 01-01, 01-05, 01-07, 01-08 | COVERED | Strict hash/version/audience/replay gates. |
 | RESEARCH | R-06 | 4 MiB AEAD chunk/boundary corpus | 01-03, 01-04, 01-12 | COVERED | Approved before bytes; matrix matches format. |
 | RESEARCH | R-07 | 30-second drain/5-minute retry cap | 01-11 | COVERED | Explicit discretion choice and tests. |
-| RESEARCH | R-08 | One actor per session ID/captured SID | 01-11 | COVERED | Immutable actor authority. |
+| RESEARCH | R-08 | One actor per session ID/captured SID | 01-11, 01-12 | COVERED | Immutable actor authority plus WTS-token host launch and SID/session/PID/generation-authenticated pipe. |
 | RESEARCH | R-09 | Delay-load helper/no manual WinFsp DLL loading | 01-10 | COVERED | Exact documented build helper. |
 | RESEARCH | R-10 | Path normalization/untrusted input bounds | 01-04, 01-10 | COVERED | Portable parser and callback validation. |
 | RESEARCH | R-11 | Real Windows validation/no Linux substitute | 01-10, 01-12 | COVERED | Real runtime, Office, session/fault evidence. |
 | RESEARCH | R-12 | WinFsp/Docker/PostgreSQL initially absent | 01-02, 01-06, 01-10, 01-12 | COVERED | Explicit setup/preconditions and hard stops. |
 | RESEARCH | R-13 | Complete AD, WinFsp, HTTP capability surface | COVERAGE.md; 01-06, 01-07, 01-10 | COVERED | Every row integrated or reasoned OPT-OUT. |
 | RESEARCH | R-14 | Redact secrets/raw serials/plaintext/protected paths | 01-05 through 01-12 | COVERED | Stable codes/digests and marker scans. |
+| RESEARCH | R-15 | Trusted provisioning station workflow | 01-06, 01-12 | COVERED | `provision-device --computer <FQDN>` requires dual-DC identity agreement then Kerberos WinRM-over-HTTPS CIM capture; only the version-1 digest persists. |
+| RESEARCH | R-16 | Certificate replacement without CRL/OCSP | 01-06, 01-07, 01-08, 01-12 | COVERED | Server transaction revokes old serial and activates replacement; every agent API maps peer SAN+serial to active status, so the old chain is denied before expiry. |
+| RESEARCH | R-17 | LocalSystem-to-user-session drive host contract | 01-11, 01-12 | COVERED | `WTSQueryUserToken` + `CreateProcessAsUser` launches credential-free `dlp-drive-host`; service-owned pipe authenticates SID/session/PID/generation; LocalSystem has no mapping. |
 
 ## Spec-less Probe and Prohibition Accounting
 
