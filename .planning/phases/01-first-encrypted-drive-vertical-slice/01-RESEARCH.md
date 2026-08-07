@@ -85,7 +85,7 @@ None — discussion stayed within phase scope.
 
 ## Summary
 
-Build Phase 1 as a narrow but complete trust chain: an administrator preloads an exact allowlisted endpoint record; the server corroborates its AD computer identity against both configured DCs, issues a bootstrap response, then all subsequent agent APIs require the device mTLS certificate. The agent verifies a canonical, versioned signed configuration before atomically selecting it, then a session-aware Windows host mounts one user's WinFsp filesystem over an encrypted, crash-consistent store. [CITED: https://docs.rs/winfsp/0.13.0%2Bwinfsp-2.1/winfsp/] [CITED: https://docs.rs/rustls/latest/rustls/struct.ConfigBuilder.html]
+Build Phase 1 as a narrow but complete trust chain: a designated Windows provisioning station captures an exact allowlisted endpoint record through Kerberos-authenticated remote CIM; the server corroborates its AD computer identity against both configured DCs, issues a bootstrap response, then all subsequent agent APIs require the device mTLS certificate. The agent verifies a canonical, versioned signed configuration before atomically selecting it, then the LocalSystem service launches a session-scoped user `dlp-drive-host` that mounts the user's WinFsp filesystem over an encrypted, crash-consistent store. [CITED: https://learn.microsoft.com/en-us/windows/win32/winrm/obtaining-data-from-a-remote-computer] [CITED: https://docs.rs/winfsp/0.13.0%2Bwinfsp-2.1/winfsp/] [CITED: https://docs.rs/rustls/latest/rustls/struct.ConfigBuilder.html]
 
 The hard boundary is not encryption alone. Each write must be staged separately from the committed generation; the file's encrypted chunks, encrypted metadata, generation number, and commit record must become visible together only after the data is durable. AES-GCM needs a nonce unique under a key for every encrypted record, and decryption must authenticate the record and associated metadata before any plaintext is returned. [CITED: https://docs.rs/crate/aes-gcm/latest/source/src/lib.rs]
 
@@ -118,6 +118,7 @@ The phase must run its real WinFsp spike on Windows 10/11 with a WinFsp runtime 
 | `axum` | `0.8.9` | Versioned JSON control-plane API | Tokio/Hyper-native router with extractors and Tower middleware. [CITED: https://docs.rs/axum/0.8.9/axum/] |
 | `sqlx` | `0.9.0` | PostgreSQL pool and migrations | SQLx migrations are versioned SQL files and can be embedded/run at startup. [CITED: https://docs.rs/sqlx/latest/sqlx/macro.migrate.html] |
 | `rustls` + `tokio-rustls` | `0.23.42` + `0.26.4` | Server TLS and required client certificates | rustls supports client-certificate verification through `WebPkiClientVerifier` / `with_client_cert_verifier`. [CITED: https://docs.rs/rustls/latest/rustls/server/struct.WebPkiClientVerifier.html] |
+| `rcgen` (`x509-parser` feature) | `0.14.8` | Parse/verify CSR and issue Phase 1 X.509 device leaves | Its `x509-parser` feature parses and verifies CSR signatures, then signs certificates with an issuer; explicitly validate the issuer/key constraints because the crate does not do that automatically. [CITED: https://docs.rs/rcgen/latest/src/rcgen/csr.rs.html] [VERIFIED: package-legitimacy seam 2026-08-07] |
 
 ### Supporting
 
@@ -143,6 +144,7 @@ The phase must run its real WinFsp spike on Windows 10/11 with a WinFsp runtime 
 
 ```bash
 cargo add winfsp windows-service aes-gcm ed25519-dalek axum sqlx rustls tokio-rustls tokio serde serde_json
+cargo add rcgen --features x509-parser
 ```
 
 Pin exact compatible versions in the workspace lockfile after the `winfsp` human-verification checkpoint; use `cargo update -p <crate> --precise <version>` only intentionally. [ASSUMED]
@@ -160,6 +162,7 @@ Pin exact compatible versions in the workspace lockfile after the `winfsp` human
 | `tokio` | crates.io | 10y 1m | 15,711,067/wk | tokio-rs/tokio | OK | Approved |
 | `serde` / `serde_json` | crates.io | 11y / 11y | 20M+/wk each | serde-rs | OK | Approved |
 | `rustls` / `tokio-rustls` | crates.io | 9y / 9y | 11M+/wk each | rustls | OK | Approved |
+| `rcgen` | crates.io | 7y 7m | 1,840,005/wk | rustls/rcgen | OK | Approved |
 | `reqwest`, `uuid`, `thiserror`, `tracing`, `tempfile`, `wiremock` | crates.io | established | 1M+/wk each | published source repos | OK | Approved, but planner gates the assumed recommendations |
 
 **Packages removed due to [SLOP] verdict:** none.  
@@ -182,9 +185,9 @@ DPAPI machine-protected credential file (service-only ACL)
    |
    '-- mTLS --> /api/v1/agent/config --> verify signature + schema --> cache current/LKG
                                                                   |
-Windows session change --> eligible user SID --> WinFsp FileSystemHost
+Windows session change --> WTS user token --> CreateProcessAsUser(dlp-drive-host)
                                                    |
-Windows file API --> filesystem callbacks --> portable encrypted storage
+                    WinFsp FileSystemHost in user logon session --> encrypted-storage IPC
                                                    |
                           stage chunks + encrypted metadata --> fsync --> commit record
                                                    |
@@ -234,13 +237,13 @@ fn verify_bundle(bytes: &[u8], signature: &Signature, key: &VerifyingKey) -> Res
 
 ### Pattern 3: Session-owned mount actor
 
-**What:** Treat every mount as a stateful actor keyed by Windows session ID and captured user SID. It owns the WinFsp host, open-handle count, reject-new-opens flag, cancellation token, and retry schedule. At sign-out, set reject-new-opens, wait **30 seconds** for handles, force cancellation/unmount, and emit one structured result. Mount retry uses exponential delay capped at **5 minutes**. [ASSUMED]
+**What:** Treat every mount as a stateful LocalSystem-service actor keyed by Windows session ID and captured user SID. It starts one `dlp-drive-host` process with that session's primary user token; that process—not the service—owns the WinFsp host and user-visible letter. The actor owns host PID, IPC connection, open-handle count, reject-new-opens flag, cancellation token, and retry schedule. At sign-out, set reject-new-opens, wait **30 seconds** for handles, force cancellation/unmount, and emit one structured result. Mount retry uses exponential delay capped at **5 minutes**. [CITED: https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsqueryusertoken] [CITED: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessasusera] [ASSUMED]
 
 **When to use:** `SERVICE_CONTROL_SESSIONCHANGE`; Windows services receive session changes via a HandlerEx control callback, and the service-control enum is non-exhaustive, so retain a wildcard arm. [CITED: https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsregistersessionnotification] [CITED: https://docs.rs/windows-service/latest/windows_service/service/enum.ServiceControl.html]
 
-### Pattern 4: WinFsp service-managed host
+### Pattern 4: WinFsp session-host lifecycle
 
-**What:** Implement `FileSystemContext` in `dlp-windows-drive`; create/start/mount the host in WinFsp's start closure and unmount/drop it in the stop closure. `build.rs` must call `winfsp_link_delayload`; do not dynamically load the WinFsp DLL by hand. [CITED: https://docs.rs/winfsp/0.13.0%2Bwinfsp-2.1/winfsp/]
+**What:** Implement `FileSystemContext` in `dlp-windows-drive`; the `dlp-drive-host` creates/starts/mounts its host in the signed-in user's logon session and unmounts/drops it at stop. The LocalSystem service uses `WTSQueryUserToken` and `CreateProcessAsUser` to create that user process. Windows makes drive letters per-logon-session, so the service must not directly mount its own `X:` letter. `build.rs` must call `winfsp_link_delayload`; do not dynamically load the WinFsp DLL by hand. [CITED: https://docs.rs/winfsp/0.13.0%2Bwinfsp-2.1/winfsp/] [CITED: https://learn.microsoft.com/en-us/windows/win32/services/services-and-redirected-drives] [CITED: https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsqueryusertoken] [CITED: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessasusera]
 
 ### Anti-Patterns to Avoid
 
@@ -339,23 +342,28 @@ let tag = cipher.encrypt_in_place_detached(&nonce, associated_data, &mut staged_
 | A2 | A 30-second sign-out grace and 5-minute capped retry balance UX and cleanup. | Architecture Patterns | May be too short for Office or too slow to recover mounts. |
 | A3 | `reqwest`, `uuid`, `thiserror`, tracing, tempfile, and wiremock are appropriate supporting crates. | Standard Stack | Planner must human-verify their official docs before install. |
 | A4 | A local privileged attacker can spoof local WMI/SMBIOS serial reporting absent an attestation mechanism. | Common Pitfalls | The exact-match allowlist must not be represented as hardware-rooted remote attestation. |
+| A5 | The provisioning CLI normalization, SHA-256 tuple format, token expiry, and 30-day device-certificate validity are suitable Phase 1 constants. | Open Questions (RESOLVED) | These become wire/persistence contracts and need tests/versioning. |
+| A6 | A user-session `dlp-drive-host` with SID/session-authenticated storage IPC can be implemented without changing the deferred Phase 2 companion UI scope. | Open Questions (RESOLVED) | Incorrect IPC design could permit a different session or user to request storage access. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **How are system-disk identity and platform UUID administratively captured before first enrollment?**
-   - What we know: D-02 requires exact pre-existing allowlisting and D-04 requires both DC checks.
-   - What's unclear: AD does not inherently make local disk serials authoritative.
-   - Recommendation: add an administrator-only provisioning command/process that captures and normalizes `SMBIOS UUID + BIOS serial + physical system-disk serial`, stores only a digest, and identifies which values must be manually supplied in the environment. Do not relax exact match.
+1. **Resolved — authoritative pre-enrollment fingerprint provisioning workflow (D-02/D-03/D-04).**
+   - A designated, domain-admin Windows provisioning workstation runs `dlpctl provision-device --computer <FQDN>` before the agent is installed. It first queries the exact computer object from both configured DCs by FQDN/sAMAccountName and requires equal `objectGUID`, `objectSid`, enabled state, and domain. It then opens a WinRM-over-HTTPS CIM session to that same FQDN using Kerberos—not a value provided by the future agent—and collects: `Win32_ComputerSystemProduct.UUID`, `Win32_BIOS.SerialNumber`, and the `Win32_DiskDrive.SerialNumber` associated with the OS volume. WinRM can retrieve remote WMI data and Microsoft documents Kerberos authentication for that connection; `Win32_DiskDrive.SerialNumber` is the manufacturer-assigned physical-media serial. [CITED: https://learn.microsoft.com/en-us/windows/win32/winrm/obtaining-data-from-a-remote-computer] [CITED: https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-diskdrive]
+   - The CLI canonicalizes the non-empty values as UTF-8, trim, uppercase, one field per name, then hashes the fixed `fingerprint_version=1` tuple with SHA-256. It inserts only the digest, DC-validated object identity, preferred-letter setting, and an expiry-bound one-time enrollment-token hash into PostgreSQL. It never stores raw serials in agent/server logs. [ASSUMED]
+   - On automatic first run, the agent uses the pinned server HTTPS identity plus its one-time token, re-reads the same tuple locally, and sends the canonical tuple only to the enrollment endpoint. The server recomputes the digest, queries both DCs again, and issues a credential only if the tuple digest and every DC identity value exactly equal the provisioned record; it atomically consumes the token. A changed system disk therefore blocks enrollment until an administrator runs the provision/update workflow again, exactly as D-03 requires. [ASSUMED]
+   - **Security boundary:** this is authoritative *provisioning plus exact-match detection*, not TPM-backed remote attestation. Microsoft notes WMI disk values may not always reflect physical characteristics; a local administrator can still falsify observations. Phase 1 explicitly does not claim resistance to a privileged endpoint compromise. [CITED: https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-diskdrive]
 
-2. **What CA issues the device certificate and what trust anchor is installed on the agent?**
-   - What we know: D-05 locks device-bound mTLS after enrollment.
-   - What's unclear: private CA ownership, certificate profile/SAN, renewal period, revocation enforcement, and bootstrap server-auth trust.
-   - Recommendation: make a Phase 1 design task choose a development private CA and document certificate fields/validity; server must map certificate serial/SAN to enrolled device and reject revocation.
+2. **Resolved — Phase 1 device CA, certificate profile, trust anchor, and revocation (D-05/D-06).**
+   - Create one development private PKI before deployment: an offline `DLP Phase 1 Root CA` and an online `DLP Phase 1 Device Issuing CA`, both ECDSA P-256. The root public certificate is compiled into the agent installer configuration; the root private key never enters Docker or an endpoint. The issuing-CA private key is an owner-readable server secret mounted outside the image, and it can sign only device leaves. The server TLS certificate is issued by the same root hierarchy with a DNS SAN equal to the configured management-server hostname, so the bootstrap client validates hostname and root instead of using rustls dangerous/custom certificate-verifier APIs. [CITED: https://docs.rs/rustls/latest/rustls/struct.ConfigBuilder.html] [ASSUMED]
+   - The agent generates its ECDSA P-256 device key locally, creates a CSR, and never sends the private key. The issued leaf has `CA:FALSE`, `KeyUsage=digitalSignature`, `ExtendedKeyUsage=clientAuth`, a server-generated unique certificate serial, and SAN URI `urn:dlp:device:<device_uuid>`; validity is **30 days**. The private key, certificate chain, token (until consumed), and credential metadata are written as one DPAPI machine-protected file protected by a service-SID-only ACL. [ASSUMED]
+   - Agent configuration uses the pinned root and `with_client_auth_cert`; post-enrollment server routes use `with_client_cert_verifier` for chain authentication. Before an agent route returns data, an application authorization layer maps peer leaf serial + SAN URI to the enrolled device record and requires `credential_status=active`. Rustls directly supports configuring trusted roots/client-auth sending on the client and a client-certificate verifier on the server. [CITED: https://docs.rs/rustls/latest/rustls/struct.ConfigBuilder.html]
+   - On D-06 recovery, the server performs one transaction: mark the old active leaf serial `revoked`, insert the replacement leaf serial as `active`, then return only the replacement credential. The mTLS handshake may still validate the old chain until expiry, but the application authorization layer rejects its revoked serial on every agent API call; it cannot fetch configuration or perform another authenticated operation. This Phase 1 design deliberately does not require CRL/OCSP distribution. [ASSUMED]
 
-3. **Which WinFsp mounting mode exposes a per-session letter with the required visibility?**
-   - What we know: D-07 requires user sign-in mounting and D-08 requires letter fallback.
-   - What's unclear: service/session isolation behavior for the selected `winfsp` API configuration.
-   - Recommendation: make this the first Windows spike checkpoint; do not build the full store before proving drive visibility to the signed-in user.
+3. **Resolved — per-session WinFsp drive-letter visibility and lifecycle (D-07/D-08/D-09).**
+   - Use a LocalSystem `dlp-windows-service` only as the lifecycle controller. On `WTS_SESSION_LOGON` or `WTS_SESSION_DESKTOP_READY`, it reads the user's SID from the session token, verifies the domain-user eligibility/configuration, obtains the primary user token with `WTSQueryUserToken`, and uses `CreateProcessAsUser` to start one `dlp-drive-host` in that logon session. The host is a non-UI executable containing the WinFsp `FileSystemHost`; it holds no long-lived server credential and obtains storage operations through a service-owned named pipe that verifies both the connecting process SID and the expected session ID. Microsoft documents that `WTSQueryUserToken` is for trusted LocalSystem services and that a created process runs in its token's session. [CITED: https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsqueryusertoken] [CITED: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessasusera]
+   - The session host calls WinFsp to mount the centrally preferred drive letter. It enumerates letters in the **user session**, tries the preferred letter, then tries later letters in descending priority until a WinFsp mount succeeds; it reports the selected letter to the service. This is required because Windows assigns A–Z separately to each logon session: a LocalSystem service cannot make or observe the user's drive-letter mapping. [CITED: https://learn.microsoft.com/en-us/windows/win32/services/services-and-redirected-drives] [CITED: https://winfsp.dev/doc/WinFsp-API-winfsp.h/]
+   - On `WTS_SESSION_LOGOFF`, the controller tells that exact host to reject new opens, waits the selected **30-second** grace period, terminates/unmounts it if handles remain, and removes only its session IPC state. On mount failure, it leaves no mapping, records the failure, and retries with capped exponential backoff. `WTS_SESSION_LOGON`, `WTS_SESSION_LOGOFF`, and `WTS_SESSION_DESKTOP_READY` are documented session-state notifications. [CITED: https://learn.microsoft.com/en-us/windows/win32/termserv/wm-wtssession-change] [ASSUMED]
+   - The first Windows spike must prove this chosen launch model before storage completion: sign in as the target user, assert the selected letter exists in Explorer and PowerShell but not in the LocalSystem session, then verify sign-out cleanup and two simultaneous user sessions. The workflow is now a phase acceptance test, not an unresolved architectural choice. [CITED: https://learn.microsoft.com/en-us/windows/win32/services/services-and-redirected-drives] [ASSUMED]
 
 ## Environment Availability
 
@@ -412,6 +420,7 @@ let tag = cipher.encrypt_in_place_detached(&nonce, associated_data, &mut staged_
 - [ed25519-dalek docs](https://docs.rs/ed25519-dalek/latest/ed25519_dalek/struct.VerifyingKey.html) - strict verification and weak-key behavior.
 - [windows-service docs](https://docs.rs/windows-service/latest/windows_service/service_dispatcher/fn.start.html) - dispatcher contract.
 - [Rustls config docs](https://docs.rs/rustls/latest/rustls/struct.ConfigBuilder.html) - client certificate configuration.
+- [rcgen CSR/certificate docs](https://docs.rs/rcgen/latest/src/rcgen/csr.rs.html) - CSR signature validation and issuer-signed leaf generation.
 - [Microsoft DPAPI docs](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata) - machine-scope semantics.
 - [Microsoft WTS session notifications](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/nf-wtsapi32-wtsregistersessionnotification) - service session-change handler behavior.
 - [Microsoft AD computer lookup](https://learn.microsoft.com/en-us/powershell/module/activedirectory/get-adcomputer?view=windowsserver2025-ps) - computer identity lookup.
