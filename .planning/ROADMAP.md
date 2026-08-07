@@ -14,11 +14,13 @@
 ## Phase Details
 
 ### Phase 1: First Encrypted-Drive Vertical Slice
+
 **Goal**: Prove the complete architecture with one server, one Windows endpoint, and one user, ending with a real encrypted virtual drive working on Windows.
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: WRK-01, WRK-02, WRK-03, WRK-04, SRV-01, SRV-03, SRV-11, SRV-12, CRY-01, CRY-02, CRY-04, AGT-01, AGT-02, AGT-03, AGT-04, AGT-05, AGT-06, AGT-07, DRV-01, DRV-02, DRV-03, DRV-04, DRV-06, DRV-07, DRV-09, TST-01, TST-02, TST-03, TST-05, TST-08
 **Success Criteria** (what must be TRUE):
+
   1. The Cargo workspace is established with portable domain crates using safe Rust and Windows-specific integration crates.
   2. A minimal server runs with PostgreSQL and exposes a one-time enrollment token endpoint.
   3. A Windows service agent enrolls, receives a minimal signed configuration, and verifies its signature and schema version.
@@ -26,58 +28,93 @@
   5. The user can copy a file into the drive; the per-user backing store contains authenticated encrypted data with no directly readable plaintext.
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
+
 **Plans**: 12 plans
 
 Plans:
-- [ ] 01-01-PLAN.md (Wave 2) — Portable workspace, typed domain/protocol/policy/signing/storage contracts, and TST-01/TST-02
-- [ ] 01-02-PLAN.md (Wave 3) — Exact ten-crate executable workspace, migration-before-bind prerequisites, and isolated Windows boundaries
+**Wave 1**
+
 - [ ] 01-03-PLAN.md (Wave 1) — Blocking package-legitimacy and persisted encrypted-format approvals before installs/writes
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 01-01-PLAN.md (Wave 2) — Portable workspace, typed domain/protocol/policy/signing/storage contracts, and TST-01/TST-02
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 01-02-PLAN.md (Wave 3) — Exact ten-crate executable workspace, migration-before-bind prerequisites, and isolated Windows boundaries
 - [ ] 01-04-PLAN.md (Wave 3) — Approved durable AEAD generation store, SID-safe paths, complete operations, and disk-full preservation
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 01-05-PLAN.md (Wave 4) — Production-quality PostgreSQL/API/signed-activation/encrypted-store tracer
-- [ ] 01-06-PLAN.md (Wave 5) — Trusted-station fingerprint provisioning, dual-DC authority, offline-root/online-device-CA issuance/replacement, and migrations
-- [ ] 01-07-PLAN.md (Wave 6) — Distinct admin/device mTLS APIs, per-request revocation checks, signed configuration, health/readiness, and Compose deployment
-- [ ] 01-08-PLAN.md (Wave 7) — Automatic Windows enrollment with endpoint-generated CSR, DPAPI credential custody, mTLS polling, and current/LKG cache
 - [ ] 01-09-PLAN.md (Wave 4) — Crash/restart recovery, integrity evidence, disk-full preservation, and plaintext-leak tests
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 01-06-PLAN.md (Wave 5) — Trusted-station fingerprint provisioning, dual-DC authority, offline-root/online-device-CA issuance/replacement, and migrations
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 01-07-PLAN.md (Wave 6) — Distinct admin/device mTLS APIs, per-request revocation checks, signed configuration, health/readiness, and Compose deployment
 - [ ] 01-10-PLAN.md (Wave 6) — Approved real WinFsp mount, complete callbacks, status mapping, and runtime validation
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 01-08-PLAN.md (Wave 7) — Automatic Windows enrollment with endpoint-generated CSR, DPAPI credential custody, mTLS polling, and current/LKG cache
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
 - [ ] 01-11-PLAN.md (Wave 8) — LocalSystem-to-user-session drive-host launch, authenticated storage IPC, letter fallback, sign-out drain, and restart remount
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
 - [ ] 01-12-PLAN.md (Wave 9) — Production provisioning/PKI/session-host plus Windows/Office/size/operation/restart/abrupt-loss evidence matrix
 
 ### Phase 2: Policy Enforcement and User Feedback
+
 **Goal**: Turn the encrypted drive into a working DLP boundary with metadata rules, actions, and user-facing feedback.
 **Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: SRV-02, SRV-05, SRV-06, SRV-07, POL-01, POL-02, POL-03, POL-04, POL-05, POL-06, POL-07, POL-08, POL-09, POL-10, CRY-05, AGT-10, DRV-05, DRV-08, UI-01, UI-02, UI-03, TST-07
 **Success Criteria** (what must be TRUE):
+
   1. Administrators can author, validate, version, assign, and publish policies through a web UI or CLI.
   2. The server produces immutable signed configuration bundles that the agent activates atomically, with last-known-good rollback on failure.
   3. The policy engine evaluates metadata and bounded content detectors deterministically and rejects policies that activate `require_justification`.
   4. Configured rules can `allow`, `block`, `allow_and_audit`, or `warn` on file operations, and every decision records a reason code.
   5. A blocked or warned operation returns an appropriate access-denied result, and the companion process shows a Windows toast with file name, rule reason, and remediation guidance.
   6. Enforcement events are created at the time of the decision with policy version, matched rule, action, and selected metadata.
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 3: Audit, Offline Operation, and Fleet Control
+
 **Goal**: Make enforcement centrally observable and resilient to disconnection.
 **Mode:** mvp
 **Depends on**: Phase 1, Phase 2
 **Requirements**: SRV-04, SRV-08, SRV-09, SRV-10, CRY-03, AGT-08, AGT-09, AGT-11, ADM-01, ADM-02, ADM-03, ADM-04, TST-04, TST-06
 **Success Criteria** (what must be TRUE):
+
   1. The agent queues enforcement events locally in an encrypted, bounded store and uploads them in order when the server is reachable.
   2. The agent continues enforcing the last valid signed policy for up to seven days offline, warns the user around day five, and locks the protected drive after the offline allowance expires.
   3. The agent recovers cleanly from service, process, and machine restarts without losing committed events or corrupting local state.
   4. Device lifecycle states (pending, active, locked, revoked, retired) are maintained and visible in the management console or CLI.
   5. Revocation takes effect locally after the agent receives it; an unreachable endpoint cannot know it has been revoked.
   6. Administrators can view fleet status, lock or revoke devices, and search/export audit events by time, device, user, action, rule, and severity.
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 4: Hardening and MVP Release
+
 **Goal**: Establish that the solution is safe and deployable beyond the development environment.
 **Mode:** mvp
 **Depends on**: Phase 1, Phase 2, Phase 3
 **Requirements**: DRV-05 (stress/validation), AGT-10 (additional restart/recovery scenarios), TST-08 validation expansion
 **Success Criteria** (what must be TRUE):
+
   1. Per-user SID isolation is validated: one user cannot mount or read another user's protected store through supported product interfaces.
   2. Storage is crash-consistent and recovers from corruption without returning unauthenticated plaintext.
   3. Credentials and encryption keys support rotation with replay and rollback protection.
@@ -86,6 +123,7 @@ Plans:
   6. Fuzz tests exercise policy deserialization, protocol parsing, path handling, and encrypted records.
   7. Load tests validate the target of 1,000 enrolled endpoints and 500 concurrently online endpoints.
   8. Operational, backup, recovery, and incident-response runbooks are complete.
+
 **Plans**: TBD
 
 ## Progress
