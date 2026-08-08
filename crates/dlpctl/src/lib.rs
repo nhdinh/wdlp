@@ -11,6 +11,8 @@ use std::{
     io::{Read, Write},
     net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
+    sync::{Arc, Barrier, Mutex},
+    thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -65,6 +67,164 @@ pub fn run_phase1_smoke(database_url: &str, root: &Path) -> Result<SmokeReport, 
     tokio::runtime::Runtime::new()
         .map_err(|_| SmokeError::ServerUnavailable)?
         .block_on(run_phase1_smoke_async(database_url, root))
+}
+
+/// Async counterpart for callers that already own a Tokio runtime, such as the CLI.
+pub async fn run_phase1_smoke_in_runtime(
+    database_url: &str,
+    root: &Path,
+) -> Result<SmokeReport, SmokeError> {
+    run_phase1_smoke_async(database_url, root).await
+}
+
+/// Exercises the race and tamper boundaries that protect the walking skeleton.
+/// The checks deliberately return only stable codes, never bundle or plaintext data.
+pub fn verify_tracer_hardening(root: &Path) -> Result<(), SmokeError> {
+    tokio::runtime::Runtime::new()
+        .map_err(|_| SmokeError::ServerUnavailable)?
+        .block_on(verify_tracer_hardening_async(root))
+}
+
+async fn verify_tracer_hardening_async(root: &Path) -> Result<(), SmokeError> {
+    fs::create_dir_all(root).map_err(|_| SmokeError::StorageRejected)?;
+    let database_url = format!(
+        "sqlite://{}?mode=rwc",
+        root.join("hardening.sqlite").display()
+    );
+    let pool = SqlitePoolOptions::new()
+        .max_connections(4)
+        .connect(&database_url)
+        .await
+        .map_err(|_| SmokeError::DatabaseUnavailable)?;
+    initialize_sqlite_ledger(&pool).await?;
+    let device = DeviceId::parse("device-hardening").map_err(|_| SmokeError::EnrollmentRejected)?;
+    sqlx::query("INSERT INTO device_allowlist (device_id, fingerprint_digest) VALUES (?, ?)")
+        .bind(device.to_wire())
+        .bind([3_u8; 32].as_slice())
+        .execute(&pool)
+        .await
+        .map_err(|_| SmokeError::EnrollmentRejected)?;
+    sqlx::query("INSERT INTO enrollment_tokens (token_digest, device_id, expires_at) VALUES (?, ?, '2999-01-01T00:00:00Z')")
+        .bind([4_u8; 32].as_slice())
+        .bind(device.to_wire())
+        .execute(&pool)
+        .await
+        .map_err(|_| SmokeError::EnrollmentRejected)?;
+    let left = consume_token(&pool);
+    let right = consume_token(&pool);
+    let (left, right) = tokio::join!(left, right);
+    if usize::from(left?) + usize::from(right?) != 1 {
+        return Err(SmokeError::EnrollmentRejected);
+    }
+
+    let signer = ConfigurationSigner::from_seed("phase1-key", [9; 32]);
+    let verifier = Arc::new(
+        ConfigurationVerifier::from_public_key_bytes("phase1-key", signer.public_key_bytes())
+            .map_err(|_| SmokeError::ConfigurationRejected)?,
+    );
+    let initial = signed_configuration(&signer, device.clone(), "2")?;
+    let active = Arc::new(Mutex::new(ActiveConfigurationSet::default()));
+    active
+        .lock()
+        .map_err(|_| SmokeError::ConfigurationRejected)?
+        .activate(initial, &verifier)
+        .map_err(|_| SmokeError::ConfigurationRejected)?;
+    let barrier = Arc::new(Barrier::new(3));
+    let mut workers = Vec::new();
+    for version in ["3", "4"] {
+        let active = Arc::clone(&active);
+        let verifier = Arc::clone(&verifier);
+        let barrier = Arc::clone(&barrier);
+        let configuration = signed_configuration(&signer, device.clone(), version)?;
+        workers.push(thread::spawn(move || {
+            barrier.wait();
+            active
+                .lock()
+                .map_err(|_| SmokeError::ConfigurationRejected)?
+                .activate(configuration, &verifier)
+                .map_err(|_| SmokeError::ConfigurationRejected)
+        }));
+    }
+    barrier.wait();
+    for worker in workers {
+        // A delayed lower version is an expected fail-closed outcome; the final state below
+        // proves that a valid higher version still wins the race deterministically.
+        let _ = worker
+            .join()
+            .map_err(|_| SmokeError::ConfigurationRejected)?;
+    }
+    let before_invalid = active
+        .lock()
+        .map_err(|_| SmokeError::ConfigurationRejected)?
+        .clone();
+    let wrong_signer = ConfigurationSigner::from_seed("phase1-key", [8; 32]);
+    let wrong_signature = signed_configuration(&wrong_signer, device.clone(), "5")?;
+    let replay = signed_configuration(&signer, device.clone(), "1")?;
+    let truncated = SignedConfigurationV1::new(
+        ConfigurationEnvelopeV1::new(
+            1,
+            device,
+            BundleVersion::parse("5").map_err(|_| SmokeError::ConfigurationRejected)?,
+            1_700_000_000,
+            "encrypted-store-required",
+        )
+        .map_err(|_| SmokeError::ConfigurationRejected)?,
+        "phase1-key",
+        vec![0; 63],
+    )
+    .map_err(|_| SmokeError::ConfigurationRejected)?;
+    let mut locked = active
+        .lock()
+        .map_err(|_| SmokeError::ConfigurationRejected)?;
+    for invalid in [wrong_signature, replay, truncated] {
+        if locked.activate(invalid, &verifier).is_ok() || *locked != before_invalid {
+            return Err(SmokeError::ConfigurationRejected);
+        }
+    }
+    let current_version = locked
+        .current()
+        .ok_or(SmokeError::ConfigurationRejected)?
+        .envelope()
+        .bundle_version()
+        .to_wire();
+    if current_version != "4" || locked.last_known_good().is_none() {
+        return Err(SmokeError::ConfigurationRejected);
+    }
+    drop(locked);
+
+    let identity = CapturedStoreIdentity::new(
+        UserSid::parse("S-1-5-21-2000").map_err(|_| SmokeError::StorageRejected)?,
+        StoreId::parse("store-2000").map_err(|_| SmokeError::StorageRejected)?,
+    );
+    let file = FileId::parse("file-hardening").map_err(|_| SmokeError::StorageRejected)?;
+    let mut store = LocalEncryptedStore::open(
+        root.join("integrity"),
+        identity,
+        StoreKey::from_bytes([6; 32]),
+    )
+    .map_err(|_| SmokeError::StorageRejected)?;
+    store
+        .write(&file, b"protected payload")
+        .map_err(|_| SmokeError::StorageRejected)?;
+    store
+        .flush_file(&file)
+        .map_err(|_| SmokeError::StorageRejected)?;
+    let mut corrupted = store.reopen().map_err(|_| SmokeError::StorageRejected)?;
+    corrupted
+        .tamper_selected_record_for_test(&file, "tag")
+        .map_err(|_| SmokeError::StorageRejected)?;
+    if corrupted.read(&file).is_ok() {
+        return Err(SmokeError::StorageRejected);
+    }
+    let duplicate = FileId::parse("file-duplicate").map_err(|_| SmokeError::StorageRejected)?;
+    store
+        .write(&duplicate, b"protected payload")
+        .map_err(|_| SmokeError::StorageRejected)?;
+    store.inject_duplicate_nonce_for_test(&duplicate);
+    if store.flush_file(&duplicate).is_ok() {
+        return Err(SmokeError::StorageRejected);
+    }
+    Ok(())
 }
 
 async fn run_phase1_smoke_async(
@@ -205,6 +365,15 @@ async fn enroll_once(pool: &SqlitePool, device: &DeviceId) -> Result<(), SmokeEr
         return Err(SmokeError::EnrollmentRejected);
     }
     Ok(())
+}
+
+async fn consume_token(pool: &SqlitePool) -> Result<bool, SmokeError> {
+    sqlx::query("UPDATE enrollment_tokens SET consumed_at = CURRENT_TIMESTAMP WHERE token_digest = ? AND consumed_at IS NULL")
+        .bind([4_u8; 32].as_slice())
+        .execute(pool)
+        .await
+        .map(|result| result.rows_affected() == 1)
+        .map_err(|_| SmokeError::EnrollmentRejected)
 }
 
 fn signed_configuration(

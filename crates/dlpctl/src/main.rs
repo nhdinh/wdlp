@@ -116,7 +116,8 @@ async fn main() -> Result<(), CliError> {
             let database_url = database_url.unwrap_or_else(|| {
                 format!("sqlite://{}?mode=rwc", root.join("tracer.sqlite").display())
             });
-            dlpctl::run_phase1_smoke(&database_url, &root)
+            dlpctl::run_phase1_smoke_in_runtime(&database_url, &root)
+                .await
                 .map_err(|_| CliError::DatabaseUnavailable)?;
             println!("phase1-smoke: passed");
             Ok(())
