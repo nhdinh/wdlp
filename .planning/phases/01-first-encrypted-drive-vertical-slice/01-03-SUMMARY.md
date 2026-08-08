@@ -8,6 +8,10 @@ provides:
   - "Exact human-approved Cargo dependency allowlist for downstream manifests and lockfiles"
   - "Approved dlp-store/aes256gcm-4m/v1 persisted encrypted-store contract for downstream readers and writers"
 affects: [01-01, 01-02, 01-04, 01-05, 01-06, 01-07, 01-08, 01-09, 01-10, 01-11, 01-12]
+actuals:
+  tokens: 4594
+  tasks: 2
+  commits: 3
 tech-stack:
   added: []
   patterns:
@@ -24,9 +28,9 @@ patterns-established:
   - "Downstream manifests and lockfiles may use only the exact approved package/version pairs recorded below."
 requirements-completed: [WRK-04, CRY-01, TST-03, TST-08]
 coverage: []
-duration: in-progress
-completed: null
-status: in_progress
+duration: 5m
+completed: 2026-08-08
+status: complete
 ---
 
 # Phase 01 Plan 03: Approval Gates Summary
@@ -58,7 +62,7 @@ All rows retain the evidence reviewed at the checkpoint: the official registry r
 
 ## Task 2: Approved Persisted Encrypted-Store Format
 
-**Decision signal:** `approve-aes-4m`  
+**Decision signal:** `approve-aes-4m`
 **Approved format ID:** `dlp-store/aes256gcm-4m/v1`
 
 The human selected the recommended Phase 1 on-disk contract before any writer or test fixture produces persisted encrypted user data. It satisfies the selected durability and integrity decisions: successful flush/close follows a durable encrypted commit; interruption preserves the last committed generation; authentication failures return no plaintext; and a failed write leaves the prior committed version intact.
@@ -79,5 +83,66 @@ The human selected the recommended Phase 1 on-disk contract before any writer or
 ## Verification Evidence
 
 - Task 1 allowlist verification passed: all fourteen named package records and official crates.io URLs are present.
-- Task 2 decision verification is ready to pass when the approved-format record contains `dlp-store/aes256gcm-4m/v1`, `96-bit`, `4 MiB`, and `migration`, while omitting an alternate decision signal.
+- Task 2 decision verification passed: the approved-format record contains `dlp-store/aes256gcm-4m/v1`, `96-bit`, `4 MiB`, and `migration`, with no alternate decision signal.
 - Repository check before the approvals found no `Cargo.toml`, `Cargo.lock`, encrypted-store data, production files, or test store bytes. The plan changed only this approval record.
+
+## Performance
+
+- **Duration:** 5m
+- **Started:** 2026-08-08T08:38:19Z
+- **Completed:** 2026-08-08T08:40:27Z
+- **Tasks:** 2/2
+- **Files modified:** 1
+
+## Accomplishments
+
+- Captured the exact, human-approved allowlist for every package that was SUS, ASSUMED, or otherwise gated for Phase 1.
+- Recorded `approve-aes-4m` as the immutable Phase 1 encrypted-store contract, including authenticated encryption, durable generation publication, and a migration boundary.
+- Confirmed the approval-only plan left Cargo manifests, lockfiles, source code, and persisted encrypted data untouched.
+
+## Task Commits
+
+1. **Task 1: Approve every SUS/ASSUMED Cargo dependency before installation** — `31b6b15` (docs)
+2. **Task 2: Confirm the persisted encrypted-store format before the first write** — `2c9a936` (docs)
+
+## Files Created/Modified
+
+- `.planning/phases/01-first-encrypted-drive-vertical-slice/01-03-SUMMARY.md` — auditable package and persisted-format approval evidence.
+
+## Decisions Made
+
+- Approved only the fourteen exact package/version pairs listed above; downstream dependency changes must use this evidence or return to a blocking approval gate.
+- Approved `dlp-store/aes256gcm-4m/v1` with AES-256-GCM, 4 MiB chunks, persisted random 96-bit nonces, identity-bound AAD, staged generations, encrypted manifests, authenticated commit/pointer publication, and explicit migrations for any incompatible change.
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking] Repaired incomplete planning-state advancement after the state SDK parser rejected the initial `Plan: TBD` value.**
+- **Found during:** Plan close-out
+- **Issue:** `state.advance-plan` could not parse the starter State.md's current-plan fields, leaving the visible position stale even though the SDK recorded the completed-plan count.
+- **Fix:** Updated only the visible Current Position and decision labels to match the successful summary, roadmap, requirement, metric, and session updates.
+- **Files modified:** `.planning/STATE.md`
+- **Verification:** State now reports 01-03 complete, 1/12 plans complete, and 01-01 as the next Wave 2 plan.
+
+**Total deviations:** 1 auto-fixed (1 blocking workflow-state repair).
+**Impact on plan:** No production scope changed; the repair preserves accurate phase continuity.
+
+## Issues Encountered
+
+None. A markdown trailing-whitespace warning was removed before final close-out.
+
+## Next Phase Readiness
+
+- 01-01 and every downstream dependency plan can use only the approved exact package versions.
+- 01-04 is authorized to create the first encrypted-store bytes only under `dlp-store/aes256gcm-4m/v1`.
+
+## Self-Check: PASSED
+
+- Approval record exists at the declared path.
+- Task commits `31b6b15` and `2c9a936` exist in git history.
+- Both plan verification commands passed; no Cargo manifest, lockfile, or encrypted-store bytes were created.
+
+---
+*Phase: 01-first-encrypted-drive-vertical-slice*
+*Completed: 2026-08-08*

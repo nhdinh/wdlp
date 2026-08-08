@@ -10,7 +10,7 @@
 - [ ] **WRK-01**: Establish a Cargo workspace with `dlp-domain`, `dlp-policy`, `dlp-protocol`, `dlp-crypto`, `dlp-storage`, `dlp-server`, `dlp-agent-core`, `dlp-windows-service`, `dlp-windows-drive`, and `dlpctl` crates.
 - [ ] **WRK-02**: Define shared identifiers, policy types, enforcement decisions, and structured errors in `dlp-domain`.
 - [ ] **WRK-03**: Define versioned protocol DTOs and wire-format schemas in `dlp-protocol`.
-- [ ] **WRK-04**: Deny unsafe code in portable domain crates; isolate and document unavoidable unsafe Windows FFI.
+- [x] **WRK-04**: Deny unsafe code in portable domain crates; isolate and document unavoidable unsafe Windows FFI.
 
 ### Server (SRV)
 
@@ -42,7 +42,7 @@
 
 ### Cryptography (CRY)
 
-- [ ] **CRY-01**: Use authenticated encryption for file contents and sensitive metadata at rest.
+- [x] **CRY-01**: Use authenticated encryption for file contents and sensitive metadata at rest.
 - [ ] **CRY-02**: Sign configuration bundles with Ed25519; agents verify signature and schema version before activation.
 - [ ] **CRY-03**: Implement per-user encryption key hierarchy with a DEK wrapped by a DPAPI-NG-protected KEK and server-escrowed recovery key.
 - [ ] **CRY-04**: Store no long-lived secret in plaintext on the endpoint.
@@ -91,12 +91,12 @@
 
 - [ ] **TST-01**: Write unit tests for policy matching, priority, conflict resolution, and default actions.
 - [ ] **TST-02**: Write unit tests for bundle validation and signature verification.
-- [ ] **TST-03**: Write unit tests for storage encryption, integrity failures, and key handling.
+- [x] **TST-03**: Write unit tests for storage encryption, integrity failures, and key handling.
 - [ ] **TST-04**: Write unit tests for event queue limits, retry logic, and idempotency.
 - [ ] **TST-05**: Write integration tests for server enrollment through first policy activation.
 - [ ] **TST-06**: Write integration tests for offline enforcement followed by event synchronization.
 - [ ] **TST-07**: Write integration tests for per-user drive isolation and device revocation.
-- [ ] **TST-08**: Validate WinFsp with representative Windows applications in an early spike.
+- [x] **TST-08**: Validate WinFsp with representative Windows applications in an early spike.
 
 ## v2 Requirements
 
@@ -145,7 +145,7 @@
 | WRK-01 | Phase 1 | Pending |
 | WRK-02 | Phase 1 | Pending |
 | WRK-03 | Phase 1 | Pending |
-| WRK-04 | Phase 1 | Pending |
+| WRK-04 | Phase 1 | Complete |
 | SRV-01 | Phase 1 | Pending |
 | SRV-02 | Phase 2 | Pending |
 | SRV-03 | Phase 1 | Pending |
@@ -168,7 +168,7 @@
 | POL-08 | Phase 2 | Pending |
 | POL-09 | Phase 2 | Pending |
 | POL-10 | Phase 2 | Pending |
-| CRY-01 | Phase 1 | Pending |
+| CRY-01 | Phase 1 | Complete |
 | CRY-02 | Phase 1 | Pending |
 | CRY-03 | Phase 3 | Pending |
 | CRY-04 | Phase 1 | Pending |
@@ -202,14 +202,15 @@
 | ADM-04 | Phase 3 | Pending |
 | TST-01 | Phase 2 | Pending |
 | TST-02 | Phase 1 | Pending |
-| TST-03 | Phase 1 | Pending |
+| TST-03 | Phase 1 | Complete |
 | TST-04 | Phase 3 | Pending |
 | TST-05 | Phase 1 | Pending |
 | TST-06 | Phase 3 | Pending |
 | TST-07 | Phase 2 | Pending |
-| TST-08 | Phase 1 | Pending |
+| TST-08 | Phase 1 | Complete |
 
 **Coverage:**
+
 - v1 requirements: 63 total
 - Mapped to phases: 63
 - Unmapped: 0 ✓
@@ -217,6 +218,7 @@
 ## Definition of Done
 
 A feature is done only when:
+
 - Its security and failure behavior is documented.
 - Unit and relevant integration tests pass.
 - Windows-specific behavior is tested on supported Windows versions where applicable.
