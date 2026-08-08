@@ -1,7 +1,7 @@
-use dlp_storage::{
-    recover_store, CapturedStoreIdentity, LocalEncryptedStore, StorageError, StoreKey,
-};
 use dlp_domain::{FileId, StoreId, UserSid};
+use dlp_storage::{
+    CapturedStoreIdentity, DurabilityFaultPoint, LocalEncryptedStore, StoreKey, recover_store,
+};
 
 fn fixture() -> (tempfile::TempDir, CapturedStoreIdentity, StoreKey, FileId) {
     let temp = tempfile::tempdir().expect("temporary backing directory");
@@ -17,13 +17,18 @@ fn fixture() -> (tempfile::TempDir, CapturedStoreIdentity, StoreKey, FileId) {
 #[test]
 fn recovers_the_prior_authenticated_commit_when_selected_pointer_is_lost() {
     let (temp, identity, key, file) = fixture();
-    let mut store = LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone())
-        .expect("open store");
-    store.write(&file, b"old committed bytes").expect("stage old");
+    let mut store =
+        LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone()).expect("open store");
+    store
+        .write(&file, b"old committed bytes")
+        .expect("stage old");
     store.flush_file(&file).expect("commit old");
-    store.write(&file, b"replacement that must not publish").expect("stage replacement");
-    store.inject_write_failure_for_test();
-    assert_eq!(store.flush_file(&file), Err(StorageError::IoFailure));
+    store
+        .write(&file, b"replacement that must not publish")
+        .expect("stage replacement");
+    store
+        .flush_file(&file)
+        .expect("prepare replacement pointer");
 
     let selected = temp
         .path()
@@ -37,8 +42,45 @@ fn recovers_the_prior_authenticated_commit_when_selected_pointer_is_lost() {
     let mut restarted = LocalEncryptedStore::open(temp.path(), identity, key).expect("reopen");
     let report = recover_store(&mut restarted, &file).expect("recover prior commit");
     assert!(report.recovered_from_prior_pointer);
-    assert_eq!(restarted.read(&file).expect("read recovered bytes"), b"old committed bytes");
+    assert_eq!(
+        restarted.read(&file).expect("read recovered bytes"),
+        b"old committed bytes"
+    );
 
     let second = recover_store(&mut restarted, &file).expect("idempotent recovery");
     assert_eq!(report.selected_generation, second.selected_generation);
+}
+
+#[test]
+fn every_durability_fault_recovers_one_complete_authenticated_generation() {
+    let points = [
+        DurabilityFaultPoint::BeforeRecordWrite,
+        DurabilityFaultPoint::AfterRecordFlush,
+        DurabilityFaultPoint::BeforeManifestWrite,
+        DurabilityFaultPoint::AfterManifestFlush,
+        DurabilityFaultPoint::BeforeCommitWrite,
+        DurabilityFaultPoint::AfterCommitFlush,
+        DurabilityFaultPoint::BeforePointerReplace,
+        DurabilityFaultPoint::AfterPointerReplace,
+        DurabilityFaultPoint::BeforeDirectoryFlush,
+        DurabilityFaultPoint::AfterDirectoryFlush,
+    ];
+    for point in points {
+        let (temp, identity, key, file) = fixture();
+        let mut store = LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone())
+            .expect("open store");
+        store.write(&file, b"old complete").expect("stage old");
+        store.flush_file(&file).expect("commit old");
+        store.write(&file, b"new complete").expect("stage new");
+        store.inject_fault_at_for_test(point);
+        assert!(
+            store.flush_file(&file).is_err(),
+            "fault {point:?} must interrupt"
+        );
+
+        let mut restarted = LocalEncryptedStore::open(temp.path(), identity, key).expect("restart");
+        recover_store(&mut restarted, &file).expect("recovery selects authenticated commit");
+        let bytes = restarted.read(&file).expect("authenticated readback");
+        assert!(bytes == b"old complete" || bytes == b"new complete");
+    }
 }

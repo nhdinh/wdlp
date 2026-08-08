@@ -50,6 +50,40 @@ pub struct CommitOutcome {
     pub trace: DurabilityTrace,
 }
 
+/// Bounded test seam for simulating abrupt loss on either side of durability boundaries.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum DurabilityFaultPoint {
+    BeforeRecordWrite,
+    AfterRecordFlush,
+    BeforeManifestWrite,
+    AfterManifestFlush,
+    BeforeCommitWrite,
+    AfterCommitFlush,
+    BeforePointerReplace,
+    AfterPointerReplace,
+    BeforeDirectoryFlush,
+    AfterDirectoryFlush,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FaultInjectingIo {
+    fault: Option<DurabilityFaultPoint>,
+}
+
+impl FaultInjectingIo {
+    pub fn fail_at(point: DurabilityFaultPoint) -> Self {
+        Self { fault: Some(point) }
+    }
+
+    fn hit(&mut self, point: DurabilityFaultPoint) -> Result<(), StorageError> {
+        if self.fault == Some(point) {
+            self.fault = None;
+            return Err(StorageError::IoFailure);
+        }
+        Ok(())
+    }
+}
+
 /// A portable, SID-bound encrypted store. Backing paths use only captured opaque IDs.
 pub struct LocalEncryptedStore {
     root: PathBuf,
@@ -61,6 +95,7 @@ pub struct LocalEncryptedStore {
     files: BTreeMap<String, FileEntry>,
     handles: BTreeMap<u64, HandleState>,
     fail_next_write: bool,
+    fault_io: FaultInjectingIo,
 }
 
 #[derive(Clone)]
@@ -99,6 +134,7 @@ impl LocalEncryptedStore {
             files: BTreeMap::new(),
             handles: BTreeMap::new(),
             fail_next_write: false,
+            fault_io: FaultInjectingIo::default(),
         })
     }
     pub fn reopen(&self) -> Result<Self, StorageError> {
@@ -158,10 +194,12 @@ impl LocalEncryptedStore {
             );
             let record = self.seal(&cipher, &mut nonces, file, aad, chunk)?;
             nonce_list.push(record.nonce);
+            self.fault_io.hit(DurabilityFaultPoint::BeforeRecordWrite)?;
             self.write_record(
                 &generation_dir.join(format!("chunk-{index:08}.rec")),
                 &record,
             )?;
+            self.fault_io.hit(DurabilityFaultPoint::AfterRecordFlush)?;
             trace.record("chunk-flush");
             lengths.push(chunk.len() as u64);
             chunk_count += 1;
@@ -190,7 +228,11 @@ impl LocalEncryptedStore {
         let manifest_record =
             self.seal(&cipher, &mut nonces, file, manifest_aad, &manifest_bytes)?;
         nonce_list.push(manifest_record.nonce);
+        self.fault_io
+            .hit(DurabilityFaultPoint::BeforeManifestWrite)?;
         self.write_record(&generation_dir.join("manifest.rec"), &manifest_record)?;
+        self.fault_io
+            .hit(DurabilityFaultPoint::AfterManifestFlush)?;
         trace.record("manifest-flush");
         let commit = CommitRecordV1 {
             generation,
@@ -201,19 +243,34 @@ impl LocalEncryptedStore {
         let commit_record = self.seal(&cipher, &mut nonces, file, commit_aad, &commit_bytes)?;
         nonce_list.push(commit_record.nonce);
         let staged_commit = generation_dir.join("commit.rec");
+        self.fault_io.hit(DurabilityFaultPoint::BeforeCommitWrite)?;
         self.write_record(&staged_commit, &commit_record)?;
+        self.fault_io.hit(DurabilityFaultPoint::AfterCommitFlush)?;
         trace.record("commit-flush");
+        let selected = self.file_dir(file).join("selected.commit");
+        if selected.exists() {
+            let prior = self.file_dir(file).join("previous.commit");
+            fs::copy(&selected, &prior).map_err(map_io)?;
+            self.flush_directory_marker(&self.file_dir(file))?;
+        }
         let selected_tmp = self
             .file_dir(file)
             .join(format!("selected-{generation}.tmp"));
+        self.fault_io
+            .hit(DurabilityFaultPoint::BeforePointerReplace)?;
         self.write_record(&selected_tmp, &commit_record)?;
-        let selected = self.file_dir(file).join("selected.commit");
         if selected.exists() {
             fs::remove_file(&selected).map_err(map_io)?;
         }
         fs::rename(&selected_tmp, &selected).map_err(map_io)?;
+        self.fault_io
+            .hit(DurabilityFaultPoint::AfterPointerReplace)?;
         trace.record("pointer-publish");
+        self.fault_io
+            .hit(DurabilityFaultPoint::BeforeDirectoryFlush)?;
         self.flush_directory_marker(&self.file_dir(file))?;
+        self.fault_io
+            .hit(DurabilityFaultPoint::AfterDirectoryFlush)?;
         trace.record("directory-flush");
         self.staged.remove(file.to_wire());
         Ok(CommitOutcome {
@@ -224,8 +281,48 @@ impl LocalEncryptedStore {
         })
     }
     pub fn read(&self, file: &FileId) -> Result<Vec<u8>, StorageError> {
+        self.read_from_pointer(&self.file_dir(file).join("selected.commit"), file)
+    }
+    pub(crate) fn recover_selected_from_prior(
+        &mut self,
+        file: &FileId,
+    ) -> Result<crate::RecoveryReport, StorageError> {
+        let selected = self.file_dir(file).join("selected.commit");
+        match self.read_from_pointer(&selected, file) {
+            Ok(_) => {
+                let generation = self.commit_generation(&selected, file)?;
+                Ok(crate::RecoveryReport {
+                    selected_generation: generation,
+                    recovered_from_prior_pointer: false,
+                })
+            }
+            Err(StorageError::NotFound) => {
+                let prior = self.file_dir(file).join("previous.commit");
+                let _ = self.read_from_pointer(&prior, file)?;
+                let generation = self.commit_generation(&prior, file)?;
+                fs::copy(&prior, &selected).map_err(map_io)?;
+                self.flush_directory_marker(&self.file_dir(file))?;
+                Ok(crate::RecoveryReport {
+                    selected_generation: generation,
+                    recovered_from_prior_pointer: true,
+                })
+            }
+            Err(error) => Err(error),
+        }
+    }
+    fn commit_generation(&self, pointer: &Path, file: &FileId) -> Result<u64, StorageError> {
         let cipher = RecordCipher::from_store_key(&self.key);
-        let selected = self.read_record(&self.file_dir(file).join("selected.commit"))?;
+        let selected = self.read_record(pointer)?;
+        self.ensure_identity(&selected, file, RecordKind::Commit, 0)?;
+        let commit = CommitRecordV1::decode(&selected.open(&cipher)?)?;
+        if commit.file_id != file.to_wire() {
+            return Err(StorageError::IntegrityFailure);
+        }
+        Ok(commit.generation)
+    }
+    fn read_from_pointer(&self, pointer: &Path, file: &FileId) -> Result<Vec<u8>, StorageError> {
+        let cipher = RecordCipher::from_store_key(&self.key);
+        let selected = self.read_record(pointer)?;
         self.ensure_identity(&selected, file, RecordKind::Commit, 0)?;
         let commit = CommitRecordV1::decode(&selected.open(&cipher)?)?;
         if commit.file_id != file.to_wire() {
@@ -273,6 +370,9 @@ impl LocalEncryptedStore {
     }
     pub fn inject_write_failure_for_test(&mut self) {
         self.fail_next_write = true;
+    }
+    pub fn inject_fault_at_for_test(&mut self, point: DurabilityFaultPoint) {
+        self.fault_io = FaultInjectingIo::fail_at(point);
     }
     pub fn identity(&self) -> &CapturedStoreIdentity {
         &self.identity

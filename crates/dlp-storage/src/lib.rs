@@ -4,12 +4,17 @@
 
 mod format;
 mod path;
+mod recovery;
 mod store;
 
 pub use dlp_crypto::StoreKey;
 pub use format::{CommitRecordV1, EncryptedManifestV1, EncryptedRecordV1};
 pub use path::{PathError, VirtualPath};
-pub use store::{CommitOutcome, DurabilityTrace, FileHandle, LocalEncryptedStore};
+pub use recovery::{EvidenceRecord, RecoveryReport, recover_store};
+pub use store::{
+    CommitOutcome, DurabilityFaultPoint, DurabilityTrace, FaultInjectingIo, FileHandle,
+    LocalEncryptedStore,
+};
 
 use dlp_domain::{FileId, StoreId, UserSid};
 use std::fmt;
@@ -19,6 +24,7 @@ pub enum StorageError {
     FlushNotDurable,
     CloseNotDurable,
     IntegrityFailure,
+    RecoveryRequired,
     NoSpace,
     Unavailable,
     NotFound,
@@ -34,6 +40,7 @@ impl fmt::Display for StorageError {
             Self::FlushNotDurable => "encrypted data is not durably flushed",
             Self::CloseNotDurable => "encrypted data is not durably closed",
             Self::IntegrityFailure => "encrypted store integrity check failed",
+            Self::RecoveryRequired => "encrypted store recovery is required",
             Self::NoSpace => "encrypted store has no remaining space",
             Self::Unavailable => "encrypted store is unavailable",
             Self::NotFound => "encrypted store entry was not found",
