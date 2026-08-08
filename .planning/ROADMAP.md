@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 2/12 plans executed
+**Plans**: 3/12 plans executed
 
 Plans:
 **Wave 1**
@@ -42,7 +42,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-02-PLAN.md (Wave 3) — Exact ten-crate executable workspace, migration-before-bind prerequisites, and isolated Windows boundaries
+- [x] 01-02-PLAN.md (Wave 3) — Exact ten-crate executable workspace, migration-before-bind prerequisites, and isolated Windows boundaries
 - [ ] 01-04-PLAN.md (Wave 3) — Approved durable AEAD generation store, SID-safe paths, complete operations, and disk-full preservation
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -130,7 +130,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 2/12 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 3/12 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |
