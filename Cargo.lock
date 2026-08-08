@@ -434,6 +434,12 @@ dependencies = [
 name = "dlpctl"
 version = "0.1.0"
 dependencies = [
+ "dlp-agent-core",
+ "dlp-crypto",
+ "dlp-domain",
+ "dlp-protocol",
+ "dlp-server",
+ "dlp-storage",
  "sqlx",
  "tokio",
 ]

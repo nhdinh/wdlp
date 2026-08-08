@@ -167,6 +167,10 @@ impl ConfigurationEnvelopeV1 {
         self.schema_version
     }
 
+    pub fn bundle_version(&self) -> &BundleVersion {
+        &self.bundle_version
+    }
+
     /// Encodes the only signature input as a length-delimited fixed field sequence.
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut output = b"dlp-configuration-envelope/v1\0".to_vec();

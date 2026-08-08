@@ -76,6 +76,15 @@ impl ActiveConfigurationSet {
     fn activate_verified(&mut self, configuration: SignedConfigurationV1) {
         self.last_known_good = self.current.replace(configuration);
     }
+
+    fn version(configuration: &SignedConfigurationV1) -> Result<u64, AgentCoreError> {
+        configuration
+            .envelope()
+            .bundle_version()
+            .to_wire()
+            .parse()
+            .map_err(|_| AgentCoreError::ConfigurationRejected)
+    }
 }
 
 /// Activates only a strictly verified, schema-compatible configuration.
@@ -99,6 +108,17 @@ impl ConfigurationActivator for ActiveConfigurationSet {
             &configuration.envelope().canonical_bytes(),
             configuration.signature(),
         )?;
+        let next_version = Self::version(&configuration)?;
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|current| match Self::version(current) {
+                Ok(current_version) => next_version <= current_version,
+                Err(_) => true,
+            })
+        {
+            return Err(AgentCoreError::ConfigurationRejected);
+        }
         self.activate_verified(configuration);
         Ok(())
     }

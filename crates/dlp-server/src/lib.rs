@@ -141,11 +141,36 @@ fn validate_providers(providers: &ProductionProviders) -> Result<(), ServerError
 
 /// Builds the library-owned HTTP application. Liveness exposes process state only.
 pub fn build_app(_state: ServerState) -> Router {
-    Router::new().route("/health/live", get(health_live))
+    Router::new()
+        .route("/health/live", get(health_live))
+        .route("/api/v1/tracer", get(tracer_contract))
 }
 
 pub async fn health_live() -> StatusCode {
     StatusCode::NO_CONTENT
+}
+
+/// Confirms that a bound server exposes the final versioned tracer namespace.
+/// Stateful enrollment/configuration work is deliberately supplied by the repository port.
+pub async fn tracer_contract() -> StatusCode {
+    StatusCode::NO_CONTENT
+}
+
+/// Development-only state used by the SQLite tracer. It is unavailable from a release build,
+/// so fixture providers cannot be accidentally selected by production startup.
+#[cfg(debug_assertions)]
+pub fn tracer_state_for_development() -> ServerState {
+    ServerState::for_test()
+}
+
+/// Runs only the development tracer app on a listener that the caller already bound.
+/// Production startup remains `run_server`, which validates production providers and runs
+/// PostgreSQL migrations before binding.
+#[cfg(debug_assertions)]
+pub async fn serve_tracer_listener(listener: tokio::net::TcpListener) -> Result<(), ServerError> {
+    axum::serve(listener, build_app(tracer_state_for_development()))
+        .await
+        .map_err(|_| ServerError::ServeFailed)
 }
 
 /// Applies the embedded, forward-only SQLx ledger before any listener is bound.

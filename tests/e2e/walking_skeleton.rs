@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 fn trace_root() -> PathBuf {
     let unique = SystemTime::now()
@@ -11,7 +15,7 @@ fn trace_root() -> PathBuf {
 #[test]
 fn tracer_happy_path() {
     let root = trace_root();
-    let database_url = format!("sqlite:{}", root.join("tracer.sqlite").display());
+    let database_url = format!("sqlite://{}?mode=rwc", root.join("tracer.sqlite").display());
     let report = dlpctl::run_phase1_smoke(&database_url, &root).expect("tracer succeeds");
 
     assert_eq!(report.output_hash, report.input_hash);
