@@ -5,6 +5,11 @@ members = [
     "crates/dlp-policy",
     "crates/dlp-crypto",
     "crates/dlp-storage",
+    "crates/dlp-agent-core",
+    "crates/dlp-server",
+    "crates/dlp-windows-service",
+    "crates/dlp-windows-drive",
+    "crates/dlpctl",
 ]
 resolver = "3"
 
