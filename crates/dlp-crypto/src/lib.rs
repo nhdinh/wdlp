@@ -5,7 +5,7 @@
 mod aead;
 mod key;
 
-pub use aead::{NonceTracker, RecordAad, RecordCipher, RecordKind, FORMAT_ID_V1, NONCE_LENGTH};
+pub use aead::{FORMAT_ID_V1, NONCE_LENGTH, NonceTracker, RecordAad, RecordCipher, RecordKind};
 pub use key::StoreKey;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
@@ -166,7 +166,10 @@ impl fmt::Debug for ConfigurationVerifier {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConfigurationSigner, ConfigurationVerifier, CryptoError, NonceTracker, RecordCipher, RecordAad, RecordKind, StoreKey};
+    use super::{
+        ConfigurationSigner, ConfigurationVerifier, CryptoError, NonceTracker, RecordAad,
+        RecordCipher, RecordKind, StoreKey,
+    };
 
     #[test]
     fn strict_verification_rejects_tamper_wrong_key_key_id_schema_and_truncation() {
@@ -240,11 +243,25 @@ mod tests {
     #[test]
     fn aes_gcm_boundary_accepts_only_256_bit_key_material() {
         let cipher = RecordCipher::from_store_key(&StoreKey::from_bytes([9; 32]));
-        let aad = RecordAad { format_version: 1, store_id: "store".into(), file_id: "file".into(), generation: 1, record_kind: RecordKind::Chunk, chunk_index: 0, plaintext_length: 3 };
+        let aad = RecordAad {
+            format_version: 1,
+            store_id: "store".into(),
+            file_id: "file".into(),
+            generation: 1,
+            record_kind: RecordKind::Chunk,
+            chunk_index: 0,
+            plaintext_length: 3,
+        };
         let (nonce, ciphertext) = cipher.encrypt(&aad, b"abc").expect("encrypt");
-        assert_eq!(cipher.decrypt(&aad, &nonce, &ciphertext).expect("decrypt"), b"abc");
+        assert_eq!(
+            cipher.decrypt(&aad, &nonce, &ciphertext).expect("decrypt"),
+            b"abc"
+        );
         let mut tracker = NonceTracker::default();
         tracker.insert(nonce).expect("first nonce");
-        assert!(matches!(tracker.insert(nonce), Err(CryptoError::DuplicateNonce)));
+        assert!(matches!(
+            tracker.insert(nonce),
+            Err(CryptoError::DuplicateNonce)
+        ));
     }
 }

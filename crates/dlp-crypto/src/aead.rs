@@ -1,7 +1,7 @@
 use crate::{CryptoError, StoreKey};
 use aes_gcm::{
-    aead::{Aead, Generate, Payload},
     Aes256Gcm, KeyInit, Nonce,
+    aead::{Aead, Generate, Payload},
 };
 use std::collections::BTreeSet;
 
@@ -65,26 +65,54 @@ impl RecordCipher {
         Self { cipher }
     }
 
-    pub fn encrypt(&self, aad: &RecordAad, plaintext: &[u8]) -> Result<([u8; NONCE_LENGTH], Vec<u8>), CryptoError> {
+    pub fn encrypt(
+        &self,
+        aad: &RecordAad,
+        plaintext: &[u8],
+    ) -> Result<([u8; NONCE_LENGTH], Vec<u8>), CryptoError> {
         let nonce = Nonce::generate();
-        let nonce_bytes: [u8; NONCE_LENGTH] = nonce.as_slice().try_into().map_err(|_| CryptoError::EncryptionFailed)?;
+        let nonce_bytes: [u8; NONCE_LENGTH] = nonce
+            .as_slice()
+            .try_into()
+            .map_err(|_| CryptoError::EncryptionFailed)?;
         let ciphertext = self
             .cipher
-            .encrypt(&nonce, Payload { msg: plaintext, aad: &aad.canonical_bytes() })
+            .encrypt(
+                &nonce,
+                Payload {
+                    msg: plaintext,
+                    aad: &aad.canonical_bytes(),
+                },
+            )
             .map_err(|_| CryptoError::EncryptionFailed)?;
         Ok((nonce_bytes, ciphertext))
     }
 
-    pub fn decrypt(&self, aad: &RecordAad, nonce: &[u8; NONCE_LENGTH], ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    pub fn decrypt(
+        &self,
+        aad: &RecordAad,
+        nonce: &[u8; NONCE_LENGTH],
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
         self.cipher
-            .decrypt(&Nonce::try_from(nonce.as_slice()).map_err(|_| CryptoError::IntegrityFailure)?, Payload { msg: ciphertext, aad: &aad.canonical_bytes() })
+            .decrypt(
+                &Nonce::try_from(nonce.as_slice()).map_err(|_| CryptoError::IntegrityFailure)?,
+                Payload {
+                    msg: ciphertext,
+                    aad: &aad.canonical_bytes(),
+                },
+            )
             .map_err(|_| CryptoError::IntegrityFailure)
     }
 }
 
 impl std::fmt::Debug for RecordCipher {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("RecordCipher").field("algorithm", &"AES-256-GCM").field("key", &"[REDACTED]").finish()
+        formatter
+            .debug_struct("RecordCipher")
+            .field("algorithm", &"AES-256-GCM")
+            .field("key", &"[REDACTED]")
+            .finish()
     }
 }
 
@@ -93,6 +121,10 @@ pub struct NonceTracker(BTreeSet<[u8; NONCE_LENGTH]>);
 
 impl NonceTracker {
     pub fn insert(&mut self, nonce: [u8; NONCE_LENGTH]) -> Result<(), CryptoError> {
-        if self.0.insert(nonce) { Ok(()) } else { Err(CryptoError::DuplicateNonce) }
+        if self.0.insert(nonce) {
+            Ok(())
+        } else {
+            Err(CryptoError::DuplicateNonce)
+        }
     }
 }

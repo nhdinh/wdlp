@@ -3,11 +3,13 @@
 //! Portable encrypted-store format and filesystem-facing durability contracts.
 
 mod format;
+mod path;
 mod store;
 
 pub use dlp_crypto::StoreKey;
 pub use format::{CommitRecordV1, EncryptedManifestV1, EncryptedRecordV1};
-pub use store::{CommitOutcome, DurabilityTrace, LocalEncryptedStore};
+pub use path::{PathError, VirtualPath};
+pub use store::{CommitOutcome, DurabilityTrace, FileHandle, LocalEncryptedStore};
 
 use dlp_domain::{FileId, StoreId, UserSid};
 use std::fmt;
@@ -21,6 +23,9 @@ pub enum StorageError {
     Unavailable,
     NotFound,
     IoFailure,
+    AlreadyExists,
+    SharingViolation,
+    DeletePending,
 }
 
 impl fmt::Display for StorageError {
@@ -33,6 +38,9 @@ impl fmt::Display for StorageError {
             Self::Unavailable => "encrypted store is unavailable",
             Self::NotFound => "encrypted store entry was not found",
             Self::IoFailure => "encrypted store backing I/O failed",
+            Self::AlreadyExists => "encrypted store entry already exists",
+            Self::SharingViolation => "encrypted store handle sharing violation",
+            Self::DeletePending => "encrypted store entry is pending deletion",
         };
         write!(formatter, "{message}")
     }
