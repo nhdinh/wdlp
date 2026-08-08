@@ -1,0 +1,15 @@
+[package]
+name = "dlp-agent-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dlp-crypto = { path = "../dlp-crypto" }
+dlp-domain = { path = "../dlp-domain" }
+dlp-protocol = { path = "../dlp-protocol" }
+dlp-storage = { path = "../dlp-storage" }
