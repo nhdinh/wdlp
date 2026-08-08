@@ -25,3 +25,10 @@ fn tracer_happy_path() {
 
     fs::remove_dir_all(root).expect("remove task-owned test data");
 }
+
+#[test]
+fn tracer_hardening_rejects_replay_tamper_and_races() {
+    let root = trace_root();
+    dlpctl::verify_tracer_hardening(&root).expect("hardening cases fail closed");
+    fs::remove_dir_all(root).expect("remove task-owned test data");
+}
