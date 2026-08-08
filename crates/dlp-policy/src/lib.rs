@@ -1,11 +1,99 @@
 #![forbid(unsafe_code)]
 
+//! Deterministic, portable policy selection. Drive enforcement is intentionally
+//! outside this crate and remains a later-phase responsibility.
+
+use dlp_domain::{DecisionReason, EnforcementAction, PolicyDecision, PolicyInput};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyRule {
+    rule_id: String,
+    extension: String,
+    priority: u32,
+    action: EnforcementAction,
+}
+
+impl PolicyRule {
+    pub fn new(
+        rule_id: impl Into<String>,
+        extension: impl Into<String>,
+        priority: u32,
+        action: EnforcementAction,
+    ) -> Self {
+        Self {
+            rule_id: rule_id.into(),
+            extension: extension.into(),
+            priority,
+            action,
+        }
+    }
+
+    fn matches(&self, input: &PolicyInput) -> bool {
+        self.extension == input.extension
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PolicyEvaluator {
+    default_action: EnforcementAction,
+}
+
+impl PolicyEvaluator {
+    pub const fn new(default_action: EnforcementAction) -> Self {
+        Self { default_action }
+    }
+
+    pub fn evaluate(&self, input: &PolicyInput, rules: &[PolicyRule]) -> PolicyDecision {
+        let mut candidates = rules
+            .iter()
+            .filter(|rule| rule.matches(input))
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return PolicyDecision {
+                action: self.default_action,
+                reason: if rules.is_empty() {
+                    DecisionReason::EmptyPolicy
+                } else {
+                    DecisionReason::DefaultAction
+                },
+                rule_id: None,
+            };
+        }
+
+        candidates.sort_unstable_by(|left, right| {
+            right
+                .priority
+                .cmp(&left.priority)
+                .then_with(|| {
+                    right
+                        .action
+                        .restrictiveness()
+                        .cmp(&left.action.restrictiveness())
+                })
+                .then_with(|| left.rule_id.cmp(&right.rule_id))
+        });
+        let selected = candidates[0];
+        let equal_priority_conflict = candidates
+            .iter()
+            .skip(1)
+            .any(|candidate| candidate.priority == selected.priority);
+
+        PolicyDecision {
+            action: selected.action,
+            reason: if equal_priority_conflict {
+                DecisionReason::EqualPriorityConflict
+            } else {
+                DecisionReason::MatchedRule
+            },
+            rule_id: Some(selected.rule_id.clone()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PolicyEvaluator, PolicyRule};
-    use dlp_domain::{
-        DecisionReason, EnforcementAction, PolicyInput, UserSid,
-    };
+    use dlp_domain::{DecisionReason, EnforcementAction, PolicyInput, UserSid};
 
     fn input(extension: &str) -> PolicyInput {
         PolicyInput::new(

@@ -13,10 +13,16 @@ version = "0.1.0"
 [[package]]
 name = "dlp-policy"
 version = "0.1.0"
+dependencies = [
+ "dlp-domain",
+]
 
 [[package]]
 name = "dlp-protocol"
 version = "0.1.0"
+dependencies = [
+ "dlp-domain",
+]
 
 [[package]]
 name = "dlp-storage"
