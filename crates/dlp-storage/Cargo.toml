@@ -9,4 +9,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+dlp-crypto = { path = "../dlp-crypto" }
 dlp-domain = { path = "../dlp-domain" }
+
+[dev-dependencies]
+tempfile = "=3.27.0"
