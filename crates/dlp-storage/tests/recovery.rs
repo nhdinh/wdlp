@@ -84,3 +84,35 @@ fn every_durability_fault_recovers_one_complete_authenticated_generation() {
         assert!(bytes == b"old complete" || bytes == b"new complete");
     }
 }
+
+#[test]
+fn recovery_quarantines_only_unreferenced_staging_and_is_idempotent() {
+    let (temp, identity, key, file) = fixture();
+    let mut store =
+        LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone()).expect("open store");
+    store.write(&file, b"committed bytes").expect("stage");
+    let committed = store.flush_file(&file).expect("commit");
+    let file_root = temp
+        .path()
+        .join("stores")
+        .join(identity.store_id().to_wire())
+        .join("files")
+        .join(file.to_wire());
+    let stale = file_root.join("generations").join("staging-untrusted");
+    std::fs::create_dir_all(&stale).expect("create incomplete staging");
+    std::fs::write(stale.join("partial.rec"), b"opaque incomplete bytes").expect("stage bytes");
+
+    let report = recover_store(&mut store, &file).expect("recover selected commit");
+    assert_eq!(report.selected_generation, committed.generation);
+    assert!(!stale.exists(), "only unreferenced staging is removed");
+    assert!(
+        temp.path().join("evidence").exists(),
+        "staging is quarantined first"
+    );
+    assert_eq!(
+        recover_store(&mut store, &file)
+            .expect("repeat recovery")
+            .selected_generation,
+        committed.generation
+    );
+}

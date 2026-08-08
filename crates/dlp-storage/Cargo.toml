@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 dlp-crypto = { path = "../dlp-crypto" }
 dlp-domain = { path = "../dlp-domain" }
+sha2 = "=0.10.9"
 
 [dev-dependencies]
 tempfile = "=3.27.0"

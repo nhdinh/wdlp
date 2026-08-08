@@ -27,5 +27,11 @@ pub fn recover_store(
     store: &mut LocalEncryptedStore,
     file: &FileId,
 ) -> Result<RecoveryReport, StorageError> {
-    store.recover_selected_from_prior(file)
+    match store.recover_selected_from_prior(file) {
+        Err(StorageError::IntegrityFailure) => {
+            store.preserve_integrity_evidence(file)?;
+            Err(StorageError::IntegrityFailure)
+        }
+        result => result,
+    }
 }

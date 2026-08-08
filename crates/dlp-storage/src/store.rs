@@ -4,9 +4,10 @@ use crate::{
 };
 use dlp_crypto::{NonceTracker, RecordAad, RecordCipher, RecordKind};
 use dlp_domain::FileId;
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -15,6 +16,7 @@ use std::{
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
+static NEXT_EVIDENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DurabilityTrace {
@@ -65,20 +67,40 @@ pub enum DurabilityFaultPoint {
     AfterDirectoryFlush,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct FaultInjectingIo {
     fault: Option<DurabilityFaultPoint>,
+    error: StorageError,
+}
+
+impl Default for FaultInjectingIo {
+    fn default() -> Self {
+        Self {
+            fault: None,
+            error: StorageError::IoFailure,
+        }
+    }
 }
 
 impl FaultInjectingIo {
     pub fn fail_at(point: DurabilityFaultPoint) -> Self {
-        Self { fault: Some(point) }
+        Self {
+            fault: Some(point),
+            error: StorageError::IoFailure,
+        }
+    }
+
+    pub fn no_space_at(point: DurabilityFaultPoint) -> Self {
+        Self {
+            fault: Some(point),
+            error: StorageError::NoSpace,
+        }
     }
 
     fn hit(&mut self, point: DurabilityFaultPoint) -> Result<(), StorageError> {
         if self.fault == Some(point) {
             self.fault = None;
-            return Err(StorageError::IoFailure);
+            return Err(self.error.clone());
         }
         Ok(())
     }
@@ -288,27 +310,41 @@ impl LocalEncryptedStore {
         file: &FileId,
     ) -> Result<crate::RecoveryReport, StorageError> {
         let selected = self.file_dir(file).join("selected.commit");
+        if !selected.exists() {
+            return self.recover_from_prior_pointer(file, &selected);
+        }
         match self.read_from_pointer(&selected, file) {
             Ok(_) => {
                 let generation = self.commit_generation(&selected, file)?;
+                self.cleanup_unreferenced_staging(file, generation)?;
                 Ok(crate::RecoveryReport {
                     selected_generation: generation,
                     recovered_from_prior_pointer: false,
                 })
             }
-            Err(StorageError::NotFound) => {
-                let prior = self.file_dir(file).join("previous.commit");
-                let _ = self.read_from_pointer(&prior, file)?;
-                let generation = self.commit_generation(&prior, file)?;
-                fs::copy(&prior, &selected).map_err(map_io)?;
-                self.flush_directory_marker(&self.file_dir(file))?;
-                Ok(crate::RecoveryReport {
-                    selected_generation: generation,
-                    recovered_from_prior_pointer: true,
-                })
-            }
+            Err(StorageError::NotFound) => Err(StorageError::IntegrityFailure),
             Err(error) => Err(error),
         }
+    }
+    fn recover_from_prior_pointer(
+        &mut self,
+        file: &FileId,
+        selected: &Path,
+    ) -> Result<crate::RecoveryReport, StorageError> {
+        let prior = self.file_dir(file).join("previous.commit");
+        match self.read_from_pointer(&prior, file) {
+            Ok(_) => {}
+            Err(StorageError::NotFound) => return Err(StorageError::RecoveryRequired),
+            Err(error) => return Err(error),
+        }
+        let generation = self.commit_generation(&prior, file)?;
+        fs::copy(&prior, selected).map_err(map_io)?;
+        self.flush_directory_marker(&self.file_dir(file))?;
+        self.cleanup_unreferenced_staging(file, generation)?;
+        Ok(crate::RecoveryReport {
+            selected_generation: generation,
+            recovered_from_prior_pointer: true,
+        })
     }
     fn commit_generation(&self, pointer: &Path, file: &FileId) -> Result<u64, StorageError> {
         let cipher = RecordCipher::from_store_key(&self.key);
@@ -329,6 +365,15 @@ impl LocalEncryptedStore {
             return Err(StorageError::IntegrityFailure);
         }
         let generation_dir = self.generation_dir(file, commit.generation);
+        let committed_record = self.read_record(&generation_dir.join("commit.rec"))?;
+        self.ensure_identity(&committed_record, file, RecordKind::Commit, 0)?;
+        if committed_record.generation != commit.generation {
+            return Err(StorageError::IntegrityFailure);
+        }
+        let committed = CommitRecordV1::decode(&committed_record.open(&cipher)?)?;
+        if committed != commit {
+            return Err(StorageError::IntegrityFailure);
+        }
         let manifest_record = self.read_record(&generation_dir.join("manifest.rec"))?;
         self.ensure_identity(&manifest_record, file, RecordKind::Manifest, 0)?;
         if manifest_record.generation != commit.generation {
@@ -373,6 +418,59 @@ impl LocalEncryptedStore {
     }
     pub fn inject_fault_at_for_test(&mut self, point: DurabilityFaultPoint) {
         self.fault_io = FaultInjectingIo::fail_at(point);
+    }
+    pub fn inject_no_space_at_for_test(&mut self, point: DurabilityFaultPoint) {
+        self.fault_io = FaultInjectingIo::no_space_at(point);
+    }
+    pub(crate) fn preserve_integrity_evidence(&self, file: &FileId) -> Result<(), StorageError> {
+        self.preserve_evidence_directory(&self.file_dir(file), "IntegrityFailure")
+    }
+    fn cleanup_unreferenced_staging(
+        &self,
+        file: &FileId,
+        selected_generation: u64,
+    ) -> Result<(), StorageError> {
+        let generations = self.file_dir(file).join("generations");
+        if !generations.exists() {
+            return Ok(());
+        }
+        let mut referenced = BTreeSet::from([self.generation_dir(file, selected_generation)]);
+        let prior = self.file_dir(file).join("previous.commit");
+        if prior.exists()
+            && let Ok(generation) = self.commit_generation(&prior, file)
+        {
+            referenced.insert(self.generation_dir(file, generation));
+        }
+        for entry in fs::read_dir(&generations).map_err(map_io)? {
+            let path = entry.map_err(map_io)?.path();
+            if path.is_dir() && !referenced.contains(&path) {
+                self.preserve_evidence_directory(&path, "RecoveryQuarantine")?;
+                fs::remove_dir_all(path).map_err(map_io)?;
+            }
+        }
+        Ok(())
+    }
+    fn preserve_evidence_directory(&self, source: &Path, code: &str) -> Result<(), StorageError> {
+        let evidence_root = self.root.join("evidence");
+        fs::create_dir_all(&evidence_root).map_err(map_io)?;
+        let evidence_id = format!("e-{:020}", NEXT_EVIDENCE.fetch_add(1, Ordering::Relaxed));
+        let evidence_dir = evidence_root.join(&evidence_id);
+        fs::create_dir(&evidence_dir).map_err(map_io)?;
+        let mut diagnostics = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(evidence_root.join("diagnostics.log"))
+            .map_err(map_io)?;
+        let mut next_record = 1_u64;
+        copy_evidence_files(
+            source,
+            &evidence_dir,
+            &mut next_record,
+            &evidence_id,
+            code,
+            &mut diagnostics,
+        )?;
+        diagnostics.sync_all().map_err(map_io)
     }
     pub fn identity(&self) -> &CapturedStoreIdentity {
         &self.identity
@@ -704,4 +802,43 @@ fn map_io(error: std::io::Error) -> StorageError {
     } else {
         StorageError::IoFailure
     }
+}
+
+fn copy_evidence_files(
+    source: &Path,
+    destination: &Path,
+    next_record: &mut u64,
+    evidence_id: &str,
+    code: &str,
+    diagnostics: &mut File,
+) -> Result<(), StorageError> {
+    for entry in fs::read_dir(source).map_err(map_io)? {
+        let path = entry.map_err(map_io)?.path();
+        if path.is_dir() {
+            copy_evidence_files(
+                &path,
+                destination,
+                next_record,
+                evidence_id,
+                code,
+                diagnostics,
+            )?;
+        } else {
+            let target = destination.join(format!("r-{:020}", *next_record));
+            *next_record = next_record.checked_add(1).ok_or(StorageError::IoFailure)?;
+            let bytes = fs::read(&path).map_err(map_io)?;
+            let digest = Sha256::digest(&bytes);
+            diagnostics
+                .write_all(
+                    format!(
+                        "integrity opaque={evidence_id} record=encrypted digest={digest:x} code={code}\n"
+                    )
+                    .as_bytes(),
+                )
+                .map_err(map_io)?;
+            diagnostics.sync_data().map_err(map_io)?;
+            fs::write(target, bytes).map_err(map_io)?;
+        }
+    }
+    Ok(())
 }
