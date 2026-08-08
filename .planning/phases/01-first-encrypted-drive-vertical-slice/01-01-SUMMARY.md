@@ -103,7 +103,15 @@ Only these exact direct versions were added; `Cargo.lock` records their resolved
 - **Verification:** Protocol tests and clippy passed after the correction.
 - **Commit:** `c74d36e`.
 
-**Total deviations:** 1 auto-fixed (1 test-correctness bug).
+**2. [Rule 3 - Blocking] Repaired stale visible planning position after the state SDK could not parse its existing plan counter.**
+- **Found during:** Plan close-out.
+- **Issue:** `state.advance-plan` and `state.update-progress` rejected the existing State.md counter format, despite the summary count correctly reaching 2/12.
+- **Fix:** Updated only the visible current position, progress, next plan, session note, and phase labels to agree with the successful roadmap and requirements updates.
+- **Files modified:** `.planning/STATE.md`.
+- **Verification:** STATE.md and ROADMAP.md now both identify two completed plans and 01-02 as the Wave 3 next plan.
+- **Commit:** recorded in the final metadata update.
+
+**Total deviations:** 2 auto-fixed (1 test-correctness bug, 1 planning-state repair).
 
 ## Known Stubs
 
@@ -114,4 +122,3 @@ None. The absence of a persisted encrypted-record writer is intentional and assi
 - All declared portable source files exist.
 - All six task commits exist in git history.
 - Final workspace formatting, tests, linting, membership, dependency, and no-writer checks passed.
-

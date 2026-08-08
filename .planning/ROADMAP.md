@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 1/12 plans executed
+**Plans**: 2/12 plans executed
 
 Plans:
 **Wave 1**
@@ -38,7 +38,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-01-PLAN.md (Wave 2) — Portable workspace, typed domain/protocol/policy/signing/storage contracts, and TST-01/TST-02
+- [x] 01-01-PLAN.md (Wave 2) — Portable workspace, typed domain/protocol/policy/signing/storage contracts, and TST-01/TST-02
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -130,7 +130,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 1/12 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 2/12 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |

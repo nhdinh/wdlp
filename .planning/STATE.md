@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-08-08T08:41:25.834Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-08-08T10:12:34.250Z"
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 12
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -23,10 +23,10 @@ progress:
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 2 of 12
+- **Plan**: 3 of 12
 - **Status**: Ready to execute
-- **Progress**: 8%
-- **Next plan**: 01-01 (Wave 2)
+- **Progress**: 17%
+- **Next plan**: 01-02 (Wave 3)
 
 ## Performance Metrics
 
@@ -38,6 +38,7 @@ progress:
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01-first-encrypted-drive-vertical-slice P03 | 5m | 2 tasks | 1 files |
+| Phase 01-first-encrypted-drive-vertical-slice P01 | 31m | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -59,12 +60,14 @@ progress:
 
 **Resume file:** None
 
-**Last session:** 2026-08-08T08:41:25.819Z
-**Stopped at:** Completed 01-03-PLAN.md
+**Last session:** 2026-08-08T10:12:34.234Z
+**Stopped at:** Completed 01-01-PLAN.md
 
-- Last action: Completed the blocking package-legitimacy and persisted-format approval gates; Wave 2 may begin.
+- Last action: Completed 01-01 portable contracts; Wave 3 prerequisites may begin.
 
 ## Decisions
 
 - [Phase 01]: Approved the exact Phase 1 dependency allowlist at the blocking human checkpoint.
 - [Phase 01]: Approved dlp-store/aes256gcm-4m/v1 with AES-256-GCM, 4 MiB chunks, persisted random 96-bit nonces, identity-bound AAD, staged generations, encrypted manifests, authenticated commit/pointer publication, and explicit migrations for incompatible changes.
+- [Phase 01]: Use fixed-field canonical bytes and strict Ed25519 verification before configuration activation.
+- [Phase 01]: Amended Phase 1 approval allowlist with ed25519-dalek@3.0.0 and aes-gcm@0.11.0 for the approved crypto contracts.
