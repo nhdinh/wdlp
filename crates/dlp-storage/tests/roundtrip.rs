@@ -1,5 +1,5 @@
 use dlp_domain::{FileId, StoreId, UserSid};
-use dlp_storage::{CapturedStoreIdentity, EncryptedStore, StorageError, StoreKey, CHUNK_SIZE};
+use dlp_storage::{CapturedStoreIdentity, LocalEncryptedStore, StorageError, StoreKey, CHUNK_SIZE};
 
 fn identity() -> CapturedStoreIdentity {
     CapturedStoreIdentity::new(
@@ -8,9 +8,9 @@ fn identity() -> CapturedStoreIdentity {
     )
 }
 
-fn store() -> EncryptedStore {
+fn store() -> LocalEncryptedStore {
     let root = tempfile::tempdir().expect("temporary root").keep();
-    EncryptedStore::open(root, identity(), StoreKey::from_bytes([9; 32])).expect("store opens")
+    LocalEncryptedStore::open(root, identity(), StoreKey::from_bytes([9; 32])).expect("store opens")
 }
 
 #[test]

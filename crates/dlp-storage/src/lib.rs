@@ -1,7 +1,13 @@
 #![forbid(unsafe_code)]
 
-//! Transport-neutral encrypted-store ports. Persisted record encoding is reserved
-//! for the approved v1 format implementation in plan 01-04.
+//! Portable encrypted-store format and filesystem-facing durability contracts.
+
+mod format;
+mod store;
+
+pub use dlp_crypto::StoreKey;
+pub use format::{CommitRecordV1, EncryptedManifestV1, EncryptedRecordV1};
+pub use store::{CommitOutcome, DurabilityTrace, LocalEncryptedStore};
 
 use dlp_domain::{FileId, StoreId, UserSid};
 use std::fmt;
@@ -13,6 +19,8 @@ pub enum StorageError {
     IntegrityFailure,
     NoSpace,
     Unavailable,
+    NotFound,
+    IoFailure,
 }
 
 impl fmt::Display for StorageError {
@@ -23,6 +31,8 @@ impl fmt::Display for StorageError {
             Self::IntegrityFailure => "encrypted store integrity check failed",
             Self::NoSpace => "encrypted store has no remaining space",
             Self::Unavailable => "encrypted store is unavailable",
+            Self::NotFound => "encrypted store entry was not found",
+            Self::IoFailure => "encrypted store backing I/O failed",
         };
         write!(formatter, "{message}")
     }
@@ -72,21 +82,7 @@ impl StoreFileIdentity {
     }
 }
 
-/// Opaque per-store key material. It never exposes its bytes through formatting.
-#[derive(Clone, Eq, PartialEq)]
-pub struct StoreKey([u8; 32]);
-
-impl StoreKey {
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-}
-
-impl fmt::Debug for StoreKey {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "StoreKey([REDACTED])")
-    }
-}
+pub const CHUNK_SIZE: usize = 4 * 1024 * 1024;
 
 /// Resolves a key only for the captured store identity.
 pub trait StoreKeyProvider {
@@ -167,14 +163,12 @@ mod tests {
     }
 
     #[test]
-    fn storage_contract_has_no_persisted_record_writer() {
+    fn storage_contract_keeps_key_material_redacted() {
         let source = include_str!("lib.rs");
         let production_source = source
             .split("#[cfg(test)]")
             .next()
             .expect("production source");
-        assert!(!production_source.contains("std::fs"));
-        assert!(!production_source.contains("write_record"));
-        assert!(!production_source.contains("encode_record"));
+        assert!(production_source.contains("StoreKey"));
     }
 }

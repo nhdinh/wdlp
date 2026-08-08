@@ -1,9 +1,13 @@
 #![forbid(unsafe_code)]
 
-//! Strict configuration-signature verification and the audited AEAD primitive
-//! boundary. This crate intentionally has no persisted record encoder.
+//! Strict configuration-signature verification and the approved encrypted-record primitives.
 
-use aes_gcm::{Aes256Gcm, KeyInit};
+mod aead;
+mod key;
+
+pub use aead::{NonceTracker, RecordAad, RecordCipher, RecordKind, FORMAT_ID_V1, NONCE_LENGTH};
+pub use key::StoreKey;
+
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use std::fmt;
 
@@ -19,6 +23,9 @@ pub enum CryptoError {
     UnsupportedSchema { received: u16 },
     WeakKey,
     SignatureInvalid,
+    EncryptionFailed,
+    IntegrityFailure,
+    DuplicateNonce,
 }
 
 impl fmt::Display for CryptoError {
@@ -35,6 +42,9 @@ impl fmt::Display for CryptoError {
             Self::SignatureInvalid => {
                 write!(formatter, "configuration signature verification failed")
             }
+            Self::EncryptionFailed => write!(formatter, "record encryption failed"),
+            Self::IntegrityFailure => write!(formatter, "record authentication failed"),
+            Self::DuplicateNonce => write!(formatter, "duplicate record nonce"),
         }
     }
 }
@@ -154,49 +164,9 @@ impl fmt::Debug for ConfigurationVerifier {
     }
 }
 
-/// AES-256-GCM primitive boundary for the approved future store format.
-///
-/// The future `dlp-store/aes256gcm-4m/v1` writer owns nonce allocation, AAD,
-/// record encoding, and durable publication; this type deliberately exposes none
-/// of those one-way persisted-format operations.
-pub struct RecordCipher {
-    cipher: Aes256Gcm,
-}
-
-impl RecordCipher {
-    pub fn from_key_bytes(key: [u8; 32]) -> Self {
-        Self {
-            cipher: Aes256Gcm::new_from_slice(&key).expect("AES-256 key is exactly 32 bytes"),
-        }
-    }
-
-    pub const fn algorithm(&self) -> &'static str {
-        "AES-256-GCM"
-    }
-
-    pub const fn nonce_size(&self) -> usize {
-        12
-    }
-
-    /// Exposes the vetted primitive only; this plan defines no record encoding or persistence API.
-    pub fn primitive(&self) -> &Aes256Gcm {
-        &self.cipher
-    }
-}
-
-impl fmt::Debug for RecordCipher {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("RecordCipher")
-            .field("algorithm", &self.algorithm())
-            .field("key", &"[REDACTED]")
-            .finish()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{ConfigurationSigner, ConfigurationVerifier, CryptoError, RecordCipher};
+    use super::{ConfigurationSigner, ConfigurationVerifier, CryptoError, NonceTracker, RecordCipher, RecordAad, RecordKind, StoreKey};
 
     #[test]
     fn strict_verification_rejects_tamper_wrong_key_key_id_schema_and_truncation() {
@@ -269,9 +239,12 @@ mod tests {
 
     #[test]
     fn aes_gcm_boundary_accepts_only_256_bit_key_material() {
-        let cipher = RecordCipher::from_key_bytes([9; 32]);
-        assert_eq!(cipher.algorithm(), "AES-256-GCM");
-        assert_eq!(cipher.nonce_size(), 12);
-        let _ = cipher.primitive();
+        let cipher = RecordCipher::from_store_key(&StoreKey::from_bytes([9; 32]));
+        let aad = RecordAad { format_version: 1, store_id: "store".into(), file_id: "file".into(), generation: 1, record_kind: RecordKind::Chunk, chunk_index: 0, plaintext_length: 3 };
+        let (nonce, ciphertext) = cipher.encrypt(&aad, b"abc").expect("encrypt");
+        assert_eq!(cipher.decrypt(&aad, &nonce, &ciphertext).expect("decrypt"), b"abc");
+        let mut tracker = NonceTracker::default();
+        tracker.insert(nonce).expect("first nonce");
+        assert!(matches!(tracker.insert(nonce), Err(CryptoError::DuplicateNonce)));
     }
 }
