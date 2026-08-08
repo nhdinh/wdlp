@@ -1,0 +1,15 @@
+[package]
+name = "dlp-windows-drive"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dlp-storage = { path = "../dlp-storage" }
+
+[dev-dependencies]
+dlp-domain = { path = "../dlp-domain" }
