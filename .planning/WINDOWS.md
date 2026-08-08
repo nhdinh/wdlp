@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 2
+open_count: 3
 waived_count: 0
 fixed_count: 1
-total_count: 3
-last_updated: 2026-08-08T12:21:11.946Z
+total_count: 4
+last_updated: 2026-08-08T13:46:13.813Z
 ---
 
 # Broken Windows Ledger
@@ -18,6 +18,7 @@ last_updated: 2026-08-08T12:21:11.946Z
 | 1 | 01 | deviation | .planning/STATE.md |  | state.advance-plan could not parse the starter Plan: TBD value; visible State.md position was repaired. | fixed |  | 2026-08-08T08:42:20.609Z | 2026-08-08T08:43:13.247Z |
 | 2 | 01 | unrun-verify | migrations/202608070001_walking_skeleton.sql |  | PostgreSQL SQLx migration, checksum-drift, and migration-before-listen evidence were not run; user-authorized SQLite substitution is not equivalent. | open |  | 2026-08-08T12:19:54.770Z |  |
 | 3 | 01 | deviation | .planning/STATE.md |  | state.advance-plan and state.update-progress could not parse the existing Plan: 3 of 12 format; visible plan position was repaired. | open |  | 2026-08-08T12:21:11.946Z |  |
+| 4 | 01 | unrun-verify | migrations/202608070001_walking_skeleton.sql |  | PostgreSQL migration, real PgPool repository, and migration-before-listener evidence were not run because DATABASE_URL is unavailable. | open |  | 2026-08-08T13:46:13.813Z |  |
 
 ````json
 [
@@ -55,6 +56,18 @@ last_updated: 2026-08-08T12:21:11.946Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-08T12:21:11.946Z",
+    "resolved_at": null
+  },
+  {
+    "id": 4,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": "migrations/202608070001_walking_skeleton.sql",
+    "line": null,
+    "description": "PostgreSQL migration, real PgPool repository, and migration-before-listener evidence were not run because DATABASE_URL is unavailable.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-08T13:46:13.813Z",
     "resolved_at": null
   }
 ]

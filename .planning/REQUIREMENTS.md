@@ -14,9 +14,9 @@
 
 ### Server (SRV)
 
-- [ ] **SRV-01**: Provide authenticated HTTP JSON APIs for administrators and endpoint agents.
+- [x] **SRV-01**: Provide authenticated HTTP JSON APIs for administrators and endpoint agents.
 - [ ] **SRV-02**: Support administrator authentication with basic admin and auditor roles; auditors cannot change policies or configuration.
-- [ ] **SRV-03**: Enroll Windows devices using single-use or short-lived enrollment tokens.
+- [x] **SRV-03**: Enroll Windows devices using single-use or short-lived enrollment tokens.
 - [ ] **SRV-04**: Maintain device lifecycle states: pending, active, locked, revoked, and retired.
 - [ ] **SRV-05**: Support creation, validation, versioning, signing, and assignment of policies.
 - [ ] **SRV-06**: Produce immutable, signed configuration bundles containing policy versions, schema version, agent settings, effective time, and offline allowance.
@@ -24,7 +24,7 @@
 - [ ] **SRV-08**: Accept idempotent, batched event uploads from agents.
 - [ ] **SRV-09**: Record all administrative mutations with actor, timestamp, old value, and new value.
 - [ ] **SRV-10**: Provide audit search and export by time, device, user, action, rule, and severity.
-- [ ] **SRV-11**: Persist data in PostgreSQL with versioned migrations.
+- [x] **SRV-11**: Persist data in PostgreSQL with versioned migrations.
 - [ ] **SRV-12**: Provide health and readiness endpoints.
 
 ### Policy Engine (POL)
@@ -53,9 +53,9 @@
 - [ ] **AGT-01**: Run as a Windows service with automatic startup and no interactive user session requirement.
 - [ ] **AGT-02**: Enroll the device and protect credentials using Windows-protected storage.
 - [ ] **AGT-03**: Periodically contact the server over TLS; verify server identity.
-- [ ] **AGT-04**: Download, verify, cache, and atomically activate signed configuration bundles.
-- [ ] **AGT-05**: Retain the current and last-known-good configurations.
-- [ ] **AGT-06**: Reject invalid, unsigned, corrupted, or partially downloaded bundles without replacing the active policy.
+- [x] **AGT-04**: Download, verify, cache, and atomically activate signed configuration bundles.
+- [x] **AGT-05**: Retain the current and last-known-good configurations.
+- [x] **AGT-06**: Reject invalid, unsigned, corrupted, or partially downloaded bundles without replacing the active policy.
 - [ ] **AGT-07**: Report version, health, drive state, active policy version, and errors.
 - [ ] **AGT-08**: Queue audit events locally when offline; upload in order on reconnection.
 - [ ] **AGT-09**: Bound event queue, retries, CPU, memory, and disk usage with configurable limits.
@@ -67,7 +67,7 @@
 - [ ] **DRV-01**: Provide one isolated store per authenticated Windows user.
 - [ ] **DRV-02**: Mount the drive through WinFsp with a configurable drive letter or mount path.
 - [ ] **DRV-03**: Map every request to the correct Windows user identity.
-- [ ] **DRV-04**: Encrypt file contents and sensitive metadata at rest.
+- [x] **DRV-04**: Encrypt file contents and sensitive metadata at rest.
 - [ ] **DRV-05**: Prevent one user from mounting or accessing another user's store through supported interfaces.
 - [ ] **DRV-06**: Use crash-consistent metadata and file updates.
 - [ ] **DRV-07**: Detect corrupted encrypted data and fail without returning unauthenticated plaintext.
@@ -146,9 +146,9 @@
 | WRK-02 | Phase 1 | Complete |
 | WRK-03 | Phase 1 | Complete |
 | WRK-04 | Phase 1 | Complete |
-| SRV-01 | Phase 1 | Pending |
+| SRV-01 | Phase 1 | Complete |
 | SRV-02 | Phase 2 | Pending |
-| SRV-03 | Phase 1 | Pending |
+| SRV-03 | Phase 1 | Complete |
 | SRV-04 | Phase 3 | Pending |
 | SRV-05 | Phase 2 | Pending |
 | SRV-06 | Phase 2 | Pending |
@@ -156,7 +156,7 @@
 | SRV-08 | Phase 3 | Pending |
 | SRV-09 | Phase 3 | Pending |
 | SRV-10 | Phase 3 | Pending |
-| SRV-11 | Phase 1 | Pending |
+| SRV-11 | Phase 1 | Complete |
 | SRV-12 | Phase 1 | Pending |
 | POL-01 | Phase 2 | Pending |
 | POL-02 | Phase 2 | Pending |
@@ -176,9 +176,9 @@
 | AGT-01 | Phase 1 | Pending |
 | AGT-02 | Phase 1 | Pending |
 | AGT-03 | Phase 1 | Pending |
-| AGT-04 | Phase 1 | Pending |
-| AGT-05 | Phase 1 | Pending |
-| AGT-06 | Phase 1 | Pending |
+| AGT-04 | Phase 1 | Complete |
+| AGT-05 | Phase 1 | Complete |
+| AGT-06 | Phase 1 | Complete |
 | AGT-07 | Phase 1 | Pending |
 | AGT-08 | Phase 3 | Pending |
 | AGT-09 | Phase 3 | Pending |
@@ -187,7 +187,7 @@
 | DRV-01 | Phase 1 | Pending |
 | DRV-02 | Phase 1 | Pending |
 | DRV-03 | Phase 1 | Pending |
-| DRV-04 | Phase 1 | Pending |
+| DRV-04 | Phase 1 | Complete |
 | DRV-05 | Phase 2/4 | Pending |
 | DRV-06 | Phase 1 | Pending |
 | DRV-07 | Phase 1 | Pending |

@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 4/12 plans executed
+**Plans**: 5/12 plans executed
 
 Plans:
 **Wave 1**
@@ -47,7 +47,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-05-PLAN.md (Wave 4) — Production-quality PostgreSQL/API/signed-activation/encrypted-store tracer
+- [x] 01-05-PLAN.md (Wave 4) — Production-quality PostgreSQL/API/signed-activation/encrypted-store tracer
 - [ ] 01-09-PLAN.md (Wave 4) — Crash/restart recovery, integrity evidence, disk-full preservation, and plaintext-leak tests
 
 **Wave 5** *(blocked on Wave 4 completion)*
@@ -130,7 +130,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 4/12 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 5/12 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |
