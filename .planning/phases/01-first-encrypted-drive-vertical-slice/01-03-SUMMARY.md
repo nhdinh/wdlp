@@ -6,7 +6,7 @@ tags: [supply-chain, cryptography, encrypted-store, approval-gate]
 requires: []
 provides:
   - "Exact human-approved Cargo dependency allowlist for downstream manifests and lockfiles"
-  - "Persisted encrypted-store format decision record"
+  - "Approved dlp-store/aes256gcm-4m/v1 persisted encrypted-store contract for downstream readers and writers"
 affects: [01-01, 01-02, 01-04, 01-05, 01-06, 01-07, 01-08, 01-09, 01-10, 01-11, 01-12]
 tech-stack:
   added: []
@@ -19,6 +19,7 @@ key-files:
   modified: []
 key-decisions:
   - "Approved the exact Phase 1 dependency allowlist at the blocking human checkpoint."
+  - "Approved dlp-store/aes256gcm-4m/v1: AES-256-GCM records with 4 MiB chunks and versioned migration boundaries."
 patterns-established:
   - "Downstream manifests and lockfiles may use only the exact approved package/version pairs recorded below."
 requirements-completed: [WRK-04, CRY-01, TST-03, TST-08]
@@ -55,6 +56,28 @@ All rows retain the evidence reviewed at the checkpoint: the official registry r
 | tempfile | 3.27.0 | https://crates.io/crates/tempfile/3.27.0 | https://github.com/Stebalien/tempfile | Human `approved:` signal after the required provenance review. | 2026-08-08T08:38:19Z |
 | wiremock | 0.6.5 | https://crates.io/crates/wiremock/0.6.5 | https://github.com/LukeMathWalker/wiremock-rs | Human `approved:` signal after the required provenance review. | 2026-08-08T08:38:19Z |
 
-## Pending Task 2
+## Task 2: Approved Persisted Encrypted-Store Format
 
-The persisted encrypted-store decision has not yet been recorded in this in-progress approval record.
+**Decision signal:** `approve-aes-4m`  
+**Approved format ID:** `dlp-store/aes256gcm-4m/v1`
+
+The human selected the recommended Phase 1 on-disk contract before any writer or test fixture produces persisted encrypted user data. It satisfies the selected durability and integrity decisions: successful flush/close follows a durable encrypted commit; interruption preserves the last committed generation; authentication failures return no plaintext; and a failed write leaves the prior committed version intact.
+
+| Contract area | Approved v1 requirement |
+| --- | --- |
+| Cipher | AES-256-GCM for file contents and sensitive metadata. |
+| Logical chunking | 4 MiB logical chunks; the boundary corpus includes 4 MiB - 1, 4 MiB, and 4 MiB + 1, plus the broader D-18 size range. |
+| Nonces | Generate a random 96-bit nonce from the OS CSPRNG for every encrypted record, persist it with that record, and fail staging on a duplicate nonce in a generation. |
+| AAD | Bind immutable identity fields before decryption: format ID/version, store ID, file ID, generation, record kind, chunk index, and plaintext length. |
+| Write layout | Stage each replacement in a new unreferenced generation; write and flush encrypted chunk records and an encrypted manifest before publication. |
+| Commit | Write and flush an authenticated commit record, atomically replace the selected-commit pointer, and flush the parent directory before reporting success. |
+| Recovery | Trust only the last valid authenticated commit/pointer and discard unreferenced incomplete staging later; never expose a mixed or unauthenticated version. |
+| Migration consequence | Any cipher, chunk size, record/AAD identity, manifest, commit, pointer, or layout change after v1 stores exist requires an explicit, tested versioned migration. A new writer/reader must not reinterpret existing v1 bytes in place. |
+
+**Authorized downstream use:** 01-04 may implement this exact versioned writer/reader contract. Every later store producer or consumer must retain the format ID and migration boundary; no format variation is authorized by this approval.
+
+## Verification Evidence
+
+- Task 1 allowlist verification passed: all fourteen named package records and official crates.io URLs are present.
+- Task 2 decision verification is ready to pass when the approved-format record contains `dlp-store/aes256gcm-4m/v1`, `96-bit`, `4 MiB`, and `migration`, while omitting an alternate decision signal.
+- Repository check before the approvals found no `Cargo.toml`, `Cargo.lock`, encrypted-store data, production files, or test store bytes. The plan changed only this approval record.
