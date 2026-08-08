@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "crates/dlp-domain",
+    "crates/dlp-protocol",
+    "crates/dlp-policy",
+    "crates/dlp-crypto",
+    "crates/dlp-storage",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
