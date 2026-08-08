@@ -9,5 +9,14 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+dlp-agent-core = { path = "../dlp-agent-core" }
+dlp-crypto = { path = "../dlp-crypto" }
+dlp-domain = { path = "../dlp-domain" }
+dlp-server = { path = "../dlp-server" }
+dlp-storage = { path = "../dlp-storage" }
 sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "sqlite", "tls-rustls-ring"] }
 tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread"] }
+
+[[test]]
+name = "walking_skeleton"
+path = "../../tests/e2e/walking_skeleton.rs"
