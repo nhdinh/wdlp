@@ -45,7 +45,7 @@
 - [x] **CRY-01**: Use authenticated encryption for file contents and sensitive metadata at rest.
 - [x] **CRY-02**: Sign configuration bundles with Ed25519; agents verify signature and schema version before activation.
 - [ ] **CRY-03**: Implement per-user encryption key hierarchy with a DEK wrapped by a DPAPI-NG-protected KEK and server-escrowed recovery key.
-- [ ] **CRY-04**: Store no long-lived secret in plaintext on the endpoint.
+- [x] **CRY-04**: Store no long-lived secret in plaintext on the endpoint.
 - [ ] **CRY-05**: Support server key rotation with a key identifier in each bundle.
 
 ### Endpoint Agent (AGT)
@@ -69,10 +69,10 @@
 - [ ] **DRV-03**: Map every request to the correct Windows user identity.
 - [x] **DRV-04**: Encrypt file contents and sensitive metadata at rest.
 - [ ] **DRV-05**: Prevent one user from mounting or accessing another user's store through supported interfaces.
-- [ ] **DRV-06**: Use crash-consistent metadata and file updates.
-- [ ] **DRV-07**: Detect corrupted encrypted data and fail without returning unauthenticated plaintext.
+- [x] **DRV-06**: Use crash-consistent metadata and file updates.
+- [x] **DRV-07**: Detect corrupted encrypted data and fail without returning unauthenticated plaintext.
 - [ ] **DRV-08**: Return appropriate access-denied errors and clear messages for policy-denied operations.
-- [ ] **DRV-09**: Survive service and machine restarts without corrupting committed data.
+- [x] **DRV-09**: Survive service and machine restarts without corrupting committed data.
 
 ### User Interaction (UI)
 
@@ -171,7 +171,7 @@
 | CRY-01 | Phase 1 | Complete |
 | CRY-02 | Phase 1 | Complete |
 | CRY-03 | Phase 3 | Pending |
-| CRY-04 | Phase 1 | Pending |
+| CRY-04 | Phase 1 | Complete |
 | CRY-05 | Phase 2 | Pending |
 | AGT-01 | Phase 1 | Pending |
 | AGT-02 | Phase 1 | Pending |
@@ -189,10 +189,10 @@
 | DRV-03 | Phase 1 | Pending |
 | DRV-04 | Phase 1 | Complete |
 | DRV-05 | Phase 2/4 | Pending |
-| DRV-06 | Phase 1 | Pending |
-| DRV-07 | Phase 1 | Pending |
+| DRV-06 | Phase 1 | Complete |
+| DRV-07 | Phase 1 | Complete |
 | DRV-08 | Phase 2 | Pending |
-| DRV-09 | Phase 1 | Pending |
+| DRV-09 | Phase 1 | Complete |
 | UI-01 | Phase 2 | Pending |
 | UI-02 | Phase 2 | Pending |
 | UI-03 | Phase 2 | Pending |
