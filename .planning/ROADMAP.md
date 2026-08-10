@@ -15,7 +15,7 @@
 
 ### Phase 1: First Encrypted-Drive Vertical Slice
 
-**Goal**: Prove the complete architecture with one server, one Windows endpoint, and one user, ending with a real encrypted virtual drive working on Windows.
+**Goal**: As an authorized Windows user, I want a private encrypted drive, so that committed files survive restart without readable plaintext in its backing store.
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: WRK-01, WRK-02, WRK-03, WRK-04, SRV-01, SRV-03, SRV-11, SRV-12, CRY-01, CRY-02, CRY-04, AGT-01, AGT-02, AGT-03, AGT-04, AGT-05, AGT-06, AGT-07, DRV-01, DRV-02, DRV-03, DRV-04, DRV-06, DRV-07, DRV-09, TST-01, TST-02, TST-03, TST-05, TST-08
@@ -29,24 +29,28 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 9 historical summaries preserved; 4 replacement plans pending
+**Plans**: 9 historical summaries preserved; 5 replacement plans pending
 
 Plans:
 **Wave 1**
 
-- [ ] 01-13-PLAN.md (Wave 1) — Reconcile machine roles, safely remove disallowed hungdinh-lt endpoint residue, and prove LAB-DC01 PostgreSQL migrations and readiness
+- [ ] 01-17-PLAN.md (Wave 1) — Establish layered evidence/provenance, substitute boundaries, four-machine roles, and exact privilege-manifest approvals
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-14-PLAN.md (Wave 2) — Finish trusted enrollment, DPAPI custody, signed current/LKG configuration, and the automatic LAB-CLIENT01 endpoint service
+- [ ] 01-13-PLAN.md (Wave 2) — Reconcile machine roles, safely remove disallowed hungdinh-lt endpoint residue, and prove LAB-DC01 PostgreSQL migrations and readiness
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-15-PLAN.md (Wave 3) — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, and real WinFsp/restart behavior on LAB-CLIENT01
+- [ ] 01-14-PLAN.md (Wave 3) — Finish trusted enrollment, DPAPI custody, signed current/LKG configuration, and the automatic LAB-CLIENT01 endpoint service
 
-**Wave 4** *(blocked on Waves 1-3 completion)*
+**Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-16-PLAN.md (Wave 4) — Execute the four-machine Office/Shell/size/restart/hard-off matrix and publish requirement-indexed evidence
+- [ ] 01-15-PLAN.md (Wave 4) — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, and real WinFsp/restart behavior on LAB-CLIENT01
+
+**Wave 5** *(blocked on Waves 1-4 completion)*
+
+- [ ] 01-16-PLAN.md (Wave 5) — Execute the four-machine Office/Shell/size/restart/hard-off matrix and publish independently reviewed requirement-indexed evidence
 
 ### Phase 2: Policy Enforcement and User Feedback
 
@@ -107,7 +111,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 9/13 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 9/14 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |

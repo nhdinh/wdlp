@@ -1,6 +1,6 @@
 # Phase 01 Replan Source Coverage Audit
 
-This audit is for the replacement plan set 01-13 through 01-16. Historical summaries 01-01 through 01-10 remain evidence of completed implementation; they are inputs, not work to repeat.
+This audit is for the replacement plan set 01-13 through 01-17. Historical summaries 01-01, 01-02, 01-03, 01-04, 01-05, 01-06, 01-07, 01-09, and 01-10 remain evidence of completed implementation; they are inputs, not work to repeat.
 
 ## Coverage result
 
@@ -9,7 +9,7 @@ This audit is for the replacement plan set 01-13 through 01-16. Historical summa
 | ROADMAP goal | 1 | 1 | 0 | 0 |
 | REQUIREMENTS phase IDs | 30 | 30 | 0 | 0 |
 | RESEARCH features and constraints | 14 | 14 | 0 | 0 |
-| CONTEXT locked decisions | 24 | 24 | 0 | 0 |
+| CONTEXT locked decisions | 50 | 50 | 0 | 0 |
 | Spec-less fallback edges | 36 | 36 | 0 | 0 |
 | External API/service capabilities | all detected | all classified in COVERAGE.md | 0 | reasoned OPT-OUT rows only |
 
@@ -17,7 +17,7 @@ This audit is for the replacement plan set 01-13 through 01-16. Historical summa
 
 | Source item | Status | Plan coverage |
 |---|---|---|
-| An employee can sign in on LAB-CLIENT01, receive a session-scoped encrypted drive, use it through ordinary applications, survive service/server restarts as specified, and prove graceful/hard-failure behavior against the real four-machine topology | COVERED | 01-13 establishes correct LAB-DC01 persistence and role hygiene; 01-14 completes enrollment/config/service runtime; 01-15 proves the actual endpoint drive lifecycle; 01-16 executes the production-shaped acceptance matrix |
+| As an authorized Windows user, I want a private encrypted drive, so that committed files survive restart without readable plaintext in its backing store | COVERED | 01-17 establishes evidence/privilege contracts; 01-13 proves LAB-DC01 persistence and role hygiene; 01-14 completes enrollment/config/service runtime; 01-15 proves the endpoint drive lifecycle; 01-16 executes and independently reviews the production-shaped exit matrix |
 
 ## REQ coverage
 
@@ -38,7 +38,7 @@ This audit is for the replacement plan set 01-13 through 01-16. Historical summa
 | TST-05 | COVERED | 01-14, 01-16 |
 | TST-08 | COVERED | 01-15, 01-16 |
 
-Every Phase 01 requirement ID appears in at least one replacement PLAN.md frontmatter requirements list. Plan 01-16 deliberately carries the full set because its final verifier produces the authoritative requirement-by-requirement evidence index.
+Every Phase 01 requirement ID appears in at least one replacement PLAN.md frontmatter requirements list. Plans 01-16 and 01-17 deliberately carry the full set: 01-17 creates the authoritative empty/current evidence index and 01-16 fills and independently reviews it.
 
 ## RESEARCH coverage
 
@@ -58,6 +58,7 @@ Every Phase 01 requirement ID appears in at least one replacement PLAN.md frontm
 | PostgreSQL with versioned SQLx migrations and durable restart behavior | COVERED | 01-13 on LAB-DC01; SQLite explicitly limited to isolated unit tests |
 | Office/Shell/large-file and graceful restart matrix | COVERED | 01-16 |
 | Hyper-V hard-off validation and evidence integrity | COVERED | 01-16 |
+| Layered portable/Hyper-V/visual/exit verification, immutable provenance, privilege manifests, cleanup/idempotence, and independent review | COVERED | 01-17 defines the shared contract; 01-13 through 01-16 consume it |
 
 Package legitimacy result: no new npm, pip, or cargo package installation is planned. Existing lockfiles and approved dependencies are reused, so no package-legitimacy checkpoint is introduced.
 
@@ -72,6 +73,13 @@ Schema-push result: no listed JavaScript ORM push pattern is present. Rust SQLx 
 | D-11, D-12, D-13, D-14, D-15 | COVERED | preserved storage/recovery implementation wired and revalidated in 01-15; 01-16 |
 | D-16, D-17, D-18, D-19 | COVERED | 01-16 application, operations, size-boundary, restart, and hard-off matrix |
 | D-20, D-21, D-22, D-23, D-24 | COVERED | 01-13 role reconciliation and all machine-bound commands; 01-14 through 01-16 enforce the same topology |
+| D-25, D-26, D-27, D-28 | COVERED | 01-17 defines layered tiers, visual-only scope, role validity, and no-waiver matrix rules; 01-13 through 01-16 use them |
+| D-29, D-30, D-31, D-32 | COVERED | 01-17 encodes substitute boundaries; 01-13 proves PostgreSQL, 01-14 proves lab PKI and virtual-disk identity-change behavior, and 01-15/01-16 reject runtime substitutes |
+| D-33, D-34, D-35, D-36 | COVERED | 01-17 authors and gates exact per-plan privilege manifests; 01-13 through 01-16 require digest approval, baseline, cleanup, idempotence, pin/integrity, and role allowlists |
+| D-37, D-38, D-39, D-40 | COVERED | 01-17 defines manifest/visual/publication/staleness contracts; every downstream plan publishes through them |
+| D-41, D-42, D-43, D-44 | COVERED | 01-17 implements immutable reruns, full requirement matrix, raw-artifact validity, versioned unique IDs, and supersession links |
+| D-45, D-46, D-47 | COVERED | 01-17 implements clock-skew blocking, allowlisted redaction/scanning, and stable environment fingerprints |
+| D-48, D-49, D-50 | COVERED | 01-17 defines independent review, deviation, and retention/hold contracts; 01-16 requires the signed final review and validates retention state |
 
 Deferred ideas: none were imported into the replan.
 

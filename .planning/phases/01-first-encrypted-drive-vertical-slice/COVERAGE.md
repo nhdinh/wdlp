@@ -9,6 +9,7 @@ Binding execution roles:
 - LAB-DC02 independently supplies secondary AD corroboration.
 - LAB-CLIENT01 runs every endpoint service, DPAPI, session, WinFsp, file, restart, and reboot verification.
 - Every operation first asserts the actual computer name against the expected role. Sensitive values enter only through a runtime secret provider and never appear in this file, commands, evidence, or commits.
+- Plan 01-17 owns the versioned evidence schema, verification-tier rules, substitute boundaries, requirement matrix, and exact per-plan privilege manifests. Plans 01-13 through 01-16 may publish a passing result only through that contract.
 
 | capability | decision | reason |
 |---|---|---|
@@ -18,6 +19,18 @@ Binding execution roles:
 | role.remove-verified-host-dlp-endpoint-artifacts | INTEGRATE | Plan 01-13 removes only exact DLP endpoint residue from hungdinh-lt |
 | role.remove-host-developer-tools | OPT-OUT | D-20 requires Rust LLVM Hyper-V repositories and unrelated tools to remain |
 | role.collect-endpoint-evidence-on-host | OPT-OUT | D-24 makes hungdinh-lt evidence invalid for endpoint requirements |
+| privilege.validate-plan-manifest-digest | INTEGRATE | Plan 01-17 records exact plan/machine changes and Plans 01-13 through 01-16 fail before mutation unless the matching digest is approved |
+| privilege.capture-baseline-and-cleanup | INTEGRATE | Every elevated plan captures before-state, declares persistence, cleans temporary state after success/failure, and verifies final state |
+| privilege.idempotent-apply-verify-remove | INTEGRATE | Every elevated operation exposes safe apply, verify, and remove behavior and handles partial prior state explicitly |
+| evidence.validate-versioned-manifest | INTEGRATE | Plan 01-17 validates every attempt against the versioned D-37/D-44 schema |
+| evidence.publish-sanitized-allowlisted-fields | INTEGRATE | Plan 01-17 blocks credentials, keys, tokens, protected plaintext, raw serials, and unnecessary personal data |
+| evidence.reference-controlled-raw-artifact | INTEGRATE | Passing rows require accessible immutable raw-artifact IDs and matching hashes unless explicitly self-contained |
+| evidence.retain-failures-and-supersession | INTEGRATE | Every rerun gets a new evidence ID and links prior attempt, remediation commit, and superseded matrix entry |
+| evidence.invalidate-relevant-drift | INTEGRATE | Binary, source, configuration, infrastructure, procedure, or machine-baseline drift stales only affected rows |
+| evidence.block-clock-skew | INTEGRATE | Domain UTC hierarchy and observed offset are recorded; excessive skew blocks publication |
+| evidence.signed-visual-checklist | INTEGRATE | Only D-26 visible LAB-CLIENT01 rows use authenticated-domain-identity signed checklist records |
+| evidence.independent-phase-exit-review | INTEGRATE | Plan 01-16 requires an independent verifier to sign the complete matrix/provenance/deviation/artifact-integrity digest |
+| evidence.silent-prohibition-check-synthesis | OPT-OUT | SPEC-less prohibitions remain descriptor-less flagged-unverified; no wired check is fabricated |
 | postgres.start-development-database | INTEGRATE | Plan 01-13 starts PostgreSQL inside LAB-DC01 |
 | postgres.apply-versioned-sqlx-migrations | INTEGRATE | Plan 01-13 applies checksummed forward migrations inside LAB-DC01 before listener bind |
 | postgres.repeat-migrations-idempotently | INTEGRATE | Plan 01-13 proves repeated migration convergence inside LAB-DC01 |
@@ -38,12 +51,12 @@ Binding execution roles:
 | http.dependency-readiness | INTEGRATE | LAB-CLIENT01 probes LAB-DC01 health ready after PostgreSQL migrations |
 | http.admin-create-enrollment-token | INTEGRATE | Trusted provisioning executes on LAB-DC01 using admin mTLS |
 | http.admin-register-fingerprint | INTEGRATE | Trusted provisioning binds the confirmed fingerprint on LAB-DC01 |
-| http.admin-revoke-device | INTEGRATE | LAB-DC01 exposes authenticated device revocation |
+| http.admin-revoke-device | OPT-OUT | General administrator-driven lifecycle revocation is SRV-04/Phase 3; Phase 1 only proves D-06 atomic prior-credential revocation during replacement |
 | http.device-initial-enrollment | INTEGRATE | LAB-CLIENT01 submits token identity observation and CSR to LAB-DC01 |
 | http.device-certificate-replacement | INTEGRATE | LAB-CLIENT01 replacement atomically revokes prior serial on LAB-DC01 |
 | http.device-fetch-signed-configuration | INTEGRATE | LAB-CLIENT01 polls and validates current signed configuration |
 | http.device-post-health | INTEGRATE | LAB-CLIENT01 posts redacted endpoint health to LAB-DC01 |
-| http.device-post-audit-batch | INTEGRATE | LAB-CLIENT01 posts bounded redacted audit records to LAB-DC01 |
+| http.device-post-audit-batch | OPT-OUT | Batched event upload is SRV-08/Phase 3 and is not a Phase 1 requirement or success criterion |
 | http.unbounded-body-or-timeout | OPT-OUT | Plans 01-13 and 01-14 require bounded bodies and timeouts |
 | tls.server-hostname-validation | INTEGRATE | LAB-CLIENT01 validates the ordinary LAB-DC01 hostname and public root |
 | tls.dangerous-certificate-verifier | OPT-OUT | Plan 01-14 prohibits verifier bypasses |
