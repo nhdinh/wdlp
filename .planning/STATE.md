@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 01-17-PLAN.md
-last_updated: "2026-08-10T12:24:20.713Z"
+stopped_at: Completed 01-22-PLAN.md
+last_updated: "2026-08-10T12:38:37.290Z"
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 11
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -23,10 +23,10 @@ progress:
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 1 of 11
+- **Plan**: 2 of 11
 - **Status**: In progress
-- **Progress**: 9%
-- **Next plan**: 01-22 (Wave 2)
+- **Progress**: 18%
+- **Next plan**: 01-23 (Wave 3)
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ progress:
 | Phase 01-first-encrypted-drive-vertical-slice P07 | 3h 20m | 2 tasks | 13 files |
 | Phase 01-first-encrypted-drive-vertical-slice P10 | 48min | 2 tasks | 14 files |
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 20m | 3 tasks | 9 files |
+| Phase 01-first-encrypted-drive-vertical-slice P22 | 40m | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -65,10 +66,10 @@ progress:
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/01-17-SUMMARY.md
+**Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/01-22-SUMMARY.md
 
-**Last session:** 2026-08-10T12:24:20.696Z
-**Stopped at:** Completed 01-17-PLAN.md
+**Last session:** 2026-08-10T12:38:37.274Z
+**Stopped at:** Completed 01-22-PLAN.md
 
 - Last action: Split previously implicit server authority and trusted provisioning into source-complete Plans 01-22/01-23, made 01-13 execute dual-DC plus Kerberos WinRM-over-HTTPS provisioning before 01-14 enrollment, narrowed 01-14 to client-owned files, and made every automated verification fail closed. Eleven replacement plans now form eleven acyclic waves while all D-01 through D-50, 30 Phase 1 requirements, privilege/evidence controls, and nine historical summaries remain preserved.
 
@@ -92,3 +93,5 @@ progress:
 - [Phase 01]: Use documented WinFsp safe APIs and delay-load linkage only; publish write/truncate/overwrite before callback success.
 - [Phase 01]: Phase 1 evidence is fail-closed: stale, deviated, wrong-machine, secret-bearing, inaccessible, and hash-mismatched evidence cannot pass.
 - [Phase 01]: Approved exactly the eight digest-bound privilege manifests for plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21.
+- [Phase 01]: PostgreSQL source authority uses row locks and one transaction for token consumption, predecessor revocation, and new-serial activation.
+- [Phase 01]: Plan 01-22 source tests do not substitute for LAB-DC01 PostgreSQL transaction evidence required by Plan 01-13.

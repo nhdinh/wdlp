@@ -106,6 +106,15 @@ actuals:
 - **Fix:** Renamed it `TestAuthorityRepository` and isolated test enrollment callers from the PgPool production service.
 - **Files modified:** `crates/dlp-server/src/{repository,enrollment,lib}.rs`.
 
+**3. [Rule 3 - Blocking] Repaired visible planning position after the state SDK could not parse legacy position fields.**
+- **Found during:** Plan close-out.
+- **Fix:** Aligned the visible position to 2/11 completed plans and selected 01-23 as the Wave 3 next plan while retaining the SDK-recorded metrics/session updates.
+- **Files modified:** `.planning/STATE.md`.
+
+**4. [Rule 2 - Evidence integrity] Left shared requirements open pending all declaring plans and real LAB-DC01 evidence.**
+- **Found during:** Plan close-out.
+- **Reason:** `requirements.ready-ids` reported 0/5 ready. Marking source-only implementations complete would promote portable evidence into the infrastructure boundary.
+
 **Total deviations:** 2 auto-fixed. **Impact:** The implementation is more explicit about the portable-versus-LAB-DC01 verification boundary.
 
 ## Known Stubs
