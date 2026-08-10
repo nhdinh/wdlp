@@ -209,3 +209,16 @@ fn production_startup_contract_constructs_runtime_providers_before_binding() {
     assert!(main.contains("ProductionProviders::from_environment"));
     assert!(!main.contains("ProductionProviders::default()"));
 }
+
+#[test]
+fn trusted_provisioning_preflight_requires_named_lab_roles_and_kerberos_tls() {
+    let procedure = include_str!("../../scripts/lab/Invoke-TrustedProvisioning.ps1");
+    assert!(procedure.contains("LAB-DC01"));
+    assert!(procedure.contains("LAB-DC02"));
+    assert!(procedure.contains("LAB-CLIENT01"));
+    assert!(procedure.contains("Get-ADComputer -Server"));
+    assert!(procedure.contains("New-CimSession"));
+    assert!(procedure.contains("Kerberos"));
+    assert!(procedure.contains("UseSSL"));
+    assert!(!procedure.contains("Write-Output $token"));
+}
