@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Phase 01 scope revision complete; ready to execute 01-17
-last_updated: "2026-08-10T11:04:56Z"
+stopped_at: Phase 01 revision iteration 2 complete; ready to execute 01-17
+last_updated: "2026-08-10T11:46:08.859Z"
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 9
+  total_plans: 11
   completed_plans: 0
 ---
 
@@ -23,9 +23,9 @@ progress:
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 9 of 18
+- **Plan**: 9 of 20
 - **Status**: In progress
-- **Progress**: 50%
+- **Progress**: 45%
 - **Next plan**: 01-17 (Wave 1)
 
 ## Performance Metrics
@@ -67,9 +67,9 @@ progress:
 **Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/01-CONTEXT.md
 
 **Last session:** 2026-08-10T11:04:56Z
-**Stopped at:** Phase 01 scope revision complete; ready to execute 01-17
+**Stopped at:** Phase 01 revision iteration 2 complete; ready to execute 01-17
 
-- Last action: Split the security-sensitive replacement work into nine plans across nine acyclic waves: enrollment (01-14), signed configuration (01-18), service lifecycle (01-19), session/IPC (01-15), integrity/recovery (01-20), matrix execution (01-16), and final evidence sealing (01-21), while 01-17 and 01-13 remain the evidence/privilege and server-role tracers. All D-01 through D-50, 30 Phase 1 requirements, layered machine-specific verification, exact per-plan privilege manifests, and nine historical summaries remain preserved.
+- Last action: Split previously implicit server authority and trusted provisioning into source-complete Plans 01-22/01-23, made 01-13 execute dual-DC plus Kerberos WinRM-over-HTTPS provisioning before 01-14 enrollment, narrowed 01-14 to client-owned files, and made every automated verification fail closed. Eleven replacement plans now form eleven acyclic waves while all D-01 through D-50, 30 Phase 1 requirements, privilege/evidence controls, and nine historical summaries remain preserved.
 
 ## Decisions
 

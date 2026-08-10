@@ -1,6 +1,6 @@
 # Phase 01 Replan Source Coverage Audit
 
-This audit is for the nine replacement plans executed in wave order: 01-17, 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21. Historical summaries 01-01, 01-02, 01-03, 01-04, 01-05, 01-06, 01-07, 01-09, and 01-10 remain evidence of completed implementation; they are inputs, not work to repeat.
+This audit is for the eleven replacement plans executed in wave order: 01-17, 01-22, 01-23, 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21. Historical summaries 01-01, 01-02, 01-03, 01-04, 01-05, 01-06, 01-07, 01-09, and 01-10 remain evidence of completed implementation; they are inputs, not work to repeat.
 
 ## Coverage result
 
@@ -17,15 +17,15 @@ This audit is for the nine replacement plans executed in wave order: 01-17, 01-1
 
 | Source item | Status | Plan coverage |
 |---|---|---|
-| As an authorized Windows user, I want a private encrypted drive, so that committed files survive restart without readable plaintext in its backing store | COVERED | 01-17 establishes evidence/privilege contracts; 01-13 proves LAB-DC01 persistence and role hygiene; 01-14/01-18/01-19 complete enrollment, signed configuration, and service runtime; 01-15/01-20 prove session lifecycle and integrity/recovery; 01-16 executes the production/application matrix; 01-21 completes D-19 and independently reviews the sealed exit matrix |
+| As an authorized Windows user, I want a private encrypted drive, so that committed files survive restart without readable plaintext in its backing store | COVERED | 01-17 establishes evidence/privilege contracts; 01-22/01-23 complete PostgreSQL enrollment authority, production TLS/routes/providers, and trusted-provisioning interfaces; 01-13 deploys them and executes approved dual-DC/Kerberos provisioning; 01-14/01-18/01-19 complete endpoint enrollment, signed configuration, and service runtime; 01-15/01-20 prove session lifecycle and integrity/recovery; 01-16 executes the production/application matrix; 01-21 completes D-19 and independently reviews the sealed exit matrix |
 
 ## REQ coverage
 
 | Requirement IDs | Status | Plan coverage |
 |---|---|---|
-| WRK-01, WRK-02, WRK-03, WRK-04 | COVERED | 01-13, 01-16, 01-17, 01-21 |
-| SRV-01 | COVERED | 01-13, 01-16, 01-17, 01-21 |
-| SRV-03 | COVERED | 01-14, 01-16, 01-17, 01-21 |
+| WRK-01, WRK-02, WRK-03, WRK-04 | COVERED | 01-22, 01-13, 01-16, 01-17, 01-21 |
+| SRV-01 | COVERED | 01-23, 01-13, 01-16, 01-17, 01-21 |
+| SRV-03 | COVERED | 01-22, 01-23, 01-13, 01-14, 01-16, 01-17, 01-21 |
 | SRV-11, SRV-12 | COVERED | 01-13, 01-16, 01-17, 01-21 |
 | CRY-01 | COVERED | 01-15, 01-20, 01-16, 01-17, 01-21 |
 | CRY-02 | COVERED | 01-18, 01-16, 01-17, 01-21 |
@@ -40,7 +40,7 @@ This audit is for the nine replacement plans executed in wave order: 01-17, 01-1
 | TST-01 | COVERED | preserved automated source tests plus 01-16, 01-17, and 01-21 |
 | TST-02 | COVERED | 01-18, 01-16, 01-17, 01-21 |
 | TST-03 | COVERED | 01-15, 01-20, 01-16, 01-17, 01-21 |
-| TST-05 | COVERED | 01-14, 01-16, 01-17, 01-21 |
+| TST-05 | COVERED | 01-22, 01-23, 01-13, 01-14, 01-16, 01-17, 01-21 |
 | TST-08 | COVERED | 01-15, 01-20, 01-16, 01-17, 01-21 |
 
 Every Phase 01 requirement ID appears in at least one replacement PLAN.md frontmatter requirements list. Plans 01-16, 01-17, and 01-21 deliberately carry the full set: 01-17 creates the authoritative evidence index, 01-16 fills the production/application rows, and 01-21 validates the complete matrix and independent review.
@@ -50,22 +50,22 @@ Every Phase 01 requirement ID appears in at least one replacement PLAN.md frontm
 | Research item | Status | Plan coverage |
 |---|---|---|
 | Preserve approved Rust/LLVM/Hyper-V development stack and completed implementations | COVERED | 01-13 inventory guard; all plans use existing crates and source patterns |
-| Correct four-machine responsibility map | COVERED | all nine replacement plans, plus COVERAGE.md |
-| Two independent AD authorities with authenticated directory access | COVERED | 01-13, 01-14, 01-16, 01-21 |
-| Kerberos-authenticated WinRM/CIM collection from trusted LAB-DC01 | COVERED | 01-13, 01-14, 01-16 |
-| Authenticated HTTPS server boundary and mTLS endpoint identity | COVERED | 01-14, 01-19, 01-16 |
-| Trusted enrollment station and fingerprint confirmation | COVERED | 01-14 |
+| Correct four-machine responsibility map | COVERED | all eleven replacement plans, plus COVERAGE.md |
+| Two independent AD authorities with authenticated directory access | COVERED | 01-23 source contract; 01-13 real execution; 01-14, 01-16, and 01-21 verification |
+| Kerberos-authenticated WinRM/CIM collection from trusted LAB-DC01 | COVERED | 01-23 source contract; 01-13 real execution; 01-16 final matrix |
+| Authenticated HTTPS server boundary and mTLS endpoint identity | COVERED | 01-22/01-23 server implementation; 01-14, 01-19, and 01-16 endpoint/runtime proof |
+| Trusted enrollment station and fingerprint confirmation | COVERED | 01-23 procedure/CLI and 01-13 approved LAB-DC01 execution before 01-14 |
 | DPAPI machine-scope custody with explicit ACLs and failure closure | COVERED | 01-14 |
 | Durable last-known-good configuration cache | COVERED | 01-18 |
 | Automatic Windows service plus per-session WTS/IPC host lifecycle | COVERED | 01-19, 01-15 |
 | Existing encrypted storage, journal, recovery, audit, and key-lifecycle code remains authoritative | COVERED | 01-15 wiring and 01-20 integrity/recovery proof |
 | Real WinFsp callback/runtime integration | COVERED | 01-15 session tracer and 01-20 fault/restart proof on LAB-CLIENT01 only |
-| PostgreSQL with versioned SQLx migrations and durable restart behavior | COVERED | 01-13 on LAB-DC01; SQLite explicitly limited to isolated unit tests |
+| PostgreSQL with versioned SQLx migrations and durable restart behavior | COVERED | 01-22 PostgreSQL-native authority/repository source; 01-13 real LAB-DC01 execution; SQLite explicitly limited to isolated unit tests |
 | Office/Shell/large-file and graceful restart matrix | COVERED | 01-16 |
 | Hyper-V hard-off validation and evidence integrity | COVERED | 01-21 |
-| Layered portable/Hyper-V/visual/exit verification, immutable provenance, privilege manifests, cleanup/idempotence, and independent review | COVERED | 01-17 defines the shared contract; the other eight replacement plans consume it; 01-21 seals and reviews the exit matrix |
+| Layered portable/Hyper-V/visual/exit verification, immutable provenance, privilege manifests, cleanup/idempotence, and independent review | COVERED | 01-17 defines the shared contract; Plans 01-22/01-23 are source-only, the eight lab-mutating plans consume exact privilege manifests, and 01-21 seals/reviews the exit matrix |
 
-Package legitimacy result: no new npm, pip, or cargo package installation is planned. Existing lockfiles and approved dependencies are reused, so no package-legitimacy checkpoint is introduced.
+Package legitimacy result: Plan 01-23 adds the exact `reqwest@0.13.4` direct dependency already reviewed and human-approved in `01-03-SUMMARY.md`; Plan 01-14 reuses that locked graph. No unaudited npm, pip, or cargo package is introduced, so no new package-legitimacy checkpoint is required.
 
 Schema-push result: no listed JavaScript ORM push pattern is present. Rust SQLx versioned migrations are planned directly; no ORM push is fabricated.
 
@@ -73,14 +73,14 @@ Schema-push result: no listed JavaScript ORM push pattern is present. Rust SQLx 
 
 | Locked decision IDs | Status | Plan coverage |
 |---|---|---|
-| D-01, D-02, D-03, D-04, D-05, D-06 | COVERED | 01-14 enrollment/credential custody, 01-19 service startup, and 01-16 production proof |
+| D-01, D-02, D-03, D-04, D-05, D-06 | COVERED | 01-22 PostgreSQL/PKI transactions; 01-23 production routes/providers and trusted procedure; 01-13 approved pre-enrollment provisioning; 01-14 endpoint credential custody/replacement; 01-19 startup; 01-16 production proof |
 | D-07, D-08, D-09, D-10 | COVERED | 01-15 session detection, deterministic drive selection, per-session host, and mount lifecycle; 01-16 |
 | D-11, D-12, D-13, D-14, D-15 | COVERED | 01-15 session/commit wiring, 01-20 integrity/recovery proof, and 01-16 production matrix |
 | D-16, D-17, D-18 | COVERED | 01-16 application, operation, and size-boundary matrix |
 | D-19 | COVERED | 01-20 restart/reboot validation and 01-21 forced-termination/hard-off exit matrix |
-| D-20, D-21, D-22, D-23, D-24 | COVERED | 01-13 role reconciliation and every downstream machine-bound command |
+| D-20, D-21, D-22, D-23, D-24 | COVERED | 01-23 machine-guarded trusted procedure; 01-13 role reconciliation and real provisioning; every downstream machine-bound command |
 | D-25, D-26, D-27, D-28 | COVERED | 01-17 defines layered tiers, visual-only scope, role validity, and no-waiver rules; every other replacement plan consumes them |
-| D-29, D-30, D-31, D-32 | COVERED | 01-17 encodes substitute boundaries; 01-13 proves PostgreSQL, 01-14 proves lab PKI and virtual-disk identity change, and 01-18 through 01-21 reject runtime substitutes |
+| D-29, D-30, D-31, D-32 | COVERED | 01-17 encodes substitute boundaries; 01-22 removes production in-memory authority; 01-13 proves PostgreSQL; 01-14 proves lab PKI and virtual-disk identity change; 01-18 through 01-21 reject runtime substitutes |
 | D-33, D-34, D-35, D-36 | COVERED | 01-17 authors and gates eight exact per-plan privilege manifests; each consuming plan requires its separate digest, baseline, cleanup, idempotence, integrity, and role allowlist |
 | D-37, D-38, D-39, D-40 | COVERED | 01-17 defines manifest/visual/publication/staleness contracts; every downstream plan publishes through them |
 | D-41, D-42, D-43, D-44 | COVERED | 01-17 implements immutable reruns, full requirement matrix, raw-artifact validity, versioned unique IDs, and supersession links |
@@ -99,7 +99,7 @@ Each unresolved probe row is explicit in replacement-plan `must_haves.assumption
 |---|---:|---|
 | WRK-01, WRK-02, WRK-03, WRK-04 unclassified | 4 | flagged-unverified in 01-13 |
 | SRV-01 concurrency | 1 | covered by concurrent readiness/collection proof in 01-13 |
-| SRV-03 unclassified | 1 | flagged-unverified in 01-14 |
+| SRV-03 unclassified | 1 | flagged-unverified across 01-22/01-23/01-13/01-14 and final-gated by 01-21 |
 | SRV-11 idempotency and concurrency | 2 | covered by repeated/concurrent migration starts in 01-13 |
 | SRV-12 concurrency | 1 | covered by concurrent collector proof in 01-13 |
 | CRY-01 concurrency | 1 | covered by session/key concurrency proof in 01-15 |
@@ -129,4 +129,4 @@ This phase integrates external services and platform APIs. `COVERAGE.md` is the 
 
 ## Final audit verdict
 
-COVERED. No GOAL, REQ, RESEARCH, or CONTEXT item is missing. No phase split or developer deferral is required.
+COVERED. No GOAL, REQ, RESEARCH, or CONTEXT item is missing. The added 01-22/01-23 slices make previously implicit server authority and trusted-provisioning work executable without deferral or scope reduction.

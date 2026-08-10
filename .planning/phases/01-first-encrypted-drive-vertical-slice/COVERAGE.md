@@ -9,7 +9,7 @@ Binding execution roles:
 - LAB-DC02 independently supplies secondary AD corroboration.
 - LAB-CLIENT01 runs every endpoint service, DPAPI, session, WinFsp, file, restart, and reboot verification.
 - Every operation first asserts the actual computer name against the expected role. Sensitive values enter only through a runtime secret provider and never appear in this file, commands, evidence, or commits.
-- Plan 01-17 owns the versioned evidence schema, verification-tier rules, substitute boundaries, requirement matrix, and exact privilege manifests for Plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21. Every downstream plan may publish a passing result only through that contract.
+- Plan 01-17 owns the versioned evidence schema, verification-tier rules, substitute boundaries, requirement matrix, source-only declarations for Plans 01-22/01-23, and exact privilege manifests for lab-mutating Plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21. Every downstream plan may publish a passing result only through that contract.
 
 | capability | decision | reason |
 |---|---|---|
@@ -19,7 +19,7 @@ Binding execution roles:
 | role.remove-verified-host-dlp-endpoint-artifacts | INTEGRATE | Plan 01-13 removes only exact DLP endpoint residue from hungdinh-lt |
 | role.remove-host-developer-tools | OPT-OUT | D-20 requires Rust LLVM Hyper-V repositories and unrelated tools to remain |
 | role.collect-endpoint-evidence-on-host | OPT-OUT | D-24 makes hungdinh-lt evidence invalid for endpoint requirements |
-| privilege.validate-plan-manifest-digest | INTEGRATE | Plan 01-17 records exact plan/machine changes and each of Plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21 fails before mutation unless its matching digest is approved |
+| privilege.validate-plan-manifest-digest | INTEGRATE | Plan 01-17 records 01-22/01-23 as source-only and exact plan/machine changes for Plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21; every lab-mutating plan fails before mutation unless its digest is approved |
 | privilege.capture-baseline-and-cleanup | INTEGRATE | Every elevated plan captures before-state, declares persistence, cleans temporary state after success/failure, and verifies final state |
 | privilege.idempotent-apply-verify-remove | INTEGRATE | Every elevated operation exposes safe apply, verify, and remove behavior and handles partial prior state explicitly |
 | evidence.validate-versioned-manifest | INTEGRATE | Plan 01-17 validates every attempt against the versioned D-37/D-44 schema |
@@ -32,7 +32,7 @@ Binding execution roles:
 | evidence.independent-phase-exit-review | INTEGRATE | Plan 01-21 requires an independent verifier to sign the complete matrix/provenance/deviation/artifact-integrity digest |
 | evidence.silent-prohibition-check-synthesis | OPT-OUT | SPEC-less prohibitions remain descriptor-less flagged-unverified; no wired check is fabricated |
 | postgres.start-development-database | INTEGRATE | Plan 01-13 starts PostgreSQL inside LAB-DC01 |
-| postgres.apply-versioned-sqlx-migrations | INTEGRATE | Plan 01-13 applies checksummed forward migrations inside LAB-DC01 before listener bind |
+| postgres.apply-versioned-sqlx-migrations | INTEGRATE | Plan 01-22 makes authority migrations PostgreSQL-native; Plan 01-13 applies the checksummed forward ledger inside LAB-DC01 before listener bind |
 | postgres.repeat-migrations-idempotently | INTEGRATE | Plan 01-13 proves repeated migration convergence inside LAB-DC01 |
 | postgres.handle-concurrent-server-start | INTEGRATE | Plan 01-13 proves concurrent starters do not diverge inside LAB-DC01 |
 | postgres.fail-on-migration-checksum-drift | INTEGRATE | Plan 01-13 proves failure before bind while preserving the prior LAB-DC01 database |
@@ -40,17 +40,17 @@ Binding execution roles:
 | postgres.automatic-production-seeding | OPT-OUT | ADR-003 forbids automatic production seed data |
 | sqlite.isolated-unit-test-backend | INTEGRATE | SQLite remains permitted only in explicitly isolated tests on hungdinh-lt |
 | sqlite.deployment-verification | OPT-OUT | SRV-11 and TST-05 require PostgreSQL evidence from LAB-DC01 |
-| ad.primary-domain-computer-lookup | INTEGRATE | LAB-DC01 authenticates and validates the enrolled computer |
-| ad.secondary-domain-computer-lookup | INTEGRATE | LAB-DC02 independently corroborates the same computer |
+| ad.primary-domain-computer-lookup | INTEGRATE | Plan 01-23 implements the explicit lookup and Plan 01-13 executes it from LAB-DC01 before enrollment |
+| ad.secondary-domain-computer-lookup | INTEGRATE | Plan 01-23 implements independent corroboration and Plan 01-13 executes the LAB-DC02 query before enrollment |
 | ad.accept-single-authority-result | OPT-OUT | D-02 requires two-authority agreement before enrollment |
-| winrm.kerberos-authenticated-cim-query | INTEGRATE | Trusted LAB-DC01 collects LAB-CLIENT01 hardware over WinRM HTTPS |
+| winrm.kerberos-authenticated-cim-query | INTEGRATE | Plan 01-23 implements the guarded collector and Plan 01-13 executes it from trusted LAB-DC01 before Plan 01-14 |
 | winrm.basic-or-ntlm-collector-auth | OPT-OUT | The trusted collector requires Kerberos and cannot downgrade |
 | windows.hardware-fingerprint-api | INTEGRATE | LAB-CLIENT01 service and LAB-DC01 collector use documented Windows APIs |
 | windows.powershell-production-fingerprint | OPT-OUT | Plan 01-19 replaces the partial production PowerShell collector |
 | http.live-readiness | INTEGRATE | LAB-CLIENT01 probes LAB-DC01 health live |
 | http.dependency-readiness | INTEGRATE | LAB-CLIENT01 probes LAB-DC01 health ready after PostgreSQL migrations |
-| http.admin-create-enrollment-token | INTEGRATE | Trusted provisioning executes on LAB-DC01 using admin mTLS |
-| http.admin-register-fingerprint | INTEGRATE | Trusted provisioning binds the confirmed fingerprint on LAB-DC01 |
+| http.admin-create-enrollment-token | INTEGRATE | Plans 01-22/01-23 implement PostgreSQL/admin-mTLS authority; Plan 01-13 executes and evidences it on LAB-DC01 before enrollment |
+| http.admin-register-fingerprint | INTEGRATE | Plan 01-23 supplies dual-DC/Kerberos input and Plan 01-13 proves the exact digest-only PostgreSQL record |
 | http.admin-revoke-device | OPT-OUT | General administrator-driven lifecycle revocation is SRV-04/Phase 3; Phase 1 only proves D-06 atomic prior-credential revocation during replacement |
 | http.device-initial-enrollment | INTEGRATE | LAB-CLIENT01 submits token identity observation and CSR to LAB-DC01 |
 | http.device-certificate-replacement | INTEGRATE | LAB-CLIENT01 replacement atomically revokes prior serial on LAB-DC01 |
