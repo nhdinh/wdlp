@@ -129,3 +129,31 @@ fn sids_handles_and_failed_publication_remain_isolated() {
         b"first"
     );
 }
+
+#[test]
+fn encrypted_namespace_survives_reopen_without_plaintext_names() {
+    let root = tempfile::tempdir().expect("temporary root");
+    let identity = CapturedStoreIdentity::new(
+        UserSid::parse("S-1-5-21-3000").expect("SID"),
+        StoreId::parse("store-reopen").expect("store ID"),
+    );
+    let key = StoreKey::from_bytes([7; 32]);
+    let documents = VirtualPath::parse("Documents").expect("directory");
+    let report = VirtualPath::parse("Documents/Secret Report.txt").expect("file");
+    let renamed = VirtualPath::parse("Documents/Final Report.txt").expect("rename");
+    let mut first = LocalEncryptedStore::open(root.path(), identity.clone(), key.clone()).expect("open");
+    first.create_directory(&documents).expect("directory");
+    let handle = first.create_or_open(&report, true, true).expect("file");
+    first.write_handle(handle, 0, b"contents").expect("write");
+    first.flush_handle(handle).expect("publish");
+    first.close_handle(handle).expect("close");
+    first.rename(&report, &renamed, false).expect("rename");
+    drop(first);
+
+    let restarted = LocalEncryptedStore::open(root.path(), identity, key).expect("restart");
+    assert_eq!(restarted.read_directory(&documents).expect("enumerate"), vec!["Final Report.txt"]);
+    assert_eq!(restarted.read_path(&renamed).expect("read"), b"contents");
+    let backing = std::fs::read(root.path().join("stores").join("store-reopen").join("namespace.rec"))
+        .expect("encrypted namespace record");
+    assert!(!backing.windows(b"Secret Report.txt".len()).any(|value| value == b"Secret Report.txt"));
+}
