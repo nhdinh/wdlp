@@ -75,7 +75,12 @@ actuals:
 
 ## Deviations from Plan
 
-None - plan executed as written.
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking] Repaired visible planning position after the state SDK could not parse the legacy position fields.**
+- **Found during:** Plan close-out.
+- **Fix:** Kept the SDK-recorded metric/session updates and aligned the visible position to 1/11 executed plans with 01-22 as the next Wave 2 plan.
+- **Files modified:** `.planning/STATE.md`.
 
 ## Known Stubs
 
