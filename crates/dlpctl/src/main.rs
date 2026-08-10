@@ -1,12 +1,63 @@
 use sqlx::{Row, postgres::PgPoolOptions, sqlite::SqlitePoolOptions};
 use std::{env, fmt, path::PathBuf};
 
+mod provisioning {
+    use sha2::{Digest, Sha256};
+    use std::process::Command;
+
+    const VERSION: &[u8] = b"dlp-fingerprint/v1\0";
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct FingerprintSources { system_uuid: String, bios_serial: String, system_disk_serial: String }
+
+    impl FingerprintSources {
+        pub fn new(system_uuid: impl AsRef<str>, bios_serial: impl AsRef<str>, system_disk_serial: impl AsRef<str>) -> Result<Self, ()> {
+            Ok(Self {
+                system_uuid: normalize(system_uuid.as_ref())?,
+                bios_serial: normalize(bios_serial.as_ref())?,
+                system_disk_serial: normalize(system_disk_serial.as_ref())?,
+            })
+        }
+    }
+
+    pub fn fingerprint_v1(sources: &FingerprintSources) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(VERSION);
+        for (name, value) in [(b"smbios_uuid".as_slice(), sources.system_uuid.as_bytes()), (b"bios_serial".as_slice(), sources.bios_serial.as_bytes()), (b"system_disk_serial".as_slice(), sources.system_disk_serial.as_bytes())] {
+            hasher.update((name.len() as u16).to_be_bytes());
+            hasher.update(name);
+            hasher.update((value.len() as u16).to_be_bytes());
+            hasher.update(value);
+        }
+        hasher.finalize().into()
+    }
+
+    /// Uses Kerberos WinRM-over-HTTPS and keeps raw CIM values local to the trusted station.
+    pub fn collect_from_trusted_station(computer: &str) -> Result<FingerprintSources, ()> {
+        let script = "$ErrorActionPreference='Stop';$o=New-CimSessionOption -UseSsl;$s=New-CimSession -ComputerName $args[0] -Authentication Kerberos -SessionOption $o;$p=Get-CimInstance -CimSession $s Win32_ComputerSystemProduct;$b=Get-CimInstance -CimSession $s Win32_BIOS;$l=Get-CimInstance -CimSession $s Win32_LogicalDisk -Filter \"DeviceID='C:'\";$part=Get-CimAssociatedInstance -CimSession $s -InputObject $l -Association Win32_LogicalDiskToPartition;$disk=Get-CimAssociatedInstance -CimSession $s -InputObject $part -Association Win32_DiskDriveToDiskPartition;if(@($disk).Count -ne 1){throw 'OS volume does not resolve to one physical disk'};Write-Output $p.UUID;Write-Output $b.SerialNumber;Write-Output $disk.SerialNumber;Remove-CimSession $s";
+        let output = Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", script, computer]).output().map_err(|_| ())?;
+        if !output.status.success() { return Err(()); }
+        let values = String::from_utf8(output.stdout).map_err(|_| ())?;
+        let mut values = values.lines();
+        let result = FingerprintSources::new(values.next().ok_or(())?, values.next().ok_or(())?, values.next().ok_or(())?);
+        if values.next().is_some() { return Err(()); }
+        result
+    }
+
+    fn normalize(value: &str) -> Result<String, ()> {
+        let value = value.trim().to_uppercase();
+        if value.is_empty() || value.len() > 512 || ["UNKNOWN", "NONE", "N/A", "TO BE FILLED BY O.E.M.", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"].contains(&value.as_str()) { Err(()) } else { Ok(value) }
+    }
+}
+
 pub const MIGRATION_VERSION: i64 = 202608070001;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     MigrationStatus,
     Phase1Smoke { database_url: Option<String> },
+    ProvisionDevice { computer: String },
+    EnrollmentTokenCreate { ttl_minutes: u32 },
 }
 
 impl Command {
@@ -36,6 +87,14 @@ impl Command {
                     _ => Err(CliError::Usage),
                 }
             }
+            Some(argument) if argument == "provision-device" => match (arguments.next(), arguments.next(), arguments.next()) {
+                (Some(flag), Some(computer), None) if flag.as_ref() == "--computer" && valid_fqdn(computer.as_ref()) => Ok(Self::ProvisionDevice { computer: computer.as_ref().to_owned() }),
+                _ => Err(CliError::Usage),
+            },
+            Some(argument) if argument == "enrollment-token" => match (arguments.next(), arguments.next(), arguments.next()) {
+                (Some(create), Some(ttl_flag), Some(ttl)) if create.as_ref() == "create" && ttl_flag.as_ref() == "--ttl" => ttl.as_ref().parse().ok().filter(|ttl: &u32| *ttl > 0 && *ttl <= 10_080).map(|ttl_minutes| Self::EnrollmentTokenCreate { ttl_minutes }).ok_or(CliError::Usage),
+                _ => Err(CliError::Usage),
+            },
             _ => Err(CliError::Usage),
         }
     }
@@ -47,21 +106,25 @@ pub enum CliError {
     MissingDatabaseUrl,
     DatabaseUnavailable,
     MigrationMissing,
+    TrustedStationRequired,
 }
 
 impl fmt::Display for CliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let code = match self {
             Self::Usage => {
-                "usage: dlpctl migration-status | phase1-smoke [--database-url sqlite:... ]"
+                "usage: dlpctl migration-status | phase1-smoke [--database-url sqlite:... ] | provision-device --computer <FQDN> | enrollment-token create --ttl <minutes>"
             }
             Self::MissingDatabaseUrl => "database_url_missing",
             Self::DatabaseUnavailable => "database_unavailable",
             Self::MigrationMissing => "expected_migration_missing",
+            Self::TrustedStationRequired => "trusted_station_required",
         };
         write!(formatter, "{code}")
     }
 }
+
+fn valid_fqdn(value: &str) -> bool { value.len() <= 253 && value.split('.').count() >= 2 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-') }
 
 impl std::error::Error for CliError {}
 
@@ -122,6 +185,18 @@ async fn main() -> Result<(), CliError> {
             println!("phase1-smoke: passed");
             Ok(())
         }
+        Command::ProvisionDevice { computer } => {
+            let sources = provisioning::collect_from_trusted_station(&computer)
+                .map_err(|_| CliError::TrustedStationRequired)?;
+            let _digest = provisioning::fingerprint_v1(&sources);
+            // Persistence requires the authenticated administrator server API from 01-07;
+            // the CLI deliberately emits neither raw CIM values nor a token here.
+            Err(CliError::TrustedStationRequired)
+        }
+        Command::EnrollmentTokenCreate { ttl_minutes: _ } => {
+            // Token display is deliberately an authenticated provisioning-station operation.
+            Err(CliError::TrustedStationRequired)
+        }
     }
 }
 
@@ -146,5 +221,11 @@ mod tests {
         assert_ne!(first, fingerprint_v1(&FingerprintSources::new("system-uuid", "bios-serial", "different-disk").unwrap()));
         assert!(FingerprintSources::new("", "bios", "disk").is_err());
         assert!(FingerprintSources::new("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", "bios", "disk").is_err());
+    }
+
+    #[test]
+    fn provisioning_accepts_only_a_computer_fqdn_and_no_serial_or_mac_arguments() {
+        assert_eq!(Command::parse(["provision-device", "--computer", "device.lab.local"]), Ok(Command::ProvisionDevice { computer: "device.lab.local".into() }));
+        assert!(Command::parse(["provision-device", "--serial", "raw"]).is_err());
     }
 }
