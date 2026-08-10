@@ -16,6 +16,109 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProvisioningRequest {
+    device_dns_name: String,
+    fingerprint_digest: [u8; 32],
+    ad_object_guid: Vec<u8>,
+    ad_object_sid: Vec<u8>,
+    preferred_drive_letter: char,
+}
+
+impl ProvisioningRequest {
+    pub fn new(
+        device_dns_name: impl Into<String>,
+        fingerprint_digest: [u8; 32],
+        ad_object_guid: Vec<u8>,
+        ad_object_sid: Vec<u8>,
+        preferred_drive_letter: char,
+    ) -> Result<Self, ProvisioningError> {
+        let device_dns_name = device_dns_name.into();
+        if !valid_dns_name(&device_dns_name)
+            || ad_object_guid.len() != 16
+            || !(8..=68).contains(&ad_object_sid.len())
+            || !preferred_drive_letter.is_ascii_uppercase()
+        {
+            return Err(ProvisioningError::InvalidRequest);
+        }
+        Ok(Self { device_dns_name, fingerprint_digest, ad_object_guid, ad_object_sid, preferred_drive_letter })
+    }
+
+    fn json_body(&self) -> String {
+        let digest = self.fingerprint_digest.iter().map(|byte| byte.to_string()).collect::<Vec<_>>().join(",");
+        let guid = self.ad_object_guid.iter().map(|byte| byte.to_string()).collect::<Vec<_>>().join(",");
+        let sid = self.ad_object_sid.iter().map(|byte| byte.to_string()).collect::<Vec<_>>().join(",");
+        format!("{{\"version\":1,\"device_id\":\"{}\",\"fingerprint_digest\":[{}],\"ad_object_guid\":[{}],\"ad_object_sid\":[{}],\"preferred_drive_letter\":\"{}\"}}", self.device_dns_name, digest, guid, sid, self.preferred_drive_letter)
+    }
+}
+
+impl fmt::Debug for ProvisioningRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("ProvisioningRequest")
+            .field("device_dns_name", &self.device_dns_name)
+            .field("fingerprint_digest", &"[REDACTED]")
+            .field("ad_object_guid", &"[REDACTED]")
+            .field("ad_object_sid", &"[REDACTED]")
+            .field("preferred_drive_letter", &self.preferred_drive_letter)
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProvisioningError { InvalidRequest, Transport, InvalidResponse, SecretHandoff }
+
+pub trait RuntimeSecretProvider {
+    fn handoff_enrollment_token(&mut self, token: String) -> Result<(), ProvisioningError>;
+}
+
+pub fn handoff_token_to_runtime(
+    token: &str,
+    runtime: &mut dyn RuntimeSecretProvider,
+) -> Result<(), ProvisioningError> {
+    if token.is_empty() || token.len() > 512 || !token.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        return Err(ProvisioningError::InvalidResponse);
+    }
+    runtime.handoff_enrollment_token(token.to_owned())
+}
+
+pub struct ProvisioningClient { client: reqwest::Client, endpoint: String }
+
+impl ProvisioningClient {
+    pub fn new(endpoint: impl Into<String>) -> Result<Self, ProvisioningError> {
+        let endpoint = endpoint.into();
+        let url = reqwest::Url::parse(&endpoint).map_err(|_| ProvisioningError::InvalidRequest)?;
+        if url.scheme() != "https" || url.host_str().is_none_or(|host| host.parse::<std::net::IpAddr>().is_ok()) {
+            return Err(ProvisioningError::InvalidRequest);
+        }
+        let client = reqwest::Client::builder()
+            .https_only(true)
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(20))
+            .build().map_err(|_| ProvisioningError::Transport)?;
+        Ok(Self { client, endpoint })
+    }
+
+    pub async fn provision(
+        &self,
+        request: &ProvisioningRequest,
+        runtime: &mut dyn RuntimeSecretProvider,
+    ) -> Result<(), ProvisioningError> {
+        let response = self.client.post(&self.endpoint)
+            .header("content-type", "application/json")
+            .body(request.json_body())
+            .send().await.map_err(|_| ProvisioningError::Transport)?;
+        if !response.status().is_success() { return Err(ProvisioningError::Transport); }
+        let body = response.text().await.map_err(|_| ProvisioningError::InvalidResponse)?;
+        let token = body.split("\"enrollment_token\":\"").nth(1)
+            .and_then(|tail| tail.split('"').next()).ok_or(ProvisioningError::InvalidResponse)?;
+        handoff_token_to_runtime(token, runtime)
+    }
+}
+
+fn valid_dns_name(value: &str) -> bool {
+    value.len() <= 253 && value.contains('.') && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+}
+
 pub const MIGRATION_VERSION: i64 = 202608070001;
 
 #[cfg(test)]
@@ -46,8 +149,8 @@ mod provisioning_tests {
             }
         }
         let mut sink = Sink(None);
-        handoff_token_to_runtime("opaque-token", &mut sink).unwrap();
-        assert_eq!(sink.0.as_deref(), Some("opaque-token"));
+        handoff_token_to_runtime("opaquetoken", &mut sink).unwrap();
+        assert_eq!(sink.0.as_deref(), Some("opaquetoken"));
     }
 }
 const SQLITE_MIGRATION: &str =
