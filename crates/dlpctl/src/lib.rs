@@ -17,6 +17,39 @@ use std::{
 };
 
 pub const MIGRATION_VERSION: i64 = 202608070001;
+
+#[cfg(test)]
+mod provisioning_tests {
+    use super::*;
+
+    #[test]
+    fn provisioning_request_rejects_raw_machine_observations_and_redacts_token() {
+        let request = ProvisioningRequest::new(
+            "LAB-CLIENT01.lab.local",
+            [7; 32],
+            vec![1; 16],
+            vec![2; 16],
+            'P',
+        )
+        .expect("normalized trusted observation is accepted");
+        assert!(!format!("{request:?}").contains("token"));
+        assert!(ProvisioningRequest::new("", [7; 32], vec![1; 16], vec![2; 16], 'P').is_err());
+    }
+
+    #[test]
+    fn provisioning_client_hands_plaintext_token_only_to_runtime_secret_provider() {
+        struct Sink(Option<String>);
+        impl RuntimeSecretProvider for Sink {
+            fn handoff_enrollment_token(&mut self, token: String) -> Result<(), ProvisioningError> {
+                self.0 = Some(token);
+                Ok(())
+            }
+        }
+        let mut sink = Sink(None);
+        handoff_token_to_runtime("opaque-token", &mut sink).unwrap();
+        assert_eq!(sink.0.as_deref(), Some("opaque-token"));
+    }
+}
 const SQLITE_MIGRATION: &str =
     include_str!("../../../migrations-sqlite/202608070001_walking_skeleton.sql");
 
