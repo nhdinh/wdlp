@@ -35,7 +35,11 @@ impl PgAuthorityRepository {
     ) -> Result<String, RepositoryError> {
         let token = Uuid::new_v4().simple().to_string();
         let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let mut transaction = self.pool.begin().await.map_err(|_| RepositoryError::Unavailable)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
 
         // Locking an existing device row makes duplicate provisioning serialize.
         // The unique constraints remain the final authority for a first insert race.
@@ -61,7 +65,10 @@ impl PgAuthorityRepository {
         if result.is_err() {
             return Err(RepositoryError::Denied);
         }
-        transaction.commit().await.map_err(|_| RepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
         Ok(token)
     }
 
@@ -74,7 +81,11 @@ impl PgAuthorityRepository {
         token: &str,
     ) -> Result<(), RepositoryError> {
         let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let mut transaction = self.pool.begin().await.map_err(|_| RepositoryError::Unavailable)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
         let row = sqlx::query(
             "SELECT fingerprint_digest, token_digest FROM enrollment_authority WHERE device_id = $1 AND token_consumed_at IS NULL AND token_expires_at > CURRENT_TIMESTAMP FOR UPDATE",
         )
@@ -83,9 +94,15 @@ impl PgAuthorityRepository {
         .await
         .map_err(|_| RepositoryError::Unavailable)?
         .ok_or(RepositoryError::Denied)?;
-        let stored_fingerprint: Vec<u8> = row.try_get("fingerprint_digest").map_err(|_| RepositoryError::Unavailable)?;
-        let stored_token: Vec<u8> = row.try_get("token_digest").map_err(|_| RepositoryError::Unavailable)?;
-        if stored_fingerprint.as_slice() != fingerprint_digest || stored_token.as_slice() != token_digest {
+        let stored_fingerprint: Vec<u8> = row
+            .try_get("fingerprint_digest")
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let stored_token: Vec<u8> = row
+            .try_get("token_digest")
+            .map_err(|_| RepositoryError::Unavailable)?;
+        if stored_fingerprint.as_slice() != fingerprint_digest
+            || stored_token.as_slice() != token_digest
+        {
             return Err(RepositoryError::Denied);
         }
         let consumed = sqlx::query(
@@ -98,7 +115,10 @@ impl PgAuthorityRepository {
         if consumed.rows_affected() != 1 {
             return Err(RepositoryError::Denied);
         }
-        transaction.commit().await.map_err(|_| RepositoryError::Unavailable)
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RepositoryError::Unavailable)
     }
 
     /// Locks the current authority row, validates its exact trusted-station
@@ -115,7 +135,11 @@ impl PgAuthorityRepository {
         F: FnOnce(Vec<u8>) -> Result<(T, [u8; 32]), RepositoryError>,
     {
         let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let mut transaction = self.pool.begin().await.map_err(|_| RepositoryError::Unavailable)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
         let row = sqlx::query(
             "SELECT fingerprint_digest, token_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, active_serial FROM enrollment_authority WHERE device_id = $1 AND token_consumed_at IS NULL AND token_expires_at > CURRENT_TIMESTAMP FOR UPDATE",
         )
@@ -124,13 +148,27 @@ impl PgAuthorityRepository {
         .await
         .map_err(|_| RepositoryError::Unavailable)?
         .ok_or(RepositoryError::Denied)?;
-        let fingerprint: Vec<u8> = row.try_get("fingerprint_digest").map_err(|_| RepositoryError::Unavailable)?;
-        let stored_token: Vec<u8> = row.try_get("token_digest").map_err(|_| RepositoryError::Unavailable)?;
-        let guid: Vec<u8> = row.try_get("ad_object_guid").map_err(|_| RepositoryError::Unavailable)?;
-        let sid: Vec<u8> = row.try_get("ad_object_sid").map_err(|_| RepositoryError::Unavailable)?;
-        let dns: String = row.try_get("ad_dns_name").map_err(|_| RepositoryError::Unavailable)?;
-        let domain: String = row.try_get("ad_domain").map_err(|_| RepositoryError::Unavailable)?;
-        let active_serial: Option<Vec<u8>> = row.try_get("active_serial").map_err(|_| RepositoryError::Unavailable)?;
+        let fingerprint: Vec<u8> = row
+            .try_get("fingerprint_digest")
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let stored_token: Vec<u8> = row
+            .try_get("token_digest")
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let guid: Vec<u8> = row
+            .try_get("ad_object_guid")
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let sid: Vec<u8> = row
+            .try_get("ad_object_sid")
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let dns: String = row
+            .try_get("ad_dns_name")
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let domain: String = row
+            .try_get("ad_domain")
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let active_serial: Option<Vec<u8>> = row
+            .try_get("active_serial")
+            .map_err(|_| RepositoryError::Unavailable)?;
         if fingerprint.as_slice() != request.fingerprint_digest()
             || stored_token.as_slice() != token_digest
             || guid.as_slice() != request.ad_object_guid()
@@ -182,7 +220,10 @@ impl PgAuthorityRepository {
         .execute(&mut *transaction)
         .await
         .map_err(|_| RepositoryError::Unavailable)?;
-        transaction.commit().await.map_err(|_| RepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
         Ok(result)
     }
 }

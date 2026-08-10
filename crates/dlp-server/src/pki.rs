@@ -2,7 +2,7 @@
 
 use rcgen::{
     CertificateParams, CertificateSigningRequestParams, ExtendedKeyUsagePurpose, IsCa,
-    KeyUsagePurpose, SerialNumber, PKCS_ECDSA_P256_SHA256,
+    KeyUsagePurpose, PKCS_ECDSA_P256_SHA256, SerialNumber,
 };
 use std::{
     fs,
@@ -94,11 +94,7 @@ impl RcgenDeviceCertificateIssuer {
         params.serial_number = Some(SerialNumber::from_slice(&serial));
         let (not_before_year, not_before_month, not_before_day) = utc_date_after_days(0);
         let (not_after_year, not_after_month, not_after_day) = utc_date_after_days(30);
-        params.not_before = rcgen::date_time_ymd(
-            not_before_year,
-            not_before_month,
-            not_before_day,
-        );
+        params.not_before = rcgen::date_time_ymd(not_before_year, not_before_month, not_before_day);
         params.not_after = rcgen::date_time_ymd(not_after_year, not_after_month, not_after_day);
         let certificate = params
             .signed_by(&csr.public_key, &issuer)

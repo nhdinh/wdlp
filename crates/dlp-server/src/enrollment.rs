@@ -95,7 +95,9 @@ impl EnrollmentSubmission {
             || token.len() > 512
             || csr_pem.is_empty()
             || csr_pem.len() > 65_536
-            || prior_serial.as_ref().is_some_and(|serial| serial.is_empty() || serial.len() > 20)
+            || prior_serial
+                .as_ref()
+                .is_some_and(|serial| serial.is_empty() || serial.len() > 20)
         {
             return Err(EnrollmentError::Denied);
         }
@@ -115,7 +117,10 @@ impl std::fmt::Debug for EnrollmentSubmission {
             .field("observation", &self.observation)
             .field("token", &"[REDACTED]")
             .field("csr_pem", &"[REDACTED]")
-            .field("prior_serial", &self.prior_serial.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "prior_serial",
+                &self.prior_serial.as_ref().map(|_| "[REDACTED]"),
+            )
             .finish()
     }
 }
@@ -146,7 +151,11 @@ impl EnrollmentService {
                 submission.prior_serial.as_deref(),
                 |serial| {
                     let issued = issuer
-                        .issue_from_csr(submission.observation.device_id(), &submission.csr_pem, serial)
+                        .issue_from_csr(
+                            submission.observation.device_id(),
+                            &submission.csr_pem,
+                            serial,
+                        )
                         .map_err(|_| RepositoryError::Denied)?;
                     let certificate_digest: [u8; 32] =
                         Sha256::digest(issued.certificate_chain_pem.as_bytes()).into();
