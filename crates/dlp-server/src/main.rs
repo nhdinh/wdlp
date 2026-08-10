@@ -23,5 +23,6 @@ async fn main() -> Result<(), dlp_server::ServerError> {
         return run_migrations_from_environment().await;
     }
     let config = ServerConfig::from_environment()?;
-    run_server(config, ProductionProviders::default()).await
+    let providers = ProductionProviders::from_environment(&config)?;
+    run_server(config, providers).await
 }

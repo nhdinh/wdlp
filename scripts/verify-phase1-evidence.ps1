@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -127,6 +127,29 @@ function Invoke-ServerEnrollmentSource {
     Assert-Phase1 ($pki -match 'CertificateSigningRequestParams::from_pem' -and $pki -match 'DigitalSignature' -and $pki -match 'ClientAuth') 'device issuer does not constrain the CSR profile'
 }
 
+function Invoke-ServerRouteSource {
+    Invoke-ServerEnrollmentSource
+    $routes = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/routes.rs') -Raw
+    $tls = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/tls.rs') -Raw
+    $server = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/lib.rs') -Raw
+    Assert-Phase1 ($routes -match '/api/v1/enrollment' -and $routes -match 'require_administrator' -and $routes -match 'require_active_device') 'route partitions are incomplete'
+    Assert-Phase1 ($tls -match 'Option<PeerIdentity>' -and $tls -match 'allow_unauthenticated') 'bootstrap TLS peer handling is not explicit'
+    Assert-Phase1 ($server -match 'pub fn from_environment\(config: &ServerConfig\)' -and $server -notmatch 'DLP_ADMIN_PROVISIONING_KEY') 'production provider composition or bearer fallback remains'
+}
+
+function Invoke-TrustedProvisioningClientSource {
+    $client = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlpctl/src/lib.rs') -Raw
+    Assert-Phase1 ($client -match 'reqwest' -and $client -match 'RuntimeSecretProvider' -and $client -match 'provisioning_') 'typed provisioning client is incomplete'
+    Assert-Phase1 ($client -notmatch 'println!\(.*token' -and $client -notmatch 'DLP_ADMIN_PROVISIONING_KEY') 'client token handling is not redacted'
+}
+
+function Invoke-TrustedProvisioningSource {
+    $procedure = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/lab/Invoke-TrustedProvisioning.ps1') -Raw
+    Assert-Phase1 ($procedure -match 'LAB-DC01' -and $procedure -match 'LAB-DC02' -and $procedure -match 'Get-ADComputer -Server') 'dual-DC preflight is incomplete'
+    Assert-Phase1 ($procedure -match 'New-CimSession' -and $procedure -match 'Kerberos' -and $procedure -match 'UseSSL') 'Kerberos WinRM-over-HTTPS contract is incomplete'
+    Assert-Phase1 ($procedure -notmatch 'Write-Output.*token' -and $procedure -notmatch 'raw_serial') 'procedure leaks sensitive fields'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
@@ -134,6 +157,9 @@ switch ($Scenario) {
     'VisualAndReviewFixtures' { Invoke-VisualAndReviewFixtures }
     'ServerAuthoritySource' { Invoke-ServerAuthoritySource }
     'ServerEnrollmentSource' { Invoke-ServerEnrollmentSource }
+    'ServerRouteSource' { Invoke-ServerRouteSource }
+    'TrustedProvisioningClientSource' { Invoke-TrustedProvisioningClientSource }
+    'TrustedProvisioningSource' { Invoke-TrustedProvisioningSource }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json

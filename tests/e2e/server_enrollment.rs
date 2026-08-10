@@ -204,7 +204,7 @@ fn production_directory_contract_requires_two_hostname_results_and_denies_failur
 fn production_startup_contract_constructs_runtime_providers_before_binding() {
     let server = include_str!("../../crates/dlp-server/src/lib.rs");
     let main = include_str!("../../crates/dlp-server/src/main.rs");
-    assert!(server.contains("ProductionProviders::from_environment"));
+    assert!(server.contains("pub fn from_environment(config: &ServerConfig)"));
     assert!(server.contains("run_migrations_for_startup"));
     assert!(main.contains("ProductionProviders::from_environment"));
     assert!(!main.contains("ProductionProviders::default()"));

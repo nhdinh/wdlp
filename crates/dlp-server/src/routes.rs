@@ -10,7 +10,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, Extension, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Extension, State},
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::Response,
@@ -138,10 +138,7 @@ impl From<RouteRepositoryError> for RouteError {
 /// handler and does not accept any HTTP-provided certificate header.
 pub fn api_v1_router(state: RouteState) -> Router {
     let admin_routes = Router::new()
-        .route(
-            "/api/v1/admin/provisioning",
-            post(crate::admin_provisioning_contract),
-        )
+        .route("/api/v1/admin/provisioning", post(admin_provisioning_contract))
         .route_layer(middleware::from_fn(require_administrator));
     let device_routes = Router::new()
         .route("/api/v1/device/configuration", get(fetch_configuration))
@@ -150,7 +147,11 @@ pub fn api_v1_router(state: RouteState) -> Router {
             state.clone(),
             require_active_device,
         ));
+    let bootstrap_routes = Router::new()
+        .route("/api/v1/enrollment", post(bootstrap_enrollment_contract))
+        .layer(DefaultBodyLimit::max(65_536));
     Router::new()
+        .merge(bootstrap_routes)
         .merge(admin_routes)
         .merge(device_routes)
         .with_state(state)
@@ -161,7 +162,11 @@ async fn require_administrator(
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let administrator = AuthenticatedAdmin::from_peer(connection.identity().clone())
+    let administrator = connection
+        .identity()
+        .cloned()
+        .ok_or(StatusCode::UNAUTHORIZED)
+        .and_then(|peer| AuthenticatedAdmin::from_peer(peer).map_err(|_| StatusCode::UNAUTHORIZED))
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
     request.extensions_mut().insert(administrator);
     Ok(next.run(request).await)
@@ -173,11 +178,12 @@ async fn require_active_device(
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    let peer = connection.identity().cloned().ok_or(StatusCode::UNAUTHORIZED)?;
     let device = AuthenticatedDevice::from_peer(
-        connection.identity().clone(),
+        peer.clone(),
         state.repository.credential_status(
-            connection.identity().subject(),
-            connection.identity().serial(),
+            peer.subject(),
+            peer.serial(),
         ),
     )
     .map_err(|_| StatusCode::UNAUTHORIZED)?;
@@ -187,6 +193,44 @@ async fn require_active_device(
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
     request.extensions_mut().insert(device);
     Ok(next.run(request).await)
+}
+
+/// The one bootstrap endpoint intentionally relies on ordinary server TLS only.
+/// It has a fixed body ceiling and never treats an HTTP header as a peer identity.
+async fn bootstrap_enrollment_contract(
+    Json(request): Json<BootstrapEnrollmentRequest>,
+) -> Result<StatusCode, StatusCode> {
+    if request.version != 1
+        || request.device_id.is_empty()
+        || request.device_id.len() > 128
+        || request.token.is_empty()
+        || request.token.len() > 512
+        || request.csr_pem.is_empty()
+        || request.csr_pem.len() > 65_536
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // Production composition supplies the transactional enrollment service;
+    // this contract keeps bootstrap input bounded and secret-free in diagnostics.
+    Err(StatusCode::SERVICE_UNAVAILABLE)
+}
+
+async fn admin_provisioning_contract(
+    Extension(_administrator): Extension<AuthenticatedAdmin>,
+    Json(request): Json<AdministratorProvisioningRequest>,
+) -> Result<StatusCode, StatusCode> {
+    if request.version != 1
+        || request.device_id.is_empty()
+        || request.fingerprint_digest.len() != 32
+        || request.ad_object_guid.len() != 16
+        || !(8..=68).contains(&request.ad_object_sid.len())
+        || !request.preferred_drive_letter.is_ascii_uppercase()
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // The repository is deliberately unavailable until a production composition
+    // injects PgAuthorityRepository; no bearer or in-memory fallback exists.
+    Err(StatusCode::SERVICE_UNAVAILABLE)
 }
 
 async fn fetch_configuration(
@@ -252,6 +296,25 @@ struct HealthRequest {
     version: u16,
     drive_state: String,
 }
+
+#[derive(Deserialize)]
+struct BootstrapEnrollmentRequest {
+    version: u16,
+    device_id: String,
+    token: String,
+    csr_pem: String,
+}
+
+#[derive(Deserialize)]
+struct AdministratorProvisioningRequest {
+    version: u16,
+    device_id: String,
+    fingerprint_digest: Vec<u8>,
+    ad_object_guid: Vec<u8>,
+    ad_object_sid: Vec<u8>,
+    preferred_drive_letter: char,
+}
+
 
 #[allow(dead_code)]
 fn _identity_is_tls_derived(identity: &PeerIdentity) -> Result<(), TlsError> {

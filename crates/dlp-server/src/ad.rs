@@ -69,6 +69,31 @@ impl LdapDirectoryVerifier {
         Ok(primary)
     }
 
+    /// Production callers must independently obtain both configured hostname
+    /// LDAPS records. The callback boundary keeps LDAP transport credentials
+    /// out of request handling while preserving the fail-closed two-DC rule.
+    pub async fn corroborate_computer<F, Fut>(
+        &self,
+        computer_dns_name: &str,
+        mut lookup: F,
+    ) -> Result<VerifiedComputerIdentity, DirectoryError>
+    where
+        F: FnMut(&str, &str, &str) -> Fut,
+        Fut: std::future::Future<Output = Result<VerifiedComputerIdentity, DirectoryError>>,
+    {
+        if computer_dns_name.is_empty() || !computer_dns_name.contains('.') {
+            return Err(DirectoryError::NotFound);
+        }
+        let primary = lookup(&self.primary_ldaps_url, &self.base_dn, computer_dns_name).await;
+        let secondary = lookup(
+            &self.secondary_ldaps_url,
+            &self.base_dn,
+            computer_dns_name,
+        )
+        .await;
+        self.corroborate(primary, secondary)
+    }
+
     pub fn configured_urls(&self) -> (&str, &str) {
         (&self.primary_ldaps_url, &self.secondary_ldaps_url)
     }

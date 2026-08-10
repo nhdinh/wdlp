@@ -142,7 +142,7 @@ impl PeerIdentity {
 /// deliberately not constructible from request headers.
 #[derive(Clone, Debug)]
 pub struct TlsConnectionInfo {
-    identity: PeerIdentity,
+    identity: Option<PeerIdentity>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -187,11 +187,19 @@ impl IdentityRoots {
 
 impl TlsConnectionInfo {
     pub fn from_verified_peer(identity: PeerIdentity) -> Self {
-        Self { identity }
+        Self {
+            identity: Some(identity),
+        }
     }
 
-    pub fn identity(&self) -> &PeerIdentity {
-        &self.identity
+    /// Bootstrap enrollment is the only route that may receive an ordinary
+    /// server-authenticated TLS connection without a client certificate.
+    pub fn bootstrap_without_peer() -> Self {
+        Self { identity: None }
+    }
+
+    pub fn identity(&self) -> Option<&PeerIdentity> {
+        self.identity.as_ref()
     }
 }
 
@@ -231,18 +239,23 @@ impl Listener for RustlsListener {
             let Ok(stream) = self.acceptor.accept(stream).await else {
                 continue;
             };
-            let Some(certificate) = stream
+            let identity = stream
                 .get_ref()
                 .1
                 .peer_certificates()
                 .and_then(|chain| chain.first())
-            else {
+                .map(|certificate| self.identity_roots.peer_identity(certificate.as_ref()))
+                .transpose();
+            let Ok(identity) = identity else {
                 continue;
             };
-            let Ok(identity) = self.identity_roots.peer_identity(certificate.as_ref()) else {
-                continue;
-            };
-            return (stream, TlsConnectionInfo::from_verified_peer(identity));
+            return (
+                stream,
+                match identity {
+                    Some(identity) => TlsConnectionInfo::from_verified_peer(identity),
+                    None => TlsConnectionInfo::bootstrap_without_peer(),
+                },
+            );
         }
     }
 
@@ -374,6 +387,7 @@ impl TlsPaths {
             return Err(TlsError::InvalidMaterial);
         }
         let verifier = WebPkiClientVerifier::builder(Arc::new(client_roots))
+            .allow_unauthenticated()
             .build()
             .map_err(|_| TlsError::InvalidMaterial)?;
         let mut configuration = ServerConfig::builder()

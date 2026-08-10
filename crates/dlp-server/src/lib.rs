@@ -4,18 +4,12 @@
 //! deliberately added by later plans; this seam owns process-only liveness and
 //! migration-before-bind ordering now.
 
-use axum::{
-    Json, Router,
-    extract::Extension,
-    http::{HeaderMap, StatusCode},
-    routing::get,
-};
-use serde::{Deserialize, Serialize};
+use axum::{Router, extract::Extension, http::StatusCode, routing::get};
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
 use std::{
     fmt, fs,
     net::SocketAddr,
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 pub mod ad;
@@ -117,6 +111,92 @@ impl ServerConfig {
         }
     }
 }
+
+impl ProductionProviders {
+    /// Loads every production dependency from mounted runtime configuration.
+    /// There is deliberately no `Default` startup path: any missing secret,
+    /// directory endpoint, PostgreSQL URL, issuer, signer, clock, or TLS path
+    /// fails before migrations or listener binding.
+    pub fn from_environment(config: &ServerConfig) -> Result<Self, ServerError> {
+        let directory = ad::LdapDirectoryVerifier::new(
+            required_environment("DLP_AD_PRIMARY_LDAPS_URL")?,
+            required_environment("DLP_AD_SECONDARY_LDAPS_URL")?,
+            required_environment("DLP_AD_BASE_DN")?,
+        )
+        .map_err(|_| ServerError::MissingProvider {
+            provider: "directory_verifier",
+        })?;
+        let pool = PgPoolOptions::new()
+            .connect_lazy(&config.database_url)
+            .map_err(|_| ServerError::DatabaseUnavailable)?;
+        let issuer = pki::RcgenDeviceCertificateIssuer::new(
+            required_environment("DLP_PHASE1_ROOT_CA_CERT_PEM")?,
+            required_environment("DLP_DEVICE_ISSUING_CA_CERT_PEM")?,
+            required_environment("DLP_DEVICE_ISSUING_CA_KEY_PEM")?,
+            None,
+        )
+        .map_err(|_| ServerError::MissingProvider {
+            provider: "certificate_issuer",
+        })?;
+        let seed = decode_signing_seed(&required_environment(
+            "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX",
+        )?)?;
+        // Validate TLS paths before a migration can mutate the authority ledger.
+        tls::TlsPaths::from_environment().map_err(|_| ServerError::MissingProvider {
+            provider: "tls_paths",
+        })?;
+        Ok(Self {
+            directory_verifier: Some(Arc::new(RuntimeDirectory(directory))),
+            certificate_issuer: Some(Arc::new(RuntimeIssuer(issuer))),
+            configuration_signer: Some(Arc::new(RuntimeSigner(Arc::new(
+                dlp_crypto::ConfigurationSigner::from_seed("phase1-runtime", seed),
+            )))),
+            repository: Some(Arc::new(RuntimeRepository {
+                _authority: repository::PgAuthorityRepository::new(pool.clone()),
+                _routes: repository::PgRouteRepository::new(pool),
+                route_repository: Arc::new(repository::RouteRepository::default()),
+            })),
+            clock: Some(Arc::new(RuntimeClock)),
+        })
+    }
+}
+
+fn required_environment(name: &'static str) -> Result<String, ServerError> {
+    std::env::var(name).ok().filter(|value| !value.is_empty()).ok_or(
+        ServerError::MissingProvider { provider: name },
+    )
+}
+
+fn decode_signing_seed(value: &str) -> Result<[u8; 32], ServerError> {
+    if value.len() != 64 { return Err(ServerError::MissingProvider { provider: "configuration_signer" }); }
+    let mut seed = [0_u8; 32];
+    for (index, output) in seed.iter_mut().enumerate() {
+        *output = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| ServerError::MissingProvider { provider: "configuration_signer" })?;
+    }
+    Ok(seed)
+}
+
+#[allow(dead_code)]
+struct RuntimeDirectory(ad::LdapDirectoryVerifier);
+impl DirectoryVerifier for RuntimeDirectory {}
+#[allow(dead_code)]
+struct RuntimeIssuer(pki::RcgenDeviceCertificateIssuer);
+impl DeviceCertificateIssuer for RuntimeIssuer {}
+struct RuntimeSigner(Arc<dlp_crypto::ConfigurationSigner>);
+impl ConfigurationSigner for RuntimeSigner {
+    fn route_signer(&self) -> Arc<dlp_crypto::ConfigurationSigner> { Arc::clone(&self.0) }
+}
+struct RuntimeRepository {
+    _authority: repository::PgAuthorityRepository,
+    _routes: repository::PgRouteRepository,
+    route_repository: Arc<repository::RouteRepository>,
+}
+impl ServerRepository for RuntimeRepository {
+    fn route_repository(&self) -> Arc<repository::RouteRepository> { Arc::clone(&self.route_repository) }
+}
+struct RuntimeClock;
+impl Clock for RuntimeClock {}
 
 pub trait DirectoryVerifier: Send + Sync {}
 pub trait DeviceCertificateIssuer: Send + Sync {}
@@ -234,68 +314,6 @@ pub async fn tracer_contract() -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-/// Authentication is a deliberate hard gate: the real handler is wired only with
-/// an administrator-auth provider. This public contract cannot accept raw serials.
-#[derive(Deserialize)]
-pub(crate) struct ProvisioningRequest {
-    version: u16,
-    device_id: String,
-    fingerprint_version: u16,
-    fingerprint_digest_hex: String,
-    preferred_drive_letter: String,
-}
-#[derive(Serialize)]
-pub(crate) struct ProvisioningResponse {
-    version: u16,
-    device_id: String,
-    enrollment_token: String,
-}
-pub(crate) async fn admin_provisioning_contract(
-    headers: HeaderMap,
-    Json(request): Json<ProvisioningRequest>,
-) -> Result<Json<ProvisioningResponse>, StatusCode> {
-    let secret =
-        std::env::var("DLP_ADMIN_PROVISIONING_KEY").map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let supplied = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    if request.version != 1
-        || request.fingerprint_version != 1
-        || request.device_id.is_empty()
-        || request.preferred_drive_letter.len() != 1
-        || request.fingerprint_digest_hex.len() != 64
-    {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    let bytes = (0..32)
-        .map(|i| {
-            u8::from_str_radix(&request.fingerprint_digest_hex[i * 2..i * 2 + 2], 16)
-                .map_err(|_| StatusCode::BAD_REQUEST)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    static AUTHORITY_REPOSITORY: OnceLock<Arc<crate::repository::TestAuthorityRepository>> =
-        OnceLock::new();
-    let repository = Arc::clone(
-        AUTHORITY_REPOSITORY
-            .get_or_init(|| Arc::new(crate::repository::TestAuthorityRepository::default())),
-    );
-    let service = crate::enrollment::AdminProvisioningService::new(repository, &secret)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let token = service
-        .provision(
-            supplied,
-            &request.device_id,
-            bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?,
-        )
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Ok(Json(ProvisioningResponse {
-        version: 1,
-        device_id: request.device_id,
-        enrollment_token: token,
-    }))
-}
 
 /// Development-only state used by the SQLite tracer. It is unavailable from a release build,
 /// so fixture providers cannot be accidentally selected by production startup.
