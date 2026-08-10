@@ -63,7 +63,7 @@ fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
         .expect("open encrypted backing store");
     let context =
         DlpFileSystemContext::new(identity, store).expect("capture matching store identity");
-    let drive = available_drive();
+    let drive = std::env::var("DLP_WINFSP_SMOKE_LETTER").unwrap_or_else(|_| available_drive());
     let mounted_path = format!("{drive}\\");
     let volume = WinFspMountHost::new(&drive)
         .expect("valid requested drive")
@@ -100,6 +100,18 @@ fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
         fs::read(&file).is_err(),
         "corruption returns no authenticated bytes"
     );
+
+    if let Ok(milliseconds) = std::env::var("DLP_WINFSP_INTERACTIVE_HOLD_MS") {
+        let milliseconds = milliseconds
+            .parse::<u64>()
+            .expect("interactive hold must be an integer number of milliseconds");
+        assert!(
+            milliseconds <= 60_000,
+            "interactive hold is bounded to one minute"
+        );
+        eprintln!("mounted smoke is holding {drive} for visual verification");
+        thread::sleep(Duration::from_millis(milliseconds));
+    }
 
     volume.unmount().expect("clean unmount");
     assert!(

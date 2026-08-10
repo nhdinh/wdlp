@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [switch]$Extended
+    [switch]$Extended,
+    [ValidateRange(0, 60)]
+    [int]$HoldSeconds = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,6 +18,12 @@ if (-not (Test-Path (Join-Path $llvm 'libclang.dll'))) {
 
 $env:LIBCLANG_PATH = $llvm
 $env:WINFSP_DLL_OUTPUT_PATH = (Join-Path (Get-Location) 'target\debug\deps')
+$freeLetter = (68..90 | ForEach-Object { "$([char]$_):" } | Sort-Object -Descending |
+    Where-Object { -not (Test-Path "$_\") } | Select-Object -First 1)
+if (-not $freeLetter) { throw 'No free drive letter is available for WinFsp smoke.' }
+$env:DLP_WINFSP_SMOKE_LETTER = $freeLetter
+$env:DLP_WINFSP_INTERACTIVE_HOLD_MS = [string]($HoldSeconds * 1000)
+Write-Host "WinFsp smoke will use $freeLetter"
 cargo test -p dlp-windows-drive --test mounted_smoke -- --nocapture
 if ($LASTEXITCODE -ne 0) { throw 'WinFsp mounted smoke failed.' }
 
