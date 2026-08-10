@@ -82,6 +82,10 @@ actuals:
 - **Fix:** Kept the SDK-recorded metric/session updates and aligned the visible position to 1/11 executed plans with 01-22 as the next Wave 2 plan.
 - **Files modified:** `.planning/STATE.md`.
 
+**2. [Rule 2 - Evidence integrity] Left Phase 1 requirements unmarked until their matrix rows have genuine current evidence.**
+- **Found during:** Plan close-out.
+- **Reason:** This plan creates the verification contract and one portable TST-01 result; the remaining runtime/infrastructure rows are explicitly unverified. Marking the plan-frontmatter requirement list complete would fabricate Phase 1 acceptance.
+
 ## Known Stubs
 
 None.
