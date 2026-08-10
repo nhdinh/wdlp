@@ -175,3 +175,37 @@ fn readiness_is_read_only_and_requires_every_dependency() {
         axum::http::StatusCode::OK
     );
 }
+
+#[test]
+fn production_route_contract_partitions_bootstrap_admin_and_active_device_access() {
+    let routes = include_str!("../../crates/dlp-server/src/routes.rs");
+    let tls = include_str!("../../crates/dlp-server/src/tls.rs");
+    let server = include_str!("../../crates/dlp-server/src/lib.rs");
+
+    assert!(routes.contains("/api/v1/enrollment"));
+    assert!(routes.contains("require_administrator"));
+    assert!(routes.contains("require_active_device"));
+    assert!(!server.contains("DLP_ADMIN_PROVISIONING_KEY"));
+    assert!(!server.contains("Bearer "));
+    assert!(tls.contains("Option<PeerIdentity>"));
+}
+
+#[test]
+fn production_directory_contract_requires_two_hostname_results_and_denies_failures() {
+    let directory = include_str!("../../crates/dlp-server/src/ad.rs");
+    assert!(directory.contains("async fn corroborate_computer"));
+    assert!(directory.contains("primary_ldaps_url"));
+    assert!(directory.contains("secondary_ldaps_url"));
+    assert!(directory.contains("DirectoryError::Disagreement"));
+    assert!(directory.contains("IpAddr::from_str"));
+}
+
+#[test]
+fn production_startup_contract_constructs_runtime_providers_before_binding() {
+    let server = include_str!("../../crates/dlp-server/src/lib.rs");
+    let main = include_str!("../../crates/dlp-server/src/main.rs");
+    assert!(server.contains("ProductionProviders::from_environment"));
+    assert!(server.contains("run_migrations_for_startup"));
+    assert!(main.contains("ProductionProviders::from_environment"));
+    assert!(!main.contains("ProductionProviders::default()"));
+}
