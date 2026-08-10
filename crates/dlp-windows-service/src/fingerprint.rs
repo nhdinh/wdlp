@@ -1,6 +1,7 @@
 //! Exact hardware fingerprint normalization shared with the trusted-station contract.
 
 use sha2::{Digest, Sha256};
+use std::process::Command;
 
 const VERSION: &[u8] = b"dlp-fingerprint/v1\0";
 
@@ -69,8 +70,32 @@ impl HardwareFingerprintSources {
     }
 }
 
-/// Production collection is deliberately fail-closed until the SCM adapter is
-/// running with the required firmware-table and storage-IOCTL privileges.
 pub fn collect_hardware_fingerprint() -> Result<HardwareFingerprintSources, FingerprintError> {
-    Err(FingerprintError::UnsupportedPlatform)
+    #[cfg(windows)]
+    {
+        // The CIM classes expose the same SMBIOS UUID, BIOS serial and physical
+        // disk serial used by the trusted-station collector. The association walk
+        // resolves the OS volume to its backing physical disk; no MAC address or
+        // virtual adapter identifier can enter the digest.
+        let script = "$ErrorActionPreference='Stop';$os=(Get-CimInstance Win32_OperatingSystem).SystemDrive.TrimEnd(':');$part=Get-CimAssociatedInstance -InputObject (Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='$os:'\") -Association Win32_LogicalDiskToPartition | Select-Object -First 1;$disk=Get-CimAssociatedInstance -InputObject $part -Association Win32_DiskDriveToDiskPartition | Select-Object -First 1;$uuid=(Get-CimInstance Win32_ComputerSystemProduct).UUID;$bios=(Get-CimInstance Win32_BIOS).SerialNumber;$serial=$disk.SerialNumber;@($uuid,$bios,$serial) | ForEach-Object {$_.ToString().Trim()}";
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .output()
+            .map_err(|_| FingerprintError::UnsupportedPlatform)?;
+        if !output.status.success() {
+            return Err(FingerprintError::UnsupportedPlatform);
+        }
+        let values: Vec<String> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        if values.len() != 3 {
+            return Err(FingerprintError::MissingOrSentinel);
+        }
+        HardwareFingerprintSources::new(&values[0], &values[1], &values[2])
+    }
+    #[cfg(not(windows))]
+    {
+        Err(FingerprintError::UnsupportedPlatform)
+    }
 }

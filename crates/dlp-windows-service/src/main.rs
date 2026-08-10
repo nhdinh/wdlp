@@ -29,5 +29,10 @@ fn declare_scm_dependency() {
 
 fn main() {
     #[cfg(windows)]
-    declare_scm_dependency();
+    {
+        declare_scm_dependency();
+        if let Err(error) = dlp_windows_service::service::run_scm_service() {
+            eprintln!("service_dispatcher_failed: {error}");
+        }
+    }
 }
