@@ -65,8 +65,8 @@
 ### Protected Drive (DRV)
 
 - [ ] **DRV-01**: Provide one isolated store per authenticated Windows user.
-- [ ] **DRV-02**: Mount the drive through WinFsp with a configurable drive letter or mount path.
-- [ ] **DRV-03**: Map every request to the correct Windows user identity.
+- [x] **DRV-02**: Mount the drive through WinFsp with a configurable drive letter or mount path.
+- [x] **DRV-03**: Map every request to the correct Windows user identity.
 - [x] **DRV-04**: Encrypt file contents and sensitive metadata at rest.
 - [ ] **DRV-05**: Prevent one user from mounting or accessing another user's store through supported interfaces.
 - [x] **DRV-06**: Use crash-consistent metadata and file updates.
@@ -185,8 +185,8 @@
 | AGT-10 | Phase 1/4 | Pending |
 | AGT-11 | Phase 3 | Pending |
 | DRV-01 | Phase 1 | Pending |
-| DRV-02 | Phase 1 | Pending |
-| DRV-03 | Phase 1 | Pending |
+| DRV-02 | Phase 1 | Complete |
+| DRV-03 | Phase 1 | Complete |
 | DRV-04 | Phase 1 | Complete |
 | DRV-05 | Phase 2/4 | Pending |
 | DRV-06 | Phase 1 | Complete |
