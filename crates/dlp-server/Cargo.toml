@@ -21,6 +21,7 @@ sqlx = { version = "=0.9.0", default-features = false, features = ["migrate", "m
 tokio = { version = "=1.53.1", features = ["macros", "net", "rt-multi-thread", "time"] }
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12", "logging"] }
 uuid = { version = "=1.24.0", features = ["v4"] }
+x509-parser = "=0.18.1"
 
 [[test]]
 name = "server_enrollment"

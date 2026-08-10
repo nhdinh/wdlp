@@ -10,6 +10,7 @@ use rustls::{
     server::WebPkiClientVerifier,
 };
 use std::{env, fs, path::PathBuf, sync::Arc};
+use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CredentialStatus {
@@ -34,6 +35,43 @@ pub struct PeerIdentity {
 }
 
 impl PeerIdentity {
+    pub fn device_from_verified_leaf(leaf_der: &[u8]) -> Result<Self, TlsError> {
+        let (remainder, certificate) =
+            parse_x509_certificate(leaf_der).map_err(|_| TlsError::InvalidMaterial)?;
+        if !remainder.is_empty() || certificate.is_ca() {
+            return Err(TlsError::Unauthorized);
+        }
+        let key_usage = certificate
+            .key_usage()
+            .map_err(|_| TlsError::InvalidMaterial)?
+            .ok_or(TlsError::Unauthorized)?;
+        let extended_usage = certificate
+            .extended_key_usage()
+            .map_err(|_| TlsError::InvalidMaterial)?
+            .ok_or(TlsError::Unauthorized)?;
+        if !key_usage.value.digital_signature() || !extended_usage.value.client_auth {
+            return Err(TlsError::Unauthorized);
+        }
+        let san = certificate
+            .subject_alternative_name()
+            .map_err(|_| TlsError::InvalidMaterial)?
+            .ok_or(TlsError::Unauthorized)?;
+        let device_id = san
+            .value
+            .general_names
+            .iter()
+            .find_map(|name| match name {
+                GeneralName::URI(uri) => uri.strip_prefix("urn:dlp:device:"),
+                _ => None,
+            })
+            .filter(|value| !value.is_empty())
+            .ok_or(TlsError::Unauthorized)?;
+        Ok(Self {
+            role: PeerRole::Device,
+            subject: device_id.to_owned(),
+            serial: certificate.raw_serial().to_vec(),
+        })
+    }
     #[cfg(any(test, debug_assertions))]
     pub fn admin_for_test(subject: impl Into<String>) -> Self {
         Self {

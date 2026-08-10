@@ -2,6 +2,7 @@ use dlp_server::enrollment::{EnrollmentAttempt, EnrollmentError, EnrollmentServi
 use dlp_server::tls::{
     AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus, PeerIdentity, TlsPaths,
 };
+use rustls::pki_types::pem::PemObject;
 
 #[test]
 fn authority_issues_one_credential_only_after_exact_identity_checks() {
@@ -47,4 +48,17 @@ fn mtls_server_config_requires_the_mounted_phase1_material() {
         configuration.alpn_protocols,
         vec![b"h2".to_vec(), b"http/1.1".to_vec()]
     );
+}
+
+#[test]
+fn device_leaf_requires_uri_san_serial_and_client_profile() {
+    let issuer = std::env::var("DLP_DEVICE_ISSUING_CA_CERT_PEM").expect("fixture path");
+    let leaf = std::path::Path::new(&issuer).with_file_name("device.cert.pem");
+    let pem = std::fs::read(leaf).expect("fixture leaf");
+    let leaf = rustls::pki_types::CertificateDer::pem_slice_iter(&pem)
+        .next()
+        .expect("fixture certificate")
+        .expect("valid fixture certificate");
+    let peer = PeerIdentity::device_from_verified_leaf(leaf.as_ref()).expect("valid device leaf");
+    assert!(AuthenticatedDevice::from_peer(peer, CredentialStatus::Active).is_ok());
 }
