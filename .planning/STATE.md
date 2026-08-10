@@ -4,11 +4,11 @@ milestone: v1.0
 milestone_name: milestone
 status: in_progress
 stopped_at: Phase 01 replacement plans ready; execute 01-13
-last_updated: "2026-08-10T12:00:00+07:00"
+last_updated: "2026-08-10T09:39:46.109Z"
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 13
+  total_plans: 4
   completed_plans: 9
 ---
 
