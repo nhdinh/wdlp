@@ -1,4 +1,4 @@
-use dlp_server::enrollment::{EnrollmentAttempt, EnrollmentError, EnrollmentService};
+use dlp_server::enrollment::{EnrollmentAttempt, EnrollmentError, TestEnrollmentService};
 use dlp_server::health::{ReadinessDependencies, liveness, readiness};
 use dlp_server::routes::RouteState;
 use dlp_server::tls::{
@@ -30,18 +30,32 @@ fn repository_postgresql_authority_contract_is_digest_only_and_locking() {
     assert!(source.contains("token_digest"));
     assert!(!source.contains("BLOB"));
 }
+
+#[test]
+fn enrollment_transaction_contract_uses_postgres_and_constrained_issuer() {
+    let enrollment = include_str!("../../crates/dlp-server/src/enrollment.rs");
+    let pki = include_str!("../../crates/dlp-server/src/pki.rs");
+    let repository = include_str!("../../crates/dlp-server/src/repository.rs");
+    assert!(enrollment.contains("pub struct EnrollmentService"));
+    assert!(enrollment.contains("PgAuthorityRepository"));
+    assert!(repository.contains("consume_and_activate"));
+    assert!(repository.contains("revoked_device_credentials"));
+    assert!(pki.contains("not_after"));
+    assert!(pki.contains("ClientAuth"));
+    assert!(pki.contains("DigitalSignature"));
+}
 use rustls::pki_types::pem::PemObject;
 
 #[test]
 fn authority_issues_one_credential_only_after_exact_identity_checks() {
-    let service = EnrollmentService::for_test();
+    let service = TestEnrollmentService::for_test();
     let result = service.enroll(EnrollmentAttempt::valid_for_test());
     assert!(result.is_ok());
 }
 
 #[test]
 fn authority_fails_closed_for_an_invalid_or_reused_attempt() {
-    let service = EnrollmentService::for_test();
+    let service = TestEnrollmentService::for_test();
     let attempt = EnrollmentAttempt::invalid_for_test();
     assert_eq!(service.enroll(attempt), Err(EnrollmentError::Denied));
 }
