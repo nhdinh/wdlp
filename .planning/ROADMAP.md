@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 6/12 plans executed
+**Plans**: 8/12 plans executed
 
 Plans:
 **Wave 1**
@@ -52,11 +52,11 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 01-06-PLAN.md (Wave 5) — Trusted-station fingerprint provisioning, dual-DC authority, offline-root/online-device-CA issuance/replacement, and migrations
+- [x] 01-06-PLAN.md (Wave 5) — Trusted-station fingerprint provisioning, dual-DC authority, offline-root/online-device-CA issuance/replacement, and migrations
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 01-07-PLAN.md (Wave 6) — Distinct admin/device mTLS APIs, per-request revocation checks, signed configuration, health/readiness, and Compose deployment
+- [x] 01-07-PLAN.md (Wave 6) — Distinct admin/device mTLS APIs, per-request revocation checks, signed configuration, health/readiness, and Compose deployment
 - [ ] 01-10-PLAN.md (Wave 6) — Approved real WinFsp mount, complete callbacks, status mapping, and runtime validation
 
 **Wave 7** *(blocked on Wave 6 completion)*
@@ -130,7 +130,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 6/12 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 8/12 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |

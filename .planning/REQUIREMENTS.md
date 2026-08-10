@@ -25,7 +25,7 @@
 - [ ] **SRV-09**: Record all administrative mutations with actor, timestamp, old value, and new value.
 - [ ] **SRV-10**: Provide audit search and export by time, device, user, action, rule, and severity.
 - [x] **SRV-11**: Persist data in PostgreSQL with versioned migrations.
-- [ ] **SRV-12**: Provide health and readiness endpoints.
+- [x] **SRV-12**: Provide health and readiness endpoints.
 
 ### Policy Engine (POL)
 
@@ -56,7 +56,7 @@
 - [x] **AGT-04**: Download, verify, cache, and atomically activate signed configuration bundles.
 - [x] **AGT-05**: Retain the current and last-known-good configurations.
 - [x] **AGT-06**: Reject invalid, unsigned, corrupted, or partially downloaded bundles without replacing the active policy.
-- [ ] **AGT-07**: Report version, health, drive state, active policy version, and errors.
+- [x] **AGT-07**: Report version, health, drive state, active policy version, and errors.
 - [ ] **AGT-08**: Queue audit events locally when offline; upload in order on reconnection.
 - [ ] **AGT-09**: Bound event queue, retries, CPU, memory, and disk usage with configurable limits.
 - [ ] **AGT-10**: Recover cleanly from service, process, and machine restarts.
@@ -93,7 +93,7 @@
 - [x] **TST-02**: Write unit tests for bundle validation and signature verification.
 - [x] **TST-03**: Write unit tests for storage encryption, integrity failures, and key handling.
 - [ ] **TST-04**: Write unit tests for event queue limits, retry logic, and idempotency.
-- [ ] **TST-05**: Write integration tests for server enrollment through first policy activation.
+- [x] **TST-05**: Write integration tests for server enrollment through first policy activation.
 - [ ] **TST-06**: Write integration tests for offline enforcement followed by event synchronization.
 - [ ] **TST-07**: Write integration tests for per-user drive isolation and device revocation.
 - [x] **TST-08**: Validate WinFsp with representative Windows applications in an early spike.
@@ -157,7 +157,7 @@
 | SRV-09 | Phase 3 | Pending |
 | SRV-10 | Phase 3 | Pending |
 | SRV-11 | Phase 1 | Complete |
-| SRV-12 | Phase 1 | Pending |
+| SRV-12 | Phase 1 | Complete |
 | POL-01 | Phase 2 | Pending |
 | POL-02 | Phase 2 | Pending |
 | POL-03 | Phase 2 | Pending |
@@ -179,7 +179,7 @@
 | AGT-04 | Phase 1 | Complete |
 | AGT-05 | Phase 1 | Complete |
 | AGT-06 | Phase 1 | Complete |
-| AGT-07 | Phase 1 | Pending |
+| AGT-07 | Phase 1 | Complete |
 | AGT-08 | Phase 3 | Pending |
 | AGT-09 | Phase 3 | Pending |
 | AGT-10 | Phase 1/4 | Pending |
@@ -204,7 +204,7 @@
 | TST-02 | Phase 1 | Complete |
 | TST-03 | Phase 1 | Complete |
 | TST-04 | Phase 3 | Pending |
-| TST-05 | Phase 1 | Pending |
+| TST-05 | Phase 1 | Complete |
 | TST-06 | Phase 3 | Pending |
 | TST-07 | Phase 2 | Pending |
 | TST-08 | Phase 1 | Complete |

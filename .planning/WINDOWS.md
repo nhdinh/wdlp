@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 3
+open_count: 5
 waived_count: 0
 fixed_count: 1
-total_count: 4
-last_updated: 2026-08-08T13:46:13.813Z
+total_count: 6
+last_updated: 2026-08-10T06:45:29.791Z
 ---
 
 # Broken Windows Ledger
@@ -19,6 +19,8 @@ last_updated: 2026-08-08T13:46:13.813Z
 | 2 | 01 | unrun-verify | migrations/202608070001_walking_skeleton.sql |  | PostgreSQL SQLx migration, checksum-drift, and migration-before-listen evidence were not run; user-authorized SQLite substitution is not equivalent. | open |  | 2026-08-08T12:19:54.770Z |  |
 | 3 | 01 | deviation | .planning/STATE.md |  | state.advance-plan and state.update-progress could not parse the existing Plan: 3 of 12 format; visible plan position was repaired. | open |  | 2026-08-08T12:21:11.946Z |  |
 | 4 | 01 | unrun-verify | migrations/202608070001_walking_skeleton.sql |  | PostgreSQL migration, real PgPool repository, and migration-before-listener evidence were not run because DATABASE_URL is unavailable. | open |  | 2026-08-08T13:46:13.813Z |  |
+| 5 | 01 | unrun-verify | deploy/compose.yaml |  | docker compose config was not run because Docker Compose is unavailable locally. | open |  | 2026-08-10T06:45:28.738Z |  |
+| 6 | 01 | unrun-verify | migrations/202608070003_authenticated_routes.sql |  | PostgreSQL migration and readiness runtime evidence remain open under the user-authorized SQLite-only substitute. | open |  | 2026-08-10T06:45:29.791Z |  |
 
 ````json
 [
@@ -68,6 +70,30 @@ last_updated: 2026-08-08T13:46:13.813Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-08T13:46:13.813Z",
+    "resolved_at": null
+  },
+  {
+    "id": 5,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": "deploy/compose.yaml",
+    "line": null,
+    "description": "docker compose config was not run because Docker Compose is unavailable locally.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-10T06:45:28.738Z",
+    "resolved_at": null
+  },
+  {
+    "id": 6,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": "migrations/202608070003_authenticated_routes.sql",
+    "line": null,
+    "description": "PostgreSQL migration and readiness runtime evidence remain open under the user-authorized SQLite-only substitute.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-10T06:45:29.791Z",
     "resolved_at": null
   }
 ]
