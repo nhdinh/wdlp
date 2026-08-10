@@ -8,6 +8,11 @@ use axum::{Router, http::StatusCode, routing::get};
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
 use std::{fmt, net::SocketAddr, sync::Arc};
 
+pub mod ad;
+pub mod enrollment;
+pub mod pki;
+pub mod repository;
+
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
 #[derive(Clone, Debug, Eq, PartialEq)]
