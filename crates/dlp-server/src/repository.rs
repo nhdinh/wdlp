@@ -1,5 +1,6 @@
 //! Transactional authority state.  Production adapters map these invariants to SQL locks.
 
+use crate::tls::{AuthenticatedDevice, CredentialStatus};
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, sync::Mutex};
 use uuid::Uuid;
@@ -81,6 +82,115 @@ impl AuthorityRepository {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RepositoryError {
+    Denied,
+    Unavailable,
+}
+
+/// Narrow persistence port for the post-enrollment tracer. The production
+/// adapter replaces this mutex-backed implementation with the forward-only
+/// PostgreSQL ledger; the authorization invariant remains the same.
+#[derive(Default)]
+pub struct RouteRepository {
+    devices: Mutex<HashMap<String, DeviceRouteRecord>>,
+}
+
+#[derive(Default)]
+struct DeviceRouteRecord {
+    active_serial: Option<Vec<u8>>,
+    revoked_serials: Vec<Vec<u8>>,
+    health_reports: Vec<String>,
+}
+
+impl RouteRepository {
+    pub fn activate_device(&self, device_id: &str, serial: &[u8]) {
+        if let Ok(mut devices) = self.devices.lock() {
+            let record = devices.entry(device_id.to_owned()).or_default();
+            if let Some(previous) = record.active_serial.replace(serial.to_vec()) {
+                record.revoked_serials.push(previous);
+            }
+        }
+    }
+
+    pub fn revoke_device(&self, device_id: &str, serial: &[u8]) {
+        if let Ok(mut devices) = self.devices.lock()
+            && let Some(record) = devices.get_mut(device_id)
+        {
+            if record.active_serial.as_deref() == Some(serial) {
+                record.active_serial = None;
+            }
+            if !record
+                .revoked_serials
+                .iter()
+                .any(|known| known.as_slice() == serial)
+            {
+                record.revoked_serials.push(serial.to_vec());
+            }
+        }
+    }
+
+    pub fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus {
+        let Ok(devices) = self.devices.lock() else {
+            return CredentialStatus::Expired;
+        };
+        let Some(record) = devices.get(device_id) else {
+            return CredentialStatus::Expired;
+        };
+        if record
+            .revoked_serials
+            .iter()
+            .any(|known| known.as_slice() == serial)
+        {
+            CredentialStatus::Revoked
+        } else if record.active_serial.as_deref() == Some(serial) {
+            CredentialStatus::Active
+        } else {
+            CredentialStatus::Expired
+        }
+    }
+
+    pub fn authorize_device(
+        &self,
+        device: &AuthenticatedDevice,
+    ) -> Result<(), RouteRepositoryError> {
+        match self.credential_status(device.device_id(), device.credential_serial()) {
+            CredentialStatus::Active => Ok(()),
+            CredentialStatus::Revoked | CredentialStatus::Expired => {
+                Err(RouteRepositoryError::Denied)
+            }
+        }
+    }
+
+    pub fn record_health(
+        &self,
+        device_id: &str,
+        drive_state: &str,
+    ) -> Result<(), RouteRepositoryError> {
+        let mut devices = self
+            .devices
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let record = devices
+            .get_mut(device_id)
+            .ok_or(RouteRepositoryError::Denied)?;
+        record.health_reports.push(drive_state.to_owned());
+        Ok(())
+    }
+
+    pub fn health_report_count(&self, device_id: &str) -> usize {
+        self.devices
+            .lock()
+            .ok()
+            .and_then(|records| {
+                records
+                    .get(device_id)
+                    .map(|record| record.health_reports.len())
+            })
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RouteRepositoryError {
     Denied,
     Unavailable,
 }

@@ -4,12 +4,21 @@
 //! accepts proxy-injected certificate headers: an identity must originate from a
 //! completed rustls client-certificate handshake.
 
+use axum::{
+    extract::connect_info::Connected,
+    serve::{IncomingStream, Listener},
+};
 use rustls::{
     RootCertStore, ServerConfig,
     pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
     server::WebPkiClientVerifier,
 };
-use std::{env, fs, path::PathBuf, sync::Arc};
+use std::{env, fs, io, path::PathBuf, sync::Arc};
+use tokio::{
+    net::TcpListener,
+    time::{Duration, sleep},
+};
+use tokio_rustls::{TlsAcceptor, server::TlsStream};
 use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -35,10 +44,40 @@ pub struct PeerIdentity {
 }
 
 impl PeerIdentity {
+    /// Converts a certificate accepted by the rustls verifier into the only
+    /// application identity representation. Device leaves must carry the fixed
+    /// Phase 1 client profile; other verified leaves are administrator-only.
+    pub fn from_verified_leaf(leaf_der: &[u8]) -> Result<Self, TlsError> {
+        match Self::device_from_verified_leaf(leaf_der) {
+            Ok(device) => Ok(device),
+            Err(TlsError::Unauthorized) => {
+                let (remainder, certificate) =
+                    parse_x509_certificate(leaf_der).map_err(|_| TlsError::InvalidMaterial)?;
+                if !remainder.is_empty()
+                    || certificate.is_ca()
+                    || !certificate.validity().is_valid()
+                {
+                    return Err(TlsError::Unauthorized);
+                }
+                let subject = certificate.subject().to_string();
+                let serial = certificate.raw_serial().to_vec();
+                if subject.is_empty() || serial.is_empty() {
+                    return Err(TlsError::Unauthorized);
+                }
+                Ok(Self {
+                    role: PeerRole::Administrator,
+                    subject,
+                    serial,
+                })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub fn device_from_verified_leaf(leaf_der: &[u8]) -> Result<Self, TlsError> {
         let (remainder, certificate) =
             parse_x509_certificate(leaf_der).map_err(|_| TlsError::InvalidMaterial)?;
-        if !remainder.is_empty() || certificate.is_ca() {
+        if !remainder.is_empty() || certificate.is_ca() || !certificate.validity().is_valid() {
             return Err(TlsError::Unauthorized);
         }
         let key_usage = certificate
@@ -89,6 +128,149 @@ impl PeerIdentity {
             serial,
         }
     }
+
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    pub fn serial(&self) -> &[u8] {
+        &self.serial
+    }
+}
+
+/// Per-connection TLS metadata delivered by the rustls listener to Axum. It is
+/// deliberately not constructible from request headers.
+#[derive(Clone, Debug)]
+pub struct TlsConnectionInfo {
+    identity: PeerIdentity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IdentityRoots {
+    administrator_issuer: String,
+    device_issuer: String,
+}
+
+impl IdentityRoots {
+    fn from_paths(paths: &TlsPaths) -> Result<Self, TlsError> {
+        Ok(Self {
+            administrator_issuer: certificate_subject(&paths.administrator_ca)?,
+            device_issuer: certificate_subject(&paths.device_issuing_ca)?,
+        })
+    }
+
+    fn peer_identity(&self, leaf_der: &[u8]) -> Result<PeerIdentity, TlsError> {
+        let (remainder, certificate) =
+            parse_x509_certificate(leaf_der).map_err(|_| TlsError::InvalidMaterial)?;
+        if !remainder.is_empty() || certificate.is_ca() || !certificate.validity().is_valid() {
+            return Err(TlsError::Unauthorized);
+        }
+        let issuer = certificate.issuer().to_string();
+        if issuer == self.device_issuer {
+            return PeerIdentity::device_from_verified_leaf(leaf_der);
+        }
+        if issuer != self.administrator_issuer {
+            return Err(TlsError::Unauthorized);
+        }
+        let subject = certificate.subject().to_string();
+        let serial = certificate.raw_serial().to_vec();
+        if subject.is_empty() || serial.is_empty() {
+            return Err(TlsError::Unauthorized);
+        }
+        Ok(PeerIdentity {
+            role: PeerRole::Administrator,
+            subject,
+            serial,
+        })
+    }
+}
+
+impl TlsConnectionInfo {
+    pub fn from_verified_peer(identity: PeerIdentity) -> Self {
+        Self { identity }
+    }
+
+    pub fn identity(&self) -> &PeerIdentity {
+        &self.identity
+    }
+}
+
+/// An Axum listener that completes the required rustls handshake before an
+/// HTTP connection exists. Invalid, expired, absent, or malformed client
+/// certificates are dropped here; they never become HTTP requests.
+pub struct RustlsListener {
+    listener: TcpListener,
+    acceptor: TlsAcceptor,
+    identity_roots: IdentityRoots,
+}
+
+impl RustlsListener {
+    pub fn new(
+        listener: TcpListener,
+        configuration: Arc<ServerConfig>,
+        identity_roots: IdentityRoots,
+    ) -> Self {
+        Self {
+            listener,
+            acceptor: TlsAcceptor::from(configuration),
+            identity_roots,
+        }
+    }
+}
+
+impl Listener for RustlsListener {
+    type Io = TlsStream<tokio::net::TcpStream>;
+    type Addr = TlsConnectionInfo;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            let Ok((stream, _)) = self.listener.accept().await else {
+                sleep(Duration::from_millis(50)).await;
+                continue;
+            };
+            let Ok(stream) = self.acceptor.accept(stream).await else {
+                continue;
+            };
+            let Some(certificate) = stream
+                .get_ref()
+                .1
+                .peer_certificates()
+                .and_then(|chain| chain.first())
+            else {
+                continue;
+            };
+            let Ok(identity) = self.identity_roots.peer_identity(certificate.as_ref()) else {
+                continue;
+            };
+            return (stream, TlsConnectionInfo::from_verified_peer(identity));
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<Self::Addr> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "TLS connection identity has no listener address",
+        ))
+    }
+}
+
+impl Connected<IncomingStream<'_, RustlsListener>> for TlsConnectionInfo {
+    fn connect_info(stream: IncomingStream<'_, RustlsListener>) -> Self {
+        stream.remote_addr().clone()
+    }
+}
+
+pub async fn serve_tls_listener(
+    listener: TcpListener,
+    configuration: Arc<ServerConfig>,
+    identity_roots: IdentityRoots,
+    app: axum::Router,
+) -> io::Result<()> {
+    axum::serve(
+        RustlsListener::new(listener, configuration, identity_roots),
+        app.into_make_service_with_connect_info::<TlsConnectionInfo>(),
+    )
+    .await
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -201,6 +383,10 @@ impl TlsPaths {
         configuration.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         Ok(Arc::new(configuration))
     }
+
+    pub fn identity_roots(&self) -> Result<IdentityRoots, TlsError> {
+        IdentityRoots::from_paths(self)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -236,4 +422,11 @@ fn load_certificates(path: &PathBuf) -> Result<Vec<CertificateDer<'static>>, Tls
 fn load_private_key(path: &PathBuf) -> Result<PrivateKeyDer<'static>, TlsError> {
     let bytes = fs::read(path).map_err(|_| TlsError::InvalidMaterial)?;
     PrivateKeyDer::from_pem_slice(&bytes).map_err(|_| TlsError::InvalidMaterial)
+}
+
+fn certificate_subject(path: &PathBuf) -> Result<String, TlsError> {
+    let certificates = load_certificates(path)?;
+    let (_, certificate) =
+        parse_x509_certificate(certificates[0].as_ref()).map_err(|_| TlsError::InvalidMaterial)?;
+    Ok(certificate.subject().to_string())
 }

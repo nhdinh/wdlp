@@ -573,6 +573,7 @@ name = "dlp-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "dlp-crypto",
  "dlp-domain",
  "dlp-protocol",
  "ldap3",

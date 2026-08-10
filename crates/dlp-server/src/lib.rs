@@ -7,7 +7,7 @@
 use axum::{
     Json, Router,
     http::{HeaderMap, StatusCode},
-    routing::{get, post},
+    routing::get,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
@@ -21,6 +21,7 @@ pub mod ad;
 pub mod enrollment;
 pub mod pki;
 pub mod repository;
+pub mod routes;
 pub mod tls;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
@@ -87,8 +88,12 @@ impl ServerConfig {
 
 pub trait DirectoryVerifier: Send + Sync {}
 pub trait DeviceCertificateIssuer: Send + Sync {}
-pub trait ConfigurationSigner: Send + Sync {}
-pub trait ServerRepository: Send + Sync {}
+pub trait ConfigurationSigner: Send + Sync {
+    fn route_signer(&self) -> Arc<dlp_crypto::ConfigurationSigner>;
+}
+pub trait ServerRepository: Send + Sync {
+    fn route_repository(&self) -> Arc<crate::repository::RouteRepository>;
+}
 pub trait Clock: Send + Sync {}
 
 #[derive(Clone, Default)]
@@ -104,6 +109,7 @@ pub struct ProductionProviders {
 pub struct ServerState {
     _config: ServerConfig,
     _providers: Option<ProductionProviders>,
+    route_state: routes::RouteState,
 }
 
 impl ServerState {
@@ -112,9 +118,20 @@ impl ServerState {
         providers: ProductionProviders,
     ) -> Result<Self, ServerError> {
         validate_providers(&providers)?;
+        let signer = providers
+            .configuration_signer
+            .as_ref()
+            .expect("validated signer provider")
+            .route_signer();
+        let repository = providers
+            .repository
+            .as_ref()
+            .expect("validated repository provider")
+            .route_repository();
         Ok(Self {
             _config: config,
             _providers: Some(providers),
+            route_state: routes::RouteState::new(repository, signer),
         })
     }
 
@@ -123,6 +140,7 @@ impl ServerState {
         Self {
             _config: ServerConfig::for_test(),
             _providers: None,
+            route_state: routes::RouteState::for_test(),
         }
     }
 }
@@ -155,14 +173,11 @@ fn validate_providers(providers: &ProductionProviders) -> Result<(), ServerError
 }
 
 /// Builds the library-owned HTTP application. Liveness exposes process state only.
-pub fn build_app(_state: ServerState) -> Router {
+pub fn build_app(state: ServerState) -> Router {
     Router::new()
         .route("/health/live", get(health_live))
         .route("/api/v1/tracer", get(tracer_contract))
-        .route(
-            "/api/v1/admin/provisioning",
-            post(admin_provisioning_contract),
-        )
+        .merge(routes::api_v1_router(state.route_state))
 }
 
 pub async fn health_live() -> StatusCode {
@@ -178,7 +193,7 @@ pub async fn tracer_contract() -> StatusCode {
 /// Authentication is a deliberate hard gate: the real handler is wired only with
 /// an administrator-auth provider. This public contract cannot accept raw serials.
 #[derive(Deserialize)]
-struct ProvisioningRequest {
+pub(crate) struct ProvisioningRequest {
     version: u16,
     device_id: String,
     fingerprint_version: u16,
@@ -186,12 +201,12 @@ struct ProvisioningRequest {
     preferred_drive_letter: String,
 }
 #[derive(Serialize)]
-struct ProvisioningResponse {
+pub(crate) struct ProvisioningResponse {
     version: u16,
     device_id: String,
     enrollment_token: String,
 }
-async fn admin_provisioning_contract(
+pub(crate) async fn admin_provisioning_contract(
     headers: HeaderMap,
     Json(request): Json<ProvisioningRequest>,
 ) -> Result<Json<ProvisioningResponse>, StatusCode> {
@@ -282,9 +297,21 @@ pub async fn run_server(
     let listener = tokio::net::TcpListener::bind(config.listen_address())
         .await
         .map_err(|_| ServerError::ListenerFailed)?;
-    axum::serve(listener, build_app(state))
-        .await
-        .map_err(|_| ServerError::ServeFailed)
+    let tls_paths = tls::TlsPaths::from_environment().map_err(|_| ServerError::ListenerFailed)?;
+    let tls_configuration = tls_paths
+        .server_config()
+        .map_err(|_| ServerError::ListenerFailed)?;
+    let identity_roots = tls_paths
+        .identity_roots()
+        .map_err(|_| ServerError::ListenerFailed)?;
+    tls::serve_tls_listener(
+        listener,
+        tls_configuration,
+        identity_roots,
+        build_app(state),
+    )
+    .await
+    .map_err(|_| ServerError::ServeFailed)
 }
 
 #[cfg(test)]
@@ -306,9 +333,17 @@ mod tests {
         struct CertificateIssuer;
         impl DeviceCertificateIssuer for CertificateIssuer {}
         struct Signer;
-        impl ConfigurationSigner for Signer {}
+        impl ConfigurationSigner for Signer {
+            fn route_signer(&self) -> Arc<dlp_crypto::ConfigurationSigner> {
+                Arc::new(dlp_crypto::ConfigurationSigner::from_seed("test", [5; 32]))
+            }
+        }
         struct Repository;
-        impl ServerRepository for Repository {}
+        impl ServerRepository for Repository {
+            fn route_repository(&self) -> Arc<crate::repository::RouteRepository> {
+                Arc::new(crate::repository::RouteRepository::default())
+            }
+        }
         struct TestClock;
         impl Clock for TestClock {}
 
