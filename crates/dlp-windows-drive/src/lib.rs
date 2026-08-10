@@ -7,9 +7,17 @@
 use dlp_storage::{CapturedStoreIdentity, ProtectedFileSystem, StorageError};
 use std::fmt;
 
+mod filesystem;
+mod host;
+pub mod status;
+
+pub use filesystem::DlpFileSystemContext;
+pub use host::{WinFspMountHost, WinFspMountedVolume};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MountError {
     HostUnavailable,
+    HostStatus(i32),
     StorageUnavailable,
 }
 
@@ -23,6 +31,7 @@ impl fmt::Display for MountError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
             Self::HostUnavailable => "Windows mount host is unavailable",
+            Self::HostStatus(_) => "Windows mount host returned a stable status",
             Self::StorageUnavailable => "protected storage is unavailable",
         };
         write!(formatter, "{message}")
