@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -107,11 +107,33 @@ function Invoke-VisualAndReviewFixtures {
     Assert-Phase1 (-not (Test-Phase1VisualReview -Record $selfReview -Kind independent_review).Valid) 'non-independent phase-exit review was accepted'
 }
 
+function Invoke-ServerAuthoritySource {
+    $repository = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/repository.rs') -Raw
+    $migration = Get-Content -LiteralPath (Join-Path $repoRoot 'migrations/202608070002_enrollment_authority.sql') -Raw
+    $routes = Get-Content -LiteralPath (Join-Path $repoRoot 'migrations/202608070003_authenticated_routes.sql') -Raw
+    Assert-Phase1 ($repository -match 'pub struct PgAuthorityRepository' -and $repository -match 'PgPool' -and $repository -match 'FOR UPDATE') 'authority repository is not PostgreSQL row-locking source'
+    Assert-Phase1 ($repository -match 'token_digest' -and $repository -match 'Sha256') 'authority repository does not persist digest-only tokens'
+    Assert-Phase1 ($repository -match 'TestAuthorityRepository' -and $repository -notmatch 'pub struct AuthorityRepository') 'mutex authority is not explicitly test-only'
+    Assert-Phase1 ($migration -match 'BYTEA' -and $migration -match 'TIMESTAMPTZ' -and $migration -match 'fingerprint_version = 1') 'authority migration lacks PostgreSQL-native constraints'
+    Assert-Phase1 ($migration -notmatch 'BLOB' -and $migration -notmatch 'INSERT INTO') 'authority migration includes a substitute type or seed row'
+    Assert-Phase1 ($routes -match 'device_route_credentials' -and $routes -match 'one_active_per_device') 'route credential authority constraints are missing'
+}
+
+function Invoke-ServerEnrollmentSource {
+    Invoke-ServerAuthoritySource
+    $enrollment = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/enrollment.rs') -Raw
+    $pki = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/pki.rs') -Raw
+    Assert-Phase1 ($enrollment -match 'PgAuthorityRepository' -and $enrollment -match 'transaction') 'enrollment service is not bound to the PostgreSQL transaction contract'
+    Assert-Phase1 ($pki -match 'CertificateSigningRequestParams::from_pem' -and $pki -match 'DigitalSignature' -and $pki -match 'ClientAuth') 'device issuer does not constrain the CSR profile'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
     'ContractsAndPrivileges' { Invoke-ContractsAndPrivileges }
     'VisualAndReviewFixtures' { Invoke-VisualAndReviewFixtures }
+    'ServerAuthoritySource' { Invoke-ServerAuthoritySource }
+    'ServerEnrollmentSource' { Invoke-ServerEnrollmentSource }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json

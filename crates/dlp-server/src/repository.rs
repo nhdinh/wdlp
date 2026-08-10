@@ -1,13 +1,138 @@
-//! Transactional authority state.  Production adapters map these invariants to SQL locks.
+//! Transactional authority state. Production adapters use PostgreSQL row locks;
+//! mutex-backed stores below exist only as deterministic test fixtures.
 
 use crate::tls::{AuthenticatedDevice, CredentialStatus};
-use dlp_protocol::SignedConfigurationV1;
+use dlp_protocol::{ProvisionDeviceRequestV1, SignedConfigurationV1};
 use sha2::{Digest, Sha256};
+use sqlx::{PgPool, Row};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Mutex,
 };
 use uuid::Uuid;
+
+/// PostgreSQL is the only authority adapter that may be selected for server
+/// deployment. It is intentionally impossible to construct without a real pool.
+#[derive(Clone)]
+pub struct PgAuthorityRepository {
+    pool: PgPool,
+}
+
+impl PgAuthorityRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    /// Issues a CSPRNG token, returns it to the trusted provisioning caller once,
+    /// and persists only its SHA-256 digest with a database-owned expiry.
+    pub async fn provision(
+        &self,
+        request: &ProvisionDeviceRequestV1,
+    ) -> Result<String, RepositoryError> {
+        let token = Uuid::new_v4().simple().to_string();
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let mut transaction = self.pool.begin().await.map_err(|_| RepositoryError::Unavailable)?;
+
+        // Locking an existing device row makes duplicate provisioning serialize.
+        // The unique constraints remain the final authority for a first insert race.
+        sqlx::query("SELECT device_id FROM enrollment_authority WHERE device_id = $1 FOR UPDATE")
+            .bind(request.device_id())
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let result = sqlx::query(
+            "INSERT INTO enrollment_authority (device_id, fingerprint_version, fingerprint_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, preferred_drive_letter, token_digest, token_expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + INTERVAL '10 minutes')",
+        )
+        .bind(request.device_id())
+        .bind(i32::from(request.fingerprint_version()))
+        .bind(request.fingerprint_digest().as_slice())
+        .bind(request.ad_object_guid())
+        .bind(request.ad_object_sid())
+        .bind(request.ad_dns_name())
+        .bind(request.ad_domain())
+        .bind(request.preferred_drive_letter().to_string())
+        .bind(token_digest.as_slice())
+        .execute(&mut *transaction)
+        .await;
+        if result.is_err() {
+            return Err(RepositoryError::Denied);
+        }
+        transaction.commit().await.map_err(|_| RepositoryError::Unavailable)?;
+        Ok(token)
+    }
+
+    /// Consumes a token exactly once after locking its authority record. Later
+    /// replacement activation reuses this transaction boundary.
+    pub async fn consume_token(
+        &self,
+        device_id: &str,
+        fingerprint_digest: &[u8; 32],
+        token: &str,
+    ) -> Result<(), RepositoryError> {
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let mut transaction = self.pool.begin().await.map_err(|_| RepositoryError::Unavailable)?;
+        let row = sqlx::query(
+            "SELECT fingerprint_digest, token_digest FROM enrollment_authority WHERE device_id = $1 AND token_consumed_at IS NULL AND token_expires_at > CURRENT_TIMESTAMP FOR UPDATE",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RepositoryError::Unavailable)?
+        .ok_or(RepositoryError::Denied)?;
+        let stored_fingerprint: Vec<u8> = row.try_get("fingerprint_digest").map_err(|_| RepositoryError::Unavailable)?;
+        let stored_token: Vec<u8> = row.try_get("token_digest").map_err(|_| RepositoryError::Unavailable)?;
+        if stored_fingerprint.as_slice() != fingerprint_digest || stored_token.as_slice() != token_digest {
+            return Err(RepositoryError::Denied);
+        }
+        let consumed = sqlx::query(
+            "UPDATE enrollment_authority SET token_consumed_at = CURRENT_TIMESTAMP WHERE device_id = $1 AND token_consumed_at IS NULL",
+        )
+        .bind(device_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RepositoryError::Unavailable)?;
+        if consumed.rows_affected() != 1 {
+            return Err(RepositoryError::Denied);
+        }
+        transaction.commit().await.map_err(|_| RepositoryError::Unavailable)
+    }
+}
+
+/// PostgreSQL-backed protected-route credential lookup. Route wiring consumes
+/// this adapter in Plan 01-23; this source slice establishes its fail-closed
+/// database boundary without treating local tests as LAB-DC01 evidence.
+#[derive(Clone)]
+pub struct PgRouteRepository {
+    pool: PgPool,
+}
+
+impl PgRouteRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus {
+        let status = sqlx::query(
+            "SELECT credential_status FROM device_route_credentials WHERE device_id = $1 AND credential_serial = $2",
+        )
+        .bind(device_id)
+        .bind(serial)
+        .fetch_optional(&self.pool)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|row| row.try_get::<String, _>("credential_status").ok());
+        match status.as_deref() {
+            Some("active") => CredentialStatus::Active,
+            Some("revoked") => CredentialStatus::Revoked,
+            _ => CredentialStatus::Expired,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnrollmentRecord {
@@ -17,12 +142,14 @@ pub struct EnrollmentRecord {
     pub revoked_serials: Vec<Vec<u8>>,
 }
 
+/// Deterministic authority fixture. It is deliberately named for test use and
+/// must never be supplied to production server composition.
 #[derive(Default)]
-pub struct AuthorityRepository {
+pub struct TestAuthorityRepository {
     records: Mutex<HashMap<String, EnrollmentRecord>>,
 }
 
-impl AuthorityRepository {
+impl TestAuthorityRepository {
     pub fn token_digest(token: &str) -> [u8; 32] {
         Sha256::digest(token.as_bytes()).into()
     }

@@ -275,11 +275,11 @@ pub(crate) async fn admin_provisioning_contract(
                 .map_err(|_| StatusCode::BAD_REQUEST)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    static AUTHORITY_REPOSITORY: OnceLock<Arc<crate::repository::AuthorityRepository>> =
+    static AUTHORITY_REPOSITORY: OnceLock<Arc<crate::repository::TestAuthorityRepository>> =
         OnceLock::new();
     let repository = Arc::clone(
         AUTHORITY_REPOSITORY
-            .get_or_init(|| Arc::new(crate::repository::AuthorityRepository::default())),
+            .get_or_init(|| Arc::new(crate::repository::TestAuthorityRepository::default())),
     );
     let service = crate::enrollment::AdminProvisioningService::new(repository, &secret)
         .map_err(|_| StatusCode::UNAUTHORIZED)?;

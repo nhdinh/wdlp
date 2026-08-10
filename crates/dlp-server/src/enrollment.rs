@@ -1,7 +1,7 @@
 //! Fail-closed enrollment orchestration: exact digest, corroborated directory identity,
 //! one-time token consumption, and constrained credential issuance form one authority flow.
 
-use crate::repository::{AuthorityRepository, RepositoryError};
+use crate::repository::{RepositoryError, TestAuthorityRepository};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -42,11 +42,11 @@ pub enum EnrollmentError {
 
 #[derive(Clone)]
 pub struct EnrollmentService {
-    repository: Arc<AuthorityRepository>,
+    repository: Arc<TestAuthorityRepository>,
 }
 impl EnrollmentService {
     pub fn for_test() -> Self {
-        let repository = Arc::new(AuthorityRepository::default());
+        let repository = Arc::new(TestAuthorityRepository::default());
         repository.create_for_test("device-test", [7; 32], "one-time-token");
         Self { repository }
     }
@@ -72,12 +72,12 @@ impl EnrollmentService {
 /// the named computer at both trusted DCs; only the digest crosses this boundary.
 #[derive(Clone)]
 pub struct AdminProvisioningService {
-    repository: Arc<AuthorityRepository>,
+    repository: Arc<TestAuthorityRepository>,
     admin_key_digest: [u8; 32],
 }
 impl AdminProvisioningService {
     pub fn new(
-        repository: Arc<AuthorityRepository>,
+        repository: Arc<TestAuthorityRepository>,
         admin_key: &str,
     ) -> Result<Self, EnrollmentError> {
         if admin_key.is_empty() {
@@ -113,11 +113,11 @@ mod provisioning_tests {
     use super::*;
     #[test]
     fn administrator_token_is_returned_once_and_only_its_digest_is_retained() {
-        let repository = Arc::new(AuthorityRepository::default());
+        let repository = Arc::new(TestAuthorityRepository::default());
         let service = AdminProvisioningService::new(Arc::clone(&repository), "secret").unwrap();
         let token = service.provision("secret", "device-01", [9; 32]).unwrap();
         assert!(!token.is_empty());
         assert!(service.provision("wrong", "device-02", [8; 32]).is_err());
-        assert_ne!(AuthorityRepository::token_digest(&token), [0; 32]);
+        assert_ne!(TestAuthorityRepository::token_digest(&token), [0; 32]);
     }
 }

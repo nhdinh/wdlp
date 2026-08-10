@@ -94,6 +94,118 @@ impl fmt::Debug for EnrollmentRequestV1 {
     }
 }
 
+/// Trusted-station provisioning input for a device that both configured domain
+/// controllers have already corroborated. The database receives the normalized
+/// identity and fixed digest, never the underlying hardware observations.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProvisionDeviceRequestV1 {
+    version: u16,
+    device_id: String,
+    fingerprint_version: u16,
+    fingerprint_digest: [u8; 32],
+    ad_object_guid: Vec<u8>,
+    ad_object_sid: Vec<u8>,
+    ad_dns_name: String,
+    ad_domain: String,
+    preferred_drive_letter: char,
+}
+
+impl ProvisionDeviceRequestV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        version: u16,
+        device_id: impl Into<String>,
+        fingerprint_version: u16,
+        fingerprint_digest: [u8; 32],
+        ad_object_guid: Vec<u8>,
+        ad_object_sid: Vec<u8>,
+        ad_dns_name: impl Into<String>,
+        ad_domain: impl Into<String>,
+        preferred_drive_letter: char,
+    ) -> Result<Self, ProtocolError> {
+        require_v1("ProvisionDeviceRequestV1", version)?;
+        let device_id = device_id.into();
+        let ad_dns_name = ad_dns_name.into();
+        let ad_domain = ad_domain.into();
+        require_nonempty("device identity", &device_id)?;
+        require_nonempty("AD DNS name", &ad_dns_name)?;
+        require_nonempty("AD domain", &ad_domain)?;
+        if fingerprint_version != 1
+            || ad_object_guid.len() != 16
+            || !(8..=68).contains(&ad_object_sid.len())
+            || !preferred_drive_letter.is_ascii_uppercase()
+        {
+            return Err(ProtocolError::InvalidField {
+                field: "trusted provisioning identity",
+            });
+        }
+        Ok(Self {
+            version,
+            device_id,
+            fingerprint_version,
+            fingerprint_digest,
+            ad_object_guid,
+            ad_object_sid,
+            ad_dns_name,
+            ad_domain,
+            preferred_drive_letter,
+        })
+    }
+
+    pub const fn version(&self) -> u16 {
+        self.version
+    }
+
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    pub const fn fingerprint_version(&self) -> u16 {
+        self.fingerprint_version
+    }
+
+    pub const fn fingerprint_digest(&self) -> &[u8; 32] {
+        &self.fingerprint_digest
+    }
+
+    pub fn ad_object_guid(&self) -> &[u8] {
+        &self.ad_object_guid
+    }
+
+    pub fn ad_object_sid(&self) -> &[u8] {
+        &self.ad_object_sid
+    }
+
+    pub fn ad_dns_name(&self) -> &str {
+        &self.ad_dns_name
+    }
+
+    pub fn ad_domain(&self) -> &str {
+        &self.ad_domain
+    }
+
+    pub const fn preferred_drive_letter(&self) -> char {
+        self.preferred_drive_letter
+    }
+}
+
+impl fmt::Debug for ProvisionDeviceRequestV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProvisionDeviceRequestV1")
+            .field("version", &self.version)
+            .field("device_id", &self.device_id)
+            .field("fingerprint_version", &self.fingerprint_version)
+            .field("fingerprint_digest", &"[REDACTED]")
+            .field("ad_object_guid", &"[REDACTED]")
+            .field("ad_object_sid", &"[REDACTED]")
+            .field("ad_dns_name", &self.ad_dns_name)
+            .field("ad_domain", &self.ad_domain)
+            .field("preferred_drive_letter", &self.preferred_drive_letter)
+            .finish()
+    }
+}
+
 /// The `/api/v1/enrollment` response. Credential material is opaque to this crate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnrollmentResponseV1 {
