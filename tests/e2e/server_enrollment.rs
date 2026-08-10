@@ -103,9 +103,11 @@ fn signed_configuration_is_audience_bound_hashed_and_replay_safe() {
     assert_eq!(first.audience().to_wire(), device.device_id());
     assert_eq!(first.content_digest().len(), 32);
     assert_eq!(first.content_digest(), first.content_digest());
-    assert!(state
-        .stage_configuration_for_test(device.device_id(), 1)
-        .is_err());
+    assert!(
+        state
+            .stage_configuration_for_test(device.device_id(), 1)
+            .is_err()
+    );
     state
         .stage_configuration_for_test(device.device_id(), 2)
         .expect("higher version is staged");
@@ -124,6 +126,12 @@ fn signed_configuration_is_audience_bound_hashed_and_replay_safe() {
 fn readiness_is_read_only_and_requires_every_dependency() {
     assert_eq!(liveness(), axum::http::StatusCode::OK);
     let missing = ReadinessDependencies::none_ready();
-    assert_eq!(readiness(&missing).status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(readiness(&ReadinessDependencies::all_ready()).status, axum::http::StatusCode::OK);
+    assert_eq!(
+        readiness(&missing).status,
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        readiness(&ReadinessDependencies::all_ready()).status,
+        axum::http::StatusCode::OK
+    );
 }
