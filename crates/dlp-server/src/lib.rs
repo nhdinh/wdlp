@@ -56,6 +56,7 @@ pub fn check_environment_file(path: impl AsRef<std::path::Path>) -> Result<(), S
         "DATABASE_URL",
         "DLP_AD_PRIMARY_LDAPS_URL",
         "DLP_AD_SECONDARY_LDAPS_URL",
+        "DLP_AD_BASE_DN",
         "DLP_AD_CA_CERT_PEM",
         "DLP_SERVER_CERT_PEM",
         "DLP_SERVER_KEY_PEM",
