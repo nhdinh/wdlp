@@ -4,7 +4,7 @@
 //! deliberately added by later plans; this seam owns process-only liveness and
 //! migration-before-bind ordering now.
 
-use axum::{Router, http::StatusCode, routing::get};
+use axum::{Router, http::{HeaderMap, StatusCode}, routing::{get, post}};
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
 use std::{fmt, net::SocketAddr, sync::Arc};
 
@@ -149,6 +149,7 @@ pub fn build_app(_state: ServerState) -> Router {
     Router::new()
         .route("/health/live", get(health_live))
         .route("/api/v1/tracer", get(tracer_contract))
+        .route("/api/v1/admin/provisioning", post(admin_provisioning_contract))
 }
 
 pub async fn health_live() -> StatusCode {
@@ -159,6 +160,12 @@ pub async fn health_live() -> StatusCode {
 /// Stateful enrollment/configuration work is deliberately supplied by the repository port.
 pub async fn tracer_contract() -> StatusCode {
     StatusCode::NO_CONTENT
+}
+
+/// Authentication is a deliberate hard gate: the real handler is wired only with
+/// an administrator-auth provider. This public contract cannot accept raw serials.
+async fn admin_provisioning_contract(headers: HeaderMap) -> StatusCode {
+    if headers.get("x-dlp-admin-authorization").is_none() { StatusCode::UNAUTHORIZED } else { StatusCode::NOT_IMPLEMENTED }
 }
 
 /// Development-only state used by the SQLite tracer. It is unavailable from a release build,

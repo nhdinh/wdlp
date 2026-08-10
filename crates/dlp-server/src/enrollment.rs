@@ -2,6 +2,7 @@
 //! one-time token consumption, and constrained credential issuance form one authority flow.
 
 use crate::repository::{AuthorityRepository, RepositoryError};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -21,5 +22,21 @@ impl EnrollmentService {
     pub fn enroll(&self, attempt: EnrollmentAttempt) -> Result<(), EnrollmentError> {
         if !attempt.directory_verified || !attempt.csr_valid { return Err(EnrollmentError::Denied); }
         self.repository.consume_and_replace(&attempt.device_id, attempt.fingerprint_digest, &attempt.token, attempt.serial).map_err(|error| match error { RepositoryError::Denied => EnrollmentError::Denied, RepositoryError::Unavailable => EnrollmentError::IntegrityFailure })
+    }
+}
+
+/// Narrow administrator provisioning seam. The caller must have already corroborated
+/// the named computer at both trusted DCs; only the digest crosses this boundary.
+#[derive(Clone)]
+pub struct AdminProvisioningService { repository: Arc<AuthorityRepository>, admin_key_digest: [u8; 32] }
+impl AdminProvisioningService {
+    pub fn new(repository: Arc<AuthorityRepository>, admin_key: &str) -> Result<Self, EnrollmentError> {
+        if admin_key.is_empty() { return Err(EnrollmentError::Denied); }
+        Ok(Self { repository, admin_key_digest: Sha256::digest(admin_key.as_bytes()).into() })
+    }
+    pub fn provision(&self, supplied_admin_key: &str, device_id: &str, fingerprint_digest: [u8; 32]) -> Result<String, EnrollmentError> {
+        let supplied: [u8; 32] = Sha256::digest(supplied_admin_key.as_bytes()).into();
+        if supplied != self.admin_key_digest || device_id.is_empty() { return Err(EnrollmentError::Denied); }
+        self.repository.provision(device_id, fingerprint_digest).map_err(|_| EnrollmentError::IntegrityFailure)
     }
 }
