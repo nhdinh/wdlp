@@ -13,3 +13,7 @@ dlp-crypto = { path = "../dlp-crypto" }
 dlp-domain = { path = "../dlp-domain" }
 dlp-protocol = { path = "../dlp-protocol" }
 dlp-storage = { path = "../dlp-storage" }
+rcgen = { version = "=0.14.8", features = ["pem", "x509-parser"] }
+secrecy = "=0.10.3"
+sha2 = "=0.11.0"
+zeroize = "=1.9.0"

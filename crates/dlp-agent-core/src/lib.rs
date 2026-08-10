@@ -10,6 +10,14 @@ use dlp_protocol::{
 use dlp_storage::StorageError;
 use std::fmt;
 
+pub mod client;
+pub mod enrollment;
+pub mod health;
+
+pub use client::{AgentHttpClient, ClientError};
+pub use enrollment::{EnrollmentCoordinator, EnrollmentError, EnrollmentMode, EnrollmentTransport};
+pub use health::{HealthSnapshot, RedactedDiagnostic};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AgentCoreError {
     EnrollmentRejected,

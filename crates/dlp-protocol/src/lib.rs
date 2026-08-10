@@ -118,6 +118,12 @@ impl EnrollmentResponseV1 {
         })
     }
 
+    /// Returns only the public certificate-chain response payload. The
+    /// enrollment request never exposes an endpoint-generated private key.
+    pub fn credential_chain(&self) -> &str {
+        &self.credential_chain
+    }
+
     pub const fn version(&self) -> u16 {
         self.version
     }
