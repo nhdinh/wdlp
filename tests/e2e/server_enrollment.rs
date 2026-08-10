@@ -4,6 +4,32 @@ use dlp_server::routes::RouteState;
 use dlp_server::tls::{
     AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus, PeerIdentity, TlsPaths,
 };
+
+#[test]
+fn repository_postgresql_authority_contract_is_digest_only_and_locking() {
+    use dlp_protocol::ProvisionDeviceRequestV1;
+
+    let request = ProvisionDeviceRequestV1::new(
+        1,
+        "device-01",
+        1,
+        [7; 32],
+        vec![1; 16],
+        vec![2; 16],
+        "device-01.lab.local",
+        "LAB",
+        'P',
+    )
+    .expect("version-1 provisioning request is valid");
+    assert_eq!(request.fingerprint_digest(), &[7; 32]);
+    assert!(format!("{request:?}").contains("[REDACTED]"));
+
+    let source = include_str!("../../crates/dlp-server/src/repository.rs");
+    assert!(source.contains("pub struct PgAuthorityRepository"));
+    assert!(source.contains("FOR UPDATE"));
+    assert!(source.contains("token_digest"));
+    assert!(!source.contains("BLOB"));
+}
 use rustls::pki_types::pem::PemObject;
 
 #[test]
