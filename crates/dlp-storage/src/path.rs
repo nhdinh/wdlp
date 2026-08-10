@@ -22,6 +22,15 @@ pub struct VirtualPath {
     lookup: String,
 }
 impl VirtualPath {
+    /// The synthetic root directory used internally by filesystem adapters.
+    /// It is never parsed from caller input, so user-provided empty paths remain invalid.
+    pub fn root() -> Self {
+        Self {
+            display: Vec::new(),
+            lookup: String::new(),
+        }
+    }
+
     pub fn parse(input: &str) -> Result<Self, PathError> {
         if input.is_empty()
             || input.len() > MAX_PATH_LENGTH

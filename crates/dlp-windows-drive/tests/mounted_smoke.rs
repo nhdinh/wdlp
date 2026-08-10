@@ -3,6 +3,7 @@ use dlp_storage::{CapturedStoreIdentity, LocalEncryptedStore, StoreKey};
 use dlp_windows_drive::{DlpFileSystemContext, MountedVolume, WinFspMountHost};
 use std::{
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
     thread,
     time::Duration,
@@ -61,8 +62,8 @@ fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
     );
     let store = LocalEncryptedStore::open(&root, identity.clone(), StoreKey::from_bytes([9; 32]))
         .expect("open encrypted backing store");
-    let context =
-        DlpFileSystemContext::new(identity, store).expect("capture matching store identity");
+    let context = DlpFileSystemContext::new(identity.clone(), store)
+        .expect("capture matching store identity");
     let drive = std::env::var("DLP_WINFSP_SMOKE_LETTER").unwrap_or_else(|_| available_drive());
     let mounted_path = format!("{drive}\\");
     let volume = WinFspMountHost::new(&drive)
@@ -74,12 +75,75 @@ fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
         wait_for_path(&mounted_path, true),
         "drive is visible in this Windows session"
     );
-    let file = format!("{mounted_path}smoke.txt");
+    let directory = format!("{mounted_path}Documents");
+    fs::create_dir(&directory).expect("Win32 create directory through mounted drive");
+    let file = format!("{directory}\\smoke.txt");
     fs::write(&file, MARKER).expect("Win32 write through mounted drive");
-    assert_eq!(fs::read(&file).expect("read through mounted drive"), MARKER);
+    let mut concurrent_reader = fs::File::open(&file).expect("second handle opens the same file");
+    let mut roundtrip = Vec::new();
+    concurrent_reader
+        .read_to_end(&mut roundtrip)
+        .expect("concurrent handle reads authenticated bytes");
+    assert_eq!(roundtrip, MARKER);
+    let renamed = format!("{directory}\\Final Report.txt");
+    fs::rename(&file, &renamed).expect("Win32 rename keeps the open file identity");
+    let mut append = fs::OpenOptions::new()
+        .append(true)
+        .open(&renamed)
+        .expect("second writer opens renamed file");
+    append.write_all(b"-extended").expect("write after rename");
+    append.sync_all().expect("flush after rename");
+    let expected = [MARKER, b"-extended"].concat();
+    assert_eq!(
+        fs::read(&renamed).expect("read through mounted drive"),
+        expected
+    );
+    let entries = fs::read_dir(&directory)
+        .expect("enumerate mounted directory")
+        .map(|entry| entry.expect("directory entry").file_name())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        entries.len(),
+        1,
+        "directory enumeration returns one visible file"
+    );
+    let deleted = format!("{directory}\\delete-me.txt");
+    fs::write(&deleted, b"delete-pending").expect("create deletion candidate");
+    fs::remove_file(&deleted).expect("delete file through mounted drive");
+    assert!(
+        !Path::new(&deleted).exists(),
+        "deleted path is no longer visible"
+    );
     assert!(
         !contains_marker(&root),
         "backing store must not contain plaintext marker"
+    );
+
+    drop(append);
+    drop(concurrent_reader);
+
+    volume.unmount().expect("clean first unmount");
+    assert!(
+        wait_for_path(&mounted_path, false),
+        "drive disappears after first host stop"
+    );
+
+    let restarted_store =
+        LocalEncryptedStore::open(&root, identity.clone(), StoreKey::from_bytes([9; 32]))
+            .expect("restart opens encrypted namespace index");
+    let restarted_context = DlpFileSystemContext::new(identity, restarted_store)
+        .expect("restart captures the same SID/store identity");
+    let restarted = WinFspMountHost::new(&drive)
+        .expect("same requested drive remains valid")
+        .start(restarted_context)
+        .expect("restart remounts the encrypted namespace");
+    assert!(
+        wait_for_path(&mounted_path, true),
+        "restart drive is visible"
+    );
+    assert_eq!(
+        fs::read(&renamed).expect("renamed file survives host restart"),
+        [MARKER, b"-extended"].concat()
     );
 
     let selected = root
@@ -97,7 +161,7 @@ fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
     *ciphertext.last_mut().expect("nonempty encrypted record") ^= 1;
     fs::write(&record, ciphertext).expect("corrupt only the test record");
     assert!(
-        fs::read(&file).is_err(),
+        fs::read(&renamed).is_err(),
         "corruption returns no authenticated bytes"
     );
 
@@ -113,7 +177,7 @@ fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
         thread::sleep(Duration::from_millis(milliseconds));
     }
 
-    volume.unmount().expect("clean unmount");
+    restarted.unmount().expect("clean final unmount");
     assert!(
         wait_for_path(&mounted_path, false),
         "drive disappears after host stop"

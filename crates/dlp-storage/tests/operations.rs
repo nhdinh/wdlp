@@ -51,6 +51,7 @@ fn paths_are_bounded_case_insensitive_and_cannot_escape_a_sid_store() {
 fn file_directory_and_handle_operations_are_deterministic() {
     let mut encrypted = store("S-1-5-21-1000", "store-a");
     let documents = VirtualPath::parse("Documents").expect("directory");
+    let archive = VirtualPath::parse("Archive").expect("moved directory");
     let report = VirtualPath::parse(r"Documents\\Quarterly Report.txt").expect("file");
     let renamed = VirtualPath::parse(r"Documents\\Final Report.txt").expect("renamed file");
     encrypted
@@ -78,9 +79,24 @@ fn file_directory_and_handle_operations_are_deterministic() {
             .expect("directory listing"),
         vec!["Final Report.txt"]
     );
-    encrypted.delete(&renamed).expect("delete");
+    encrypted
+        .rename(&documents, &archive, false)
+        .expect("move directory namespace");
+    let moved = VirtualPath::parse(r"Archive\\Final Report.txt").expect("moved file");
+    assert_eq!(
+        encrypted
+            .read_directory(&VirtualPath::root())
+            .expect("root listing"),
+        vec!["Archive"]
+    );
     assert!(matches!(
-        encrypted.read_path(&renamed),
+        encrypted.delete(&archive),
+        Err(StorageError::SharingViolation)
+    ));
+    encrypted.delete(&moved).expect("delete file");
+    encrypted.delete(&archive).expect("delete empty directory");
+    assert!(matches!(
+        encrypted.read_path(&moved),
         Err(StorageError::NotFound)
     ));
 }

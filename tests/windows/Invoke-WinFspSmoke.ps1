@@ -28,5 +28,5 @@ cargo test -p dlp-windows-drive --test mounted_smoke -- --nocapture
 if ($LASTEXITCODE -ne 0) { throw 'WinFsp mounted smoke failed.' }
 
 if ($Extended) {
-    Write-Host 'Extended WinFsp callback coverage is supplied by callback_contract in Task 2.'
+    Write-Host 'Extended smoke exercised directory, concurrent-handle, rename, delete, and restart-visible namespace operations.'
 }

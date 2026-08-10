@@ -127,6 +127,7 @@ struct FileEntry {
     display: String,
     delete_pending: bool,
 }
+#[derive(Clone)]
 struct HandleState {
     path_key: String,
     allow_delete: bool,
@@ -490,7 +491,11 @@ impl LocalEncryptedStore {
             path.lookup_key().to_owned(),
             path.display_name().unwrap_or_default().to_owned(),
         );
-        self.persist_namespace()
+        if let Err(error) = self.persist_namespace() {
+            self.directories.remove(path.lookup_key());
+            return Err(error);
+        }
+        Ok(())
     }
     pub fn read_directory(&self, path: &VirtualPath) -> Result<Vec<String>, StorageError> {
         if !self.is_directory(path) {
@@ -515,6 +520,9 @@ impl LocalEncryptedStore {
         entries.sort_by_key(|value| value.to_ascii_lowercase());
         Ok(entries)
     }
+    pub fn is_directory_path(&self, path: &VirtualPath) -> bool {
+        self.is_directory(path)
+    }
     pub fn create_or_open(
         &mut self,
         path: &VirtualPath,
@@ -522,10 +530,11 @@ impl LocalEncryptedStore {
         allow_delete: bool,
     ) -> Result<FileHandle, StorageError> {
         let key = path.lookup_key().to_owned();
-        if let Some(entry) = self.files.get(&key) {
+        let created = if let Some(entry) = self.files.get(&key) {
             if entry.delete_pending {
                 return Err(StorageError::DeletePending);
             }
+            false
         } else {
             if !create {
                 return Err(StorageError::NotFound);
@@ -542,6 +551,11 @@ impl LocalEncryptedStore {
                     delete_pending: false,
                 },
             );
+            true
+        };
+        if created && let Err(error) = self.persist_namespace() {
+            self.files.remove(&key);
+            return Err(error);
         }
         let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
         self.handles.insert(
@@ -562,6 +576,10 @@ impl LocalEncryptedStore {
         let file = self.handle_file(handle)?;
         self.write_at(&file, offset, bytes)
     }
+    pub fn read_handle(&self, handle: FileHandle) -> Result<Vec<u8>, StorageError> {
+        let file = self.handle_file(handle)?;
+        self.read(&file)
+    }
     pub fn truncate_handle(
         &mut self,
         handle: FileHandle,
@@ -579,7 +597,9 @@ impl LocalEncryptedStore {
     }
     pub fn flush_handle(&mut self, handle: FileHandle) -> Result<(), StorageError> {
         let file = self.handle_file(handle)?;
-        self.flush_file(&file)?;
+        if self.staged.contains_key(file.to_wire()) {
+            self.flush_file(&file)?;
+        }
         self.persist_namespace()
     }
     pub fn close_handle(&mut self, handle: FileHandle) -> Result<(), StorageError> {
@@ -596,8 +616,12 @@ impl LocalEncryptedStore {
                 .values()
                 .any(|other| other.path_key == state.path_key)
         {
+            let prior_files = self.files.clone();
             self.files.remove(&state.path_key);
-            self.persist_namespace()?;
+            if let Err(error) = self.persist_namespace() {
+                self.files = prior_files;
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -620,6 +644,9 @@ impl LocalEncryptedStore {
         let source_key = source.lookup_key().to_owned();
         let destination_key = destination.lookup_key().to_owned();
         self.require_parent(destination)?;
+        if self.is_directory(source) {
+            return self.rename_directory(source, destination, replace);
+        }
         let source_entry = self
             .files
             .get(&source_key)
@@ -636,6 +663,8 @@ impl LocalEncryptedStore {
                 return Err(StorageError::SharingViolation);
             }
         }
+        let prior_files = self.files.clone();
+        let prior_handles = self.handles.clone();
         let mut moved = self
             .files
             .remove(&source_key)
@@ -647,9 +676,17 @@ impl LocalEncryptedStore {
                 state.path_key = destination_key.clone();
             }
         }
-        self.persist_namespace()
+        if let Err(error) = self.persist_namespace() {
+            self.files = prior_files;
+            self.handles = prior_handles;
+            return Err(error);
+        }
+        Ok(())
     }
     pub fn delete(&mut self, path: &VirtualPath) -> Result<(), StorageError> {
+        if self.is_directory(path) {
+            return self.delete_directory(path);
+        }
         let key = path.lookup_key();
         let entry = self.files.get_mut(key).ok_or(StorageError::NotFound)?;
         if self
@@ -661,8 +698,137 @@ impl LocalEncryptedStore {
         } else if self.handles.values().any(|handle| handle.path_key == key) {
             entry.delete_pending = true;
         } else {
+            let prior_files = self.files.clone();
             self.files.remove(key);
-            self.persist_namespace()?;
+            if let Err(error) = self.persist_namespace() {
+                self.files = prior_files;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+    pub fn ensure_delete_allowed(&self, path: &VirtualPath) -> Result<(), StorageError> {
+        if self.is_directory(path) {
+            if path.lookup_key().is_empty() {
+                return Err(StorageError::SharingViolation);
+            }
+            let prefix = format!("{}/", path.lookup_key());
+            return if self.directories.contains_key(path.lookup_key())
+                && !self.directories.keys().any(|key| key.starts_with(&prefix))
+                && !self.files.keys().any(|key| key.starts_with(&prefix))
+            {
+                Ok(())
+            } else {
+                Err(StorageError::SharingViolation)
+            };
+        }
+        let key = path.lookup_key();
+        if !self.files.contains_key(key) {
+            return Err(StorageError::NotFound);
+        }
+        if self
+            .handles
+            .values()
+            .any(|handle| handle.path_key == key && !handle.allow_delete)
+        {
+            return Err(StorageError::SharingViolation);
+        }
+        Ok(())
+    }
+
+    fn rename_directory(
+        &mut self,
+        source: &VirtualPath,
+        destination: &VirtualPath,
+        replace: bool,
+    ) -> Result<(), StorageError> {
+        let source_key = source.lookup_key().to_owned();
+        let destination_key = destination.lookup_key().to_owned();
+        if source_key.is_empty() || destination_key.starts_with(&(source_key.clone() + "/")) {
+            return Err(StorageError::AlreadyExists);
+        }
+        self.require_parent(destination)?;
+        if self.files.contains_key(&destination_key)
+            || self.directories.contains_key(&destination_key)
+        {
+            if !replace {
+                return Err(StorageError::AlreadyExists);
+            }
+            self.delete(destination)?;
+        }
+        let prior_directories = self.directories.clone();
+        let prior_files = self.files.clone();
+        let prior_handles = self.handles.clone();
+        let directory_keys = self
+            .directories
+            .keys()
+            .filter(|key| **key == source_key || key.starts_with(&(source_key.clone() + "/")))
+            .cloned()
+            .collect::<Vec<_>>();
+        let file_keys = self
+            .files
+            .keys()
+            .filter(|key| key.starts_with(&(source_key.clone() + "/")))
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in &directory_keys {
+            let suffix = key.strip_prefix(&source_key).unwrap_or_default();
+            let display = if suffix.is_empty() {
+                destination.display_name().unwrap_or_default().to_owned()
+            } else {
+                self.directories.get(key).cloned().unwrap_or_default()
+            };
+            self.directories.remove(key);
+            self.directories
+                .insert(format!("{destination_key}{suffix}"), display);
+        }
+        for key in &file_keys {
+            let suffix = key.strip_prefix(&source_key).unwrap_or_default();
+            if let Some(entry) = self.files.remove(key) {
+                self.files
+                    .insert(format!("{destination_key}{suffix}"), entry);
+            }
+        }
+        for state in self.handles.values_mut() {
+            if state.path_key.starts_with(&(source_key.clone() + "/")) {
+                let suffix = state.path_key.strip_prefix(&source_key).unwrap_or_default();
+                state.path_key = format!("{destination_key}{suffix}");
+            }
+        }
+        if let Err(error) = self.persist_namespace() {
+            self.directories = prior_directories;
+            self.files = prior_files;
+            self.handles = prior_handles;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn delete_directory(&mut self, path: &VirtualPath) -> Result<(), StorageError> {
+        let key = path.lookup_key();
+        if key.is_empty() {
+            return Err(StorageError::SharingViolation);
+        }
+        if !self.directories.contains_key(key) {
+            return Err(StorageError::NotFound);
+        }
+        let prefix = format!("{key}/");
+        if self
+            .directories
+            .keys()
+            .any(|candidate| candidate.starts_with(&prefix))
+            || self
+                .files
+                .keys()
+                .any(|candidate| candidate.starts_with(&prefix))
+        {
+            return Err(StorageError::SharingViolation);
+        }
+        let prior_directories = self.directories.clone();
+        self.directories.remove(key);
+        if let Err(error) = self.persist_namespace() {
+            self.directories = prior_directories;
+            return Err(error);
         }
         Ok(())
     }

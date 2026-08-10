@@ -11,6 +11,8 @@ pub const STATUS_OBJECT_NAME_COLLISION: i32 = 0xC000_0035u32 as i32;
 pub const STATUS_SHARING_VIOLATION: i32 = 0xC000_0043u32 as i32;
 pub const STATUS_DELETE_PENDING: i32 = 0xC000_0056u32 as i32;
 pub const STATUS_IO_DEVICE_ERROR: i32 = 0xC000_0185u32 as i32;
+/// Explicit Phase 1 opt-out for ADS, reparse points, and extended attributes.
+pub const STATUS_NOT_SUPPORTED: i32 = 0xC000_0010u32 as i32;
 
 /// Maps portable errors without exposing a store path, SID, key, or buffer.
 pub fn to_ntstatus(error: &StorageError) -> i32 {
