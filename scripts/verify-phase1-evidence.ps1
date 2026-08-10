@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'PrivilegeApprovals')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,6 +80,7 @@ function Invoke-ContractsAndPrivileges {
     Assert-Phase1 ((@($matrix.requirements | Where-Object { $_.current_evidence_id -ne '' }).Count) -eq 1) 'matrix contains synthetic current evidence'
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     Assert-Phase1 (@($config.source_only_plans).Count -eq 2) '01-22/01-23 source-only declarations are missing'
+    Assert-Phase1 (@($config.source_only_plans | Where-Object { $_.allowed_mutations.Count -eq 0 -and $_.deployment_owner -eq '01-13' }).Count -eq 2) 'source-only plans may not authorize lab mutation'
     foreach ($plan in @('01-13', '01-14', '01-18', '01-19', '01-15', '01-20', '01-16', '01-21')) {
         $result = Test-Phase1PrivilegeManifest -ConfigPath $configPath -PlanId $plan
         Assert-Phase1 $result.Valid "privilege manifest failed for ${plan}: $($result.Errors -join '; ')"
@@ -88,9 +89,28 @@ function Invoke-ContractsAndPrivileges {
     Assert-Phase1 (@($config.review_contract.required_fields).Count -eq 9) 'independent review contract is incomplete'
 }
 
+function Invoke-VisualAndReviewFixtures {
+    Invoke-ContractsAndPrivileges
+    $visual = [pscustomobject]@{
+        authenticated_identity = [pscustomobject]@{ kind = 'authenticated_domain_operator'; name = 'LAB\\phase1-operator' }
+        utc = '2026-08-10T12:13:00Z'; machine = 'LAB-CLIENT01'; build = 'phase1-build'; expected_result = 'Explorer can use the protected drive'; actual_result = 'pass'
+        deviations = [pscustomobject]@{ state = 'none' }; matrix_digest = ('a' * 64); artifact_integrity = 'passed'
+    }
+    Assert-Phase1 (Test-Phase1VisualReview -Record $visual -Kind visual).Valid 'authenticated LAB-CLIENT01 visual review was rejected'
+    $wrongRole = $visual | ConvertTo-Json -Depth 8 | ConvertFrom-Json; $wrongRole.machine = 'hungdinh-lt'
+    Assert-Phase1 (-not (Test-Phase1VisualReview -Record $wrongRole -Kind visual).Valid) 'host-side visual review was accepted'
+    $deviated = $visual | ConvertTo-Json -Depth 8 | ConvertFrom-Json; $deviated.deviations.state = 'recorded'
+    Assert-Phase1 (-not (Test-Phase1VisualReview -Record $deviated -Kind visual).Valid) 'deviated visual review was accepted as pass'
+    $independent = $visual | ConvertTo-Json -Depth 8 | ConvertFrom-Json; $independent.authenticated_identity.kind = 'independent_verifier'
+    Assert-Phase1 (Test-Phase1VisualReview -Record $independent -Kind independent_review).Valid 'independent phase-exit review was rejected'
+    $selfReview = $visual | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    Assert-Phase1 (-not (Test-Phase1VisualReview -Record $selfReview -Kind independent_review).Valid) 'non-independent phase-exit review was accepted'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
     'ContractsAndPrivileges' { Invoke-ContractsAndPrivileges }
+    'VisualAndReviewFixtures' { Invoke-VisualAndReviewFixtures }
     'PrivilegeApprovals' { throw 'Privilege approvals are intentionally blocking until an authenticated operator records each exact manifest digest.' }
 }

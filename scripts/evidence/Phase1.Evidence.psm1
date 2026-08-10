@@ -162,4 +162,23 @@ function Test-Phase1PrivilegeManifest {
     [pscustomobject]@{ Valid = ($errors.Count -eq 0); Errors = $errors; Manifest = $manifest }
 }
 
-Export-ModuleMember -Function New-Phase1Evidence, Test-Phase1Evidence, Publish-Phase1Evidence, Test-Phase1PrivilegeManifest, Resolve-Phase1EvidenceStatus, Get-Phase1PrivilegeManifestDigest, Get-Phase1Sha256
+function Test-Phase1VisualReview {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Record, [ValidateSet('visual', 'independent_review')][string]$Kind = 'visual')
+    $required = @('authenticated_identity', 'utc', 'machine', 'build', 'expected_result', 'actual_result', 'deviations', 'matrix_digest', 'artifact_integrity')
+    $errors = [System.Collections.Generic.List[string]]::new()
+    foreach ($field in $required) {
+        $value = $Record.$field
+        if ($null -eq $value -or ($value -is [string] -and [string]::IsNullOrWhiteSpace($value))) { $errors.Add("missing review field: $field") }
+    }
+    $utc = [datetime]::MinValue
+    if (-not [datetime]::TryParse([string]$Record.utc, [ref]$utc)) { $errors.Add('invalid review UTC') }
+    if ($Kind -eq 'visual' -and $Record.machine -ne 'LAB-CLIENT01') { $errors.Add('visual review must run on LAB-CLIENT01') }
+    if ($Record.authenticated_identity.kind -ne 'authenticated_domain_operator' -and $Record.authenticated_identity.kind -ne 'independent_verifier') { $errors.Add('review identity is not authenticated') }
+    if ($Kind -eq 'independent_review' -and $Record.authenticated_identity.kind -ne 'independent_verifier') { $errors.Add('phase exit requires an independent verifier') }
+    if ($Record.actual_result -eq 'pass' -and $Record.deviations.state -ne 'none') { $errors.Add('a deviation cannot be promoted to pass') }
+    if ($Record.artifact_integrity -ne 'passed') { $errors.Add('artifact integrity did not pass') }
+    [pscustomobject]@{ Valid = ($errors.Count -eq 0); Errors = $errors }
+}
+
+Export-ModuleMember -Function New-Phase1Evidence, Test-Phase1Evidence, Publish-Phase1Evidence, Test-Phase1PrivilegeManifest, Test-Phase1VisualReview, Resolve-Phase1EvidenceStatus, Get-Phase1PrivilegeManifestDigest, Get-Phase1Sha256
