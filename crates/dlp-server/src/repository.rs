@@ -100,6 +100,91 @@ impl PgAuthorityRepository {
         }
         transaction.commit().await.map_err(|_| RepositoryError::Unavailable)
     }
+
+    /// Locks the current authority row, validates its exact trusted-station
+    /// observation and token, invokes the certificate callback, then consumes,
+    /// revokes, and activates in one committed PostgreSQL transaction.
+    pub async fn consume_and_activate<T, F>(
+        &self,
+        request: &ProvisionDeviceRequestV1,
+        token: &str,
+        prior_serial: Option<&[u8]>,
+        issue: F,
+    ) -> Result<T, RepositoryError>
+    where
+        F: FnOnce(Vec<u8>) -> Result<(T, [u8; 32]), RepositoryError>,
+    {
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let mut transaction = self.pool.begin().await.map_err(|_| RepositoryError::Unavailable)?;
+        let row = sqlx::query(
+            "SELECT fingerprint_digest, token_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, active_serial FROM enrollment_authority WHERE device_id = $1 AND token_consumed_at IS NULL AND token_expires_at > CURRENT_TIMESTAMP FOR UPDATE",
+        )
+        .bind(request.device_id())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RepositoryError::Unavailable)?
+        .ok_or(RepositoryError::Denied)?;
+        let fingerprint: Vec<u8> = row.try_get("fingerprint_digest").map_err(|_| RepositoryError::Unavailable)?;
+        let stored_token: Vec<u8> = row.try_get("token_digest").map_err(|_| RepositoryError::Unavailable)?;
+        let guid: Vec<u8> = row.try_get("ad_object_guid").map_err(|_| RepositoryError::Unavailable)?;
+        let sid: Vec<u8> = row.try_get("ad_object_sid").map_err(|_| RepositoryError::Unavailable)?;
+        let dns: String = row.try_get("ad_dns_name").map_err(|_| RepositoryError::Unavailable)?;
+        let domain: String = row.try_get("ad_domain").map_err(|_| RepositoryError::Unavailable)?;
+        let active_serial: Option<Vec<u8>> = row.try_get("active_serial").map_err(|_| RepositoryError::Unavailable)?;
+        if fingerprint.as_slice() != request.fingerprint_digest()
+            || stored_token.as_slice() != token_digest
+            || guid.as_slice() != request.ad_object_guid()
+            || sid.as_slice() != request.ad_object_sid()
+            || dns != request.ad_dns_name()
+            || domain != request.ad_domain()
+            || active_serial.as_deref() != prior_serial
+        {
+            return Err(RepositoryError::Denied);
+        }
+
+        let new_serial = Uuid::new_v4().as_bytes().to_vec();
+        let (result, public_certificate_digest) = issue(new_serial.clone())?;
+        if let Some(previous) = active_serial {
+            sqlx::query(
+                "UPDATE device_route_credentials SET credential_status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE device_id = $1 AND credential_serial = $2 AND credential_status = 'active'",
+            )
+            .bind(request.device_id())
+            .bind(&previous)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
+            sqlx::query(
+                "INSERT INTO revoked_device_credentials (serial, device_id) VALUES ($1, $2)",
+            )
+            .bind(previous)
+            .bind(request.device_id())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
+        }
+        let consumed = sqlx::query(
+            "UPDATE enrollment_authority SET token_consumed_at = CURRENT_TIMESTAMP, active_serial = $2 WHERE device_id = $1 AND token_consumed_at IS NULL",
+        )
+        .bind(request.device_id())
+        .bind(&new_serial)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RepositoryError::Unavailable)?;
+        if consumed.rows_affected() != 1 {
+            return Err(RepositoryError::Denied);
+        }
+        sqlx::query(
+            "INSERT INTO device_route_credentials (device_id, credential_serial, credential_status, public_certificate_digest, expires_at) VALUES ($1, $2, 'active', $3, CURRENT_TIMESTAMP + INTERVAL '30 days')",
+        )
+        .bind(request.device_id())
+        .bind(new_serial)
+        .bind(public_certificate_digest.as_slice())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RepositoryError::Unavailable)?;
+        transaction.commit().await.map_err(|_| RepositoryError::Unavailable)?;
+        Ok(result)
+    }
 }
 
 /// PostgreSQL-backed protected-route credential lookup. Route wiring consumes

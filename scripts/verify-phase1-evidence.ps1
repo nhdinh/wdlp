@@ -123,7 +123,7 @@ function Invoke-ServerEnrollmentSource {
     Invoke-ServerAuthoritySource
     $enrollment = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/enrollment.rs') -Raw
     $pki = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/pki.rs') -Raw
-    Assert-Phase1 ($enrollment -match 'PgAuthorityRepository' -and $enrollment -match 'transaction') 'enrollment service is not bound to the PostgreSQL transaction contract'
+    Assert-Phase1 ($enrollment -match 'PgAuthorityRepository' -and $enrollment -match 'consume_and_activate') 'enrollment service is not bound to the PostgreSQL transaction contract'
     Assert-Phase1 ($pki -match 'CertificateSigningRequestParams::from_pem' -and $pki -match 'DigitalSignature' -and $pki -match 'ClientAuth') 'device issuer does not constrain the CSR profile'
 }
 

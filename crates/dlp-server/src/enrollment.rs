@@ -1,7 +1,11 @@
 //! Fail-closed enrollment orchestration: exact digest, corroborated directory identity,
 //! one-time token consumption, and constrained credential issuance form one authority flow.
 
-use crate::repository::{RepositoryError, TestAuthorityRepository};
+use crate::{
+    pki::{IssuedDeviceCredential, RcgenDeviceCertificateIssuer},
+    repository::{PgAuthorityRepository, RepositoryError, TestAuthorityRepository},
+};
+use dlp_protocol::ProvisionDeviceRequestV1;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -41,10 +45,10 @@ pub enum EnrollmentError {
 }
 
 #[derive(Clone)]
-pub struct EnrollmentService {
+pub struct TestEnrollmentService {
     repository: Arc<TestAuthorityRepository>,
 }
-impl EnrollmentService {
+impl TestEnrollmentService {
     pub fn for_test() -> Self {
         let repository = Arc::new(TestAuthorityRepository::default());
         repository.create_for_test("device-test", [7; 32], "one-time-token");
@@ -61,6 +65,95 @@ impl EnrollmentService {
                 &attempt.token,
                 attempt.serial,
             )
+            .map_err(|error| match error {
+                RepositoryError::Denied => EnrollmentError::Denied,
+                RepositoryError::Unavailable => EnrollmentError::IntegrityFailure,
+            })
+    }
+}
+
+/// Untrusted endpoint enrollment input. Debug intentionally omits the one-time
+/// token and CSR because neither belongs in diagnostics or committed fixtures.
+#[derive(Clone)]
+pub struct EnrollmentSubmission {
+    observation: ProvisionDeviceRequestV1,
+    token: String,
+    csr_pem: String,
+    prior_serial: Option<Vec<u8>>,
+}
+
+impl EnrollmentSubmission {
+    pub fn new(
+        observation: ProvisionDeviceRequestV1,
+        token: impl Into<String>,
+        csr_pem: impl Into<String>,
+        prior_serial: Option<Vec<u8>>,
+    ) -> Result<Self, EnrollmentError> {
+        let token = token.into();
+        let csr_pem = csr_pem.into();
+        if token.is_empty()
+            || token.len() > 512
+            || csr_pem.is_empty()
+            || csr_pem.len() > 65_536
+            || prior_serial.as_ref().is_some_and(|serial| serial.is_empty() || serial.len() > 20)
+        {
+            return Err(EnrollmentError::Denied);
+        }
+        Ok(Self {
+            observation,
+            token,
+            csr_pem,
+            prior_serial,
+        })
+    }
+}
+
+impl std::fmt::Debug for EnrollmentSubmission {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EnrollmentSubmission")
+            .field("observation", &self.observation)
+            .field("token", &"[REDACTED]")
+            .field("csr_pem", &"[REDACTED]")
+            .field("prior_serial", &self.prior_serial.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
+/// Production enrollment orchestration. The PostgreSQL repository holds the
+/// authority row lock while the issuer creates only a public device leaf; it
+/// commits token consumption, serial revocation, and serial activation together.
+#[derive(Clone)]
+pub struct EnrollmentService {
+    repository: PgAuthorityRepository,
+    issuer: RcgenDeviceCertificateIssuer,
+}
+
+impl EnrollmentService {
+    pub fn new(repository: PgAuthorityRepository, issuer: RcgenDeviceCertificateIssuer) -> Self {
+        Self { repository, issuer }
+    }
+
+    pub async fn enroll(
+        &self,
+        submission: EnrollmentSubmission,
+    ) -> Result<IssuedDeviceCredential, EnrollmentError> {
+        let issuer = &self.issuer;
+        self.repository
+            .consume_and_activate(
+                &submission.observation,
+                &submission.token,
+                submission.prior_serial.as_deref(),
+                |serial| {
+                    let issued = issuer
+                        .issue_from_csr(submission.observation.device_id(), &submission.csr_pem, serial)
+                        .map_err(|_| RepositoryError::Denied)?;
+                    let certificate_digest: [u8; 32] =
+                        Sha256::digest(issued.certificate_chain_pem.as_bytes()).into();
+                    Ok((issued, certificate_digest))
+                },
+            )
+            .await
             .map_err(|error| match error {
                 RepositoryError::Denied => EnrollmentError::Denied,
                 RepositoryError::Unavailable => EnrollmentError::IntegrityFailure,

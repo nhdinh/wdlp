@@ -2,7 +2,7 @@
 
 use rcgen::{
     CertificateParams, CertificateSigningRequestParams, ExtendedKeyUsagePurpose, IsCa,
-    KeyUsagePurpose, SerialNumber,
+    KeyUsagePurpose, SerialNumber, PKCS_ECDSA_P256_SHA256,
 };
 use std::{
     fs,
@@ -65,6 +65,9 @@ impl RcgenDeviceCertificateIssuer {
         // Parses and verifies the CSR signature before it is ever eligible for issuance.
         let csr = CertificateSigningRequestParams::from_pem(csr_pem)
             .map_err(|_| CertificateError::InvalidCsr)?;
+        if csr.public_key.algorithm() != &PKCS_ECDSA_P256_SHA256 {
+            return Err(CertificateError::InvalidCsr);
+        }
         let root = fs::read_to_string(&self.root_certificate_path)
             .map_err(|_| CertificateError::InvalidConfiguration)?;
         let issuer_certificate = fs::read_to_string(&self.issuing_certificate_path)
@@ -89,8 +92,14 @@ impl RcgenDeviceCertificateIssuer {
             .map_err(|_| CertificateError::InvalidCsr)?;
         params.subject_alt_names = vec![rcgen::SanType::URI(device_uri)];
         params.serial_number = Some(SerialNumber::from_slice(&serial));
-        // The profile is deliberately fixed. The service records a 30-day validity contract;
-        // the mounted issuing CA must enforce it via its restricted deployment profile.
+        let (not_before_year, not_before_month, not_before_day) = utc_date_after_days(0);
+        let (not_after_year, not_after_month, not_after_day) = utc_date_after_days(30);
+        params.not_before = rcgen::date_time_ymd(
+            not_before_year,
+            not_before_month,
+            not_before_day,
+        );
+        params.not_after = rcgen::date_time_ymd(not_after_year, not_after_month, not_after_day);
         let certificate = params
             .signed_by(&csr.public_key, &issuer)
             .map_err(|_| CertificateError::IssuanceFailed)?;
@@ -105,4 +114,27 @@ impl RcgenDeviceCertificateIssuer {
             expires_after_days: 30,
         })
     }
+}
+
+/// Converts a UTC day count to a civil date without pulling a new time crate
+/// into the approved dependency graph. Certificate validity is date-bounded to
+/// the fixed Phase 1 30-day profile.
+fn utc_date_after_days(additional_days: i64) -> (i32, u8, u8) {
+    let unix_days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+        / 86_400
+        + additional_days;
+    let z = unix_days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let day_of_year = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    let year = year + i64::from(month <= 2);
+    (year as i32, month as u8, day as u8)
 }
