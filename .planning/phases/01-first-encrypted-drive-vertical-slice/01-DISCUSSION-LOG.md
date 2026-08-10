@@ -76,3 +76,20 @@
 ## Deferred Ideas
 
 None.
+
+---
+
+# Update: Build and Verification Environment Roles
+
+**Date:** 2026-08-10
+
+| Decision point | Alternatives considered | Selected |
+|----------------|-------------------------|----------|
+| Endpoint runtime | CLIENT01 only, split between host/client, mixed host runtime | `LAB-CLIENT01` only |
+| Test server/database | Dedicated server VM, DC01, physical host | `LAB-DC01` |
+| Trusted provisioning station | DC01, DC02, CLIENT01 self-collection | `LAB-DC01` |
+| Physical developer host | Developer tools only, developer tools plus WinFsp, no system changes | Developer tools only |
+
+**User's choice:** Keep `hungdinh-lt` as a build/orchestration host. Run the server, database, and trusted provisioning on `LAB-DC01`; retain `LAB-DC02` as the secondary directory authority; run every real endpoint behavior on `LAB-CLIENT01`.
+
+**Notes:** The user initially selected developer tools plus WinFsp for `hungdinh-lt`, then explicitly revised that choice to developer tools only. Existing host-based WinFsp or endpoint evidence must not be used to satisfy replanned endpoint-runtime acceptance criteria.

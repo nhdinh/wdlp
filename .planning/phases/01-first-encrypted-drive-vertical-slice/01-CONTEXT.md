@@ -1,6 +1,6 @@
 # Phase 1: First Encrypted-Drive Vertical Slice - Context
 
-**Gathered:** 2026-08-07
+**Gathered:** 2026-08-10 (updated during execution)
 **Status:** Ready for planning
 
 <domain>
@@ -40,6 +40,13 @@ Deliver one complete architectural proof with one management server, one domain-
 - **D-18:** Validate file sizes from empty through at least 1 GB, including sizes immediately below, at, and above encrypted-storage chunk boundaries.
 - **D-19:** Validate normal service restart, Windows reboot, forced service termination during an active write, and simulated abrupt machine loss.
 
+### Build and Verification Environment Roles
+- **D-20:** `hungdinh-lt` is the physical developer host and is limited to source builds, developer tooling such as Rust and LLVM, and Hyper-V orchestration. It must not host the DLP endpoint service, DPAPI endpoint credentials, development PKI trust entries, hosts-file mappings, domain/network changes, WinFsp runtime, DLP mounts, or endpoint-runtime verification.
+- **D-21:** `LAB-CLIENT01` is the only Phase 1 endpoint-runtime target. Agent installation, Windows service execution, DPAPI credential custody, enrollment, device mTLS, WinFsp installation and mounting, restart/recovery, user-session behavior, and user-visible verification run there.
+- **D-22:** `LAB-DC01` hosts the Phase 1 management server and development database and acts as the trusted provisioning station. Provisioning runs in its domain context and queries `LAB-CLIENT01` through Kerberos WinRM-over-HTTPS.
+- **D-23:** `LAB-DC02` remains the independent secondary Active Directory authority used for dual-DC corroboration; it does not host the endpoint runtime or provisioning workflow.
+- **D-24:** Build/test plans and verification commands must name their execution machine explicitly. A test run on `hungdinh-lt` cannot be accepted as evidence for Windows endpoint service, DPAPI, enrollment, mount, restart, or user-session requirements.
+
 ### the agent's Discretion
 - Select the exact hardware serial sources used in the composite fingerprint while preserving exact-match behavior, system-disk binding, and resistance to agent-supplied spoofing.
 - Select the sign-out handle grace-period duration and retry backoff for failed mounts.
@@ -70,8 +77,9 @@ Deliver one complete architectural proof with one management server, one domain-
 ## Existing Code Insights
 
 ### Reusable Assets
-- No implementation code exists yet; Phase 1 begins from planning artifacts and ADRs.
-- The ADR set provides directly reusable contracts for WinFsp, REST/JSON, SQLx migrations, Ed25519 signing, and per-user encrypted storage.
+- The workspace now contains the portable domain/protocol/crypto/storage crates, authenticated server routes, Windows service boundaries, and a real WinFsp adapter.
+- Completed Phase 1 summaries through `01-10-SUMMARY.md` provide reusable build, storage, enrollment, TLS, recovery, and mount evidence that replanning must preserve.
+- Hyper-V PowerShell Direct provides orchestration from `hungdinh-lt` into the domain context without changing the physical host's DNS, trust store, hosts file, or domain membership.
 
 ### Established Patterns
 - Portable Rust crates deny unsafe code; Windows-specific FFI must remain isolated and documented.
@@ -83,6 +91,7 @@ Deliver one complete architectural proof with one management server, one domain-
 - New Cargo workspace crates and their boundaries are defined by `WRK-01` in `.planning/REQUIREMENTS.md`.
 - The server connects to PostgreSQL, both AD domain controllers, and enrolled agents over authenticated HTTP APIs.
 - The Windows service connects enrollment/configuration, DPAPI-protected device credentials, per-user session detection, WinFsp mounting, and encrypted backing storage.
+- Replanned Windows integration and verification must deploy artifacts to `LAB-CLIENT01`; server/database and trusted provisioning commands execute on `LAB-DC01`; dual-directory checks use both `LAB-DC01` and `LAB-DC02`.
 
 </code_context>
 
@@ -105,4 +114,4 @@ None — discussion stayed within phase scope.
 ---
 
 *Phase: 1-First Encrypted-Drive Vertical Slice*
-*Context gathered: 2026-08-07*
+*Context gathered: 2026-08-07; environment roles updated: 2026-08-10*
