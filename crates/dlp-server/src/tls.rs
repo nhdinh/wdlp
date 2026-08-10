@@ -138,7 +138,9 @@ impl TlsPaths {
             .into_iter()
             .chain(load_certificates(&self.device_issuing_ca)?)
         {
-            client_roots.add(certificate).map_err(|_| TlsError::InvalidMaterial)?;
+            client_roots
+                .add(certificate)
+                .map_err(|_| TlsError::InvalidMaterial)?;
         }
         // Read the public Phase 1 root now so a missing bootstrap anchor fails
         // closed before serving; no root private key is ever requested.
