@@ -6,6 +6,7 @@
 //! length-delimited, fixed-field bytes. Arbitrary maps are not a signing input.
 
 use dlp_domain::{BundleVersion, DeviceId};
+use sha2::{Digest, Sha256};
 use std::fmt;
 
 pub const API_VERSION_V1: u16 = 1;
@@ -171,6 +172,10 @@ impl ConfigurationEnvelopeV1 {
         &self.bundle_version
     }
 
+    pub fn device_id(&self) -> &DeviceId {
+        &self.device_id
+    }
+
     /// Encodes the only signature input as a length-delimited fixed field sequence.
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut output = b"dlp-configuration-envelope/v1\0".to_vec();
@@ -191,6 +196,8 @@ pub struct SignedConfigurationV1 {
     envelope: ConfigurationEnvelopeV1,
     key_id: String,
     signature: Vec<u8>,
+    content_digest: [u8; 32],
+    audience: DeviceId,
 }
 
 impl SignedConfigurationV1 {
@@ -204,11 +211,15 @@ impl SignedConfigurationV1 {
         if signature.is_empty() {
             return Err(ProtocolError::InvalidField { field: "signature" });
         }
+        let content_digest: [u8; 32] = Sha256::digest(envelope.canonical_bytes()).into();
+        let audience = envelope.device_id().clone();
         Ok(Self {
             version: API_VERSION_V1,
             envelope,
             key_id,
             signature,
+            content_digest,
+            audience,
         })
     }
 
@@ -226,6 +237,14 @@ impl SignedConfigurationV1 {
 
     pub fn signature(&self) -> &[u8] {
         &self.signature
+    }
+
+    pub fn content_digest(&self) -> &[u8; 32] {
+        &self.content_digest
+    }
+
+    pub fn audience(&self) -> &DeviceId {
+        &self.audience
     }
 }
 

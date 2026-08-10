@@ -1,8 +1,12 @@
 //! Transactional authority state.  Production adapters map these invariants to SQL locks.
 
 use crate::tls::{AuthenticatedDevice, CredentialStatus};
+use dlp_protocol::SignedConfigurationV1;
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Mutex,
+};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +103,7 @@ struct DeviceRouteRecord {
     active_serial: Option<Vec<u8>>,
     revoked_serials: Vec<Vec<u8>>,
     health_reports: Vec<String>,
+    configurations: BTreeMap<u64, SignedConfigurationV1>,
 }
 
 impl RouteRepository {
@@ -176,6 +181,55 @@ impl RouteRepository {
         Ok(())
     }
 
+    /// Persists only immutable signed bytes and rejects a version that could
+    /// replay or replace the selected configuration.
+    pub fn persist_configuration(
+        &self,
+        device_id: &str,
+        configuration: SignedConfigurationV1,
+    ) -> Result<(), RouteRepositoryError> {
+        if configuration.audience().to_wire() != device_id {
+            return Err(RouteRepositoryError::Denied);
+        }
+        let version = configuration
+            .envelope()
+            .bundle_version()
+            .to_wire()
+            .parse::<u64>()
+            .map_err(|_| RouteRepositoryError::Denied)?;
+        let mut devices = self
+            .devices
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let record = devices
+            .get_mut(device_id)
+            .ok_or(RouteRepositoryError::Denied)?;
+        if record
+            .configurations
+            .last_key_value()
+            .is_some_and(|(current, _)| version <= *current)
+        {
+            return Err(RouteRepositoryError::Replay);
+        }
+        record.configurations.insert(version, configuration);
+        Ok(())
+    }
+
+    pub fn selected_configuration(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<SignedConfigurationV1>, RouteRepositoryError> {
+        let devices = self
+            .devices
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let record = devices.get(device_id).ok_or(RouteRepositoryError::Denied)?;
+        Ok(record
+            .configurations
+            .last_key_value()
+            .map(|(_, configuration)| configuration.clone()))
+    }
+
     pub fn health_report_count(&self, device_id: &str) -> usize {
         self.devices
             .lock()
@@ -192,5 +246,6 @@ impl RouteRepository {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RouteRepositoryError {
     Denied,
+    Replay,
     Unavailable,
 }

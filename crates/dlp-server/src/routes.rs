@@ -62,8 +62,34 @@ impl RouteState {
         device: &AuthenticatedDevice,
     ) -> Result<SignedConfigurationV1, RouteError> {
         self.repository.authorize_device(device)?;
-        let device_id = DeviceId::parse(device.device_id()).map_err(|_| RouteError::Denied)?;
-        let bundle_version = BundleVersion::parse("1").expect("static bundle version is valid");
+        if let Some(configuration) = self.repository.selected_configuration(device.device_id())? {
+            return Ok(configuration);
+        }
+        let configuration = self.make_configuration(device.device_id(), 1)?;
+        self.repository
+            .persist_configuration(device.device_id(), configuration.clone())?;
+        Ok(configuration)
+    }
+
+    pub fn stage_configuration_for_test(
+        &self,
+        device_id: &str,
+        version: u64,
+    ) -> Result<(), RouteError> {
+        let configuration = self.make_configuration(device_id, version)?;
+        self.repository
+            .persist_configuration(device_id, configuration)
+            .map_err(Into::into)
+    }
+
+    fn make_configuration(
+        &self,
+        device: &str,
+        version: u64,
+    ) -> Result<SignedConfigurationV1, RouteError> {
+        let device_id = DeviceId::parse(device).map_err(|_| RouteError::Denied)?;
+        let bundle_version =
+            BundleVersion::parse(version.to_string()).map_err(|_| RouteError::Denied)?;
         let envelope = ConfigurationEnvelopeV1::new(
             1,
             device_id,
@@ -102,6 +128,7 @@ impl From<RouteRepositoryError> for RouteError {
     fn from(value: RouteRepositoryError) -> Self {
         match value {
             RouteRepositoryError::Denied => Self::Denied,
+            RouteRepositoryError::Replay => Self::Denied,
             RouteRepositoryError::Unavailable => Self::Unavailable,
         }
     }
@@ -201,6 +228,8 @@ struct ConfigurationResponse {
     key_id: String,
     canonical_bytes: Vec<u8>,
     signature: Vec<u8>,
+    content_digest: Vec<u8>,
+    audience: String,
 }
 
 impl From<SignedConfigurationV1> for ConfigurationResponse {
@@ -212,6 +241,8 @@ impl From<SignedConfigurationV1> for ConfigurationResponse {
             key_id: value.key_id().to_owned(),
             canonical_bytes: value.envelope().canonical_bytes(),
             signature: value.signature().to_vec(),
+            content_digest: value.content_digest().to_vec(),
+            audience: value.audience().to_wire().to_owned(),
         }
     }
 }

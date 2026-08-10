@@ -10,3 +10,4 @@ workspace = true
 
 [dependencies]
 dlp-domain = { path = "../dlp-domain" }
+sha2 = "=0.11.0"

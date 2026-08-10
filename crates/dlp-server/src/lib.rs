@@ -6,19 +6,21 @@
 
 use axum::{
     Json, Router,
+    extract::Extension,
     http::{HeaderMap, StatusCode},
     routing::get,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
 use std::{
-    fmt,
+    fmt, fs,
     net::SocketAddr,
     sync::{Arc, OnceLock},
 };
 
 pub mod ad;
 pub mod enrollment;
+pub mod health;
 pub mod pki;
 pub mod repository;
 pub mod routes;
@@ -34,6 +36,7 @@ pub enum ServerError {
     MigrationFailed,
     ListenerFailed,
     ServeFailed,
+    InvalidEnvironmentFile,
 }
 
 impl fmt::Display for ServerError {
@@ -45,9 +48,38 @@ impl fmt::Display for ServerError {
             Self::MigrationFailed => "server_migration_failed",
             Self::ListenerFailed => "server_listener_failed",
             Self::ServeFailed => "server_serve_failed",
+            Self::InvalidEnvironmentFile => "server_environment_invalid",
         };
         write!(formatter, "{code}")
     }
+}
+
+/// Validates configuration shape without loading a secret, opening a socket, or
+/// mutating a database. It is safe for deployment preflight and CI.
+pub fn check_environment_file(path: impl AsRef<std::path::Path>) -> Result<(), ServerError> {
+    let source = fs::read_to_string(path).map_err(|_| ServerError::InvalidEnvironmentFile)?;
+    let required = [
+        "DATABASE_URL",
+        "DLP_AD_PRIMARY_LDAPS_URL",
+        "DLP_AD_SECONDARY_LDAPS_URL",
+        "DLP_AD_CA_CERT_PEM",
+        "DLP_SERVER_CERT_PEM",
+        "DLP_SERVER_KEY_PEM",
+        "DLP_ADMIN_CA_CERT_PEM",
+        "DLP_PHASE1_ROOT_CA_CERT_PEM",
+        "DLP_DEVICE_ISSUING_CA_CERT_PEM",
+        "DLP_DEVICE_ISSUING_CA_KEY_PEM",
+        "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX",
+    ];
+    if required.iter().any(|key| {
+        !source
+            .lines()
+            .any(|line| line.starts_with(&format!("{key}=")))
+    }) || source.contains("DLP_PHASE1_ROOT_CA_KEY")
+    {
+        return Err(ServerError::InvalidEnvironmentFile);
+    }
+    Ok(())
 }
 
 impl std::error::Error for ServerError {}
@@ -110,6 +142,7 @@ pub struct ServerState {
     _config: ServerConfig,
     _providers: Option<ProductionProviders>,
     route_state: routes::RouteState,
+    readiness: health::ReadinessDependencies,
 }
 
 impl ServerState {
@@ -132,6 +165,7 @@ impl ServerState {
             _config: config,
             _providers: Some(providers),
             route_state: routes::RouteState::new(repository, signer),
+            readiness: health::ReadinessDependencies::all_ready(),
         })
     }
 
@@ -141,6 +175,7 @@ impl ServerState {
             _config: ServerConfig::for_test(),
             _providers: None,
             route_state: routes::RouteState::for_test(),
+            readiness: health::ReadinessDependencies::none_ready(),
         }
     }
 }
@@ -174,14 +209,23 @@ fn validate_providers(providers: &ProductionProviders) -> Result<(), ServerError
 
 /// Builds the library-owned HTTP application. Liveness exposes process state only.
 pub fn build_app(state: ServerState) -> Router {
+    let readiness = state.readiness;
     Router::new()
         .route("/health/live", get(health_live))
+        .route("/health/ready", get(health_ready))
         .route("/api/v1/tracer", get(tracer_contract))
         .merge(routes::api_v1_router(state.route_state))
+        .layer(Extension(readiness))
 }
 
 pub async fn health_live() -> StatusCode {
-    StatusCode::NO_CONTENT
+    health::liveness()
+}
+
+pub async fn health_ready(
+    Extension(dependencies): Extension<health::ReadinessDependencies>,
+) -> StatusCode {
+    health::readiness(&dependencies).status
 }
 
 /// Confirms that a bound server exposes the final versioned tracer namespace.
@@ -278,6 +322,17 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), ServerError> {
         .map_err(|_| ServerError::MigrationFailed)
 }
 
+/// Compose's one-shot migration service uses the same embedded ledger as
+/// production startup and exits before any listener can be bound.
+pub async fn run_migrations_from_environment() -> Result<(), ServerError> {
+    let config = ServerConfig::from_environment()?;
+    let pool = PgPoolOptions::new()
+        .connect(&config.database_url)
+        .await
+        .map_err(|_| ServerError::DatabaseUnavailable)?;
+    run_migrations(&pool).await
+}
+
 async fn run_migrations_for_startup(pool: Option<&PgPool>) -> Result<(), ServerError> {
     let pool = pool.ok_or(ServerError::MigrationFailed)?;
     run_migrations(pool).await
@@ -361,7 +416,7 @@ mod tests {
     async fn liveness_is_process_only_and_migrations_gate_listener_startup() {
         let state = ServerState::for_test();
         let app = build_app(state);
-        assert_eq!(health_live().await, axum::http::StatusCode::NO_CONTENT);
+        assert_eq!(health_live().await, axum::http::StatusCode::OK);
         assert!(matches!(
             run_migrations_for_startup(None).await,
             Err(ServerError::MigrationFailed)
