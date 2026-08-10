@@ -141,7 +141,8 @@ fn encrypted_namespace_survives_reopen_without_plaintext_names() {
     let documents = VirtualPath::parse("Documents").expect("directory");
     let report = VirtualPath::parse("Documents/Secret Report.txt").expect("file");
     let renamed = VirtualPath::parse("Documents/Final Report.txt").expect("rename");
-    let mut first = LocalEncryptedStore::open(root.path(), identity.clone(), key.clone()).expect("open");
+    let mut first =
+        LocalEncryptedStore::open(root.path(), identity.clone(), key.clone()).expect("open");
     first.create_directory(&documents).expect("directory");
     let handle = first.create_or_open(&report, true, true).expect("file");
     first.write_handle(handle, 0, b"contents").expect("write");
@@ -151,9 +152,21 @@ fn encrypted_namespace_survives_reopen_without_plaintext_names() {
     drop(first);
 
     let restarted = LocalEncryptedStore::open(root.path(), identity, key).expect("restart");
-    assert_eq!(restarted.read_directory(&documents).expect("enumerate"), vec!["Final Report.txt"]);
+    assert_eq!(
+        restarted.read_directory(&documents).expect("enumerate"),
+        vec!["Final Report.txt"]
+    );
     assert_eq!(restarted.read_path(&renamed).expect("read"), b"contents");
-    let backing = std::fs::read(root.path().join("stores").join("store-reopen").join("namespace.rec"))
-        .expect("encrypted namespace record");
-    assert!(!backing.windows(b"Secret Report.txt".len()).any(|value| value == b"Secret Report.txt"));
+    let backing = std::fs::read(
+        root.path()
+            .join("stores")
+            .join("store-reopen")
+            .join("namespace.rec"),
+    )
+    .expect("encrypted namespace record");
+    assert!(
+        !backing
+            .windows(b"Secret Report.txt".len())
+            .any(|value| value == b"Secret Report.txt")
+    );
 }

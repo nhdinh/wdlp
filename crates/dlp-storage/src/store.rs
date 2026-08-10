@@ -116,6 +116,7 @@ pub struct LocalEncryptedStore {
     directories: BTreeMap<String, String>,
     files: BTreeMap<String, FileEntry>,
     handles: BTreeMap<u64, HandleState>,
+    namespace_generation: u64,
     fail_next_write: bool,
     fault_io: FaultInjectingIo,
 }
@@ -146,7 +147,7 @@ impl LocalEncryptedStore {
                 .join("files"),
         )
         .map_err(map_io)?;
-        Ok(Self {
+        let mut store = Self {
             root,
             identity,
             key,
@@ -155,9 +156,12 @@ impl LocalEncryptedStore {
             directories: BTreeMap::new(),
             files: BTreeMap::new(),
             handles: BTreeMap::new(),
+            namespace_generation: 0,
             fail_next_write: false,
             fault_io: FaultInjectingIo::default(),
-        })
+        };
+        store.load_namespace()?;
+        Ok(store)
     }
     pub fn reopen(&self) -> Result<Self, StorageError> {
         Self::open(self.root.clone(), self.identity.clone(), self.key.clone())
@@ -486,7 +490,7 @@ impl LocalEncryptedStore {
             path.lookup_key().to_owned(),
             path.display_name().unwrap_or_default().to_owned(),
         );
-        Ok(())
+        self.persist_namespace()
     }
     pub fn read_directory(&self, path: &VirtualPath) -> Result<Vec<String>, StorageError> {
         if !self.is_directory(path) {
@@ -575,7 +579,8 @@ impl LocalEncryptedStore {
     }
     pub fn flush_handle(&mut self, handle: FileHandle) -> Result<(), StorageError> {
         let file = self.handle_file(handle)?;
-        self.flush_file(&file).map(|_| ())
+        self.flush_file(&file)?;
+        self.persist_namespace()
     }
     pub fn close_handle(&mut self, handle: FileHandle) -> Result<(), StorageError> {
         let state = self
@@ -592,6 +597,7 @@ impl LocalEncryptedStore {
                 .any(|other| other.path_key == state.path_key)
         {
             self.files.remove(&state.path_key);
+            self.persist_namespace()?;
         }
         Ok(())
     }
@@ -641,7 +647,7 @@ impl LocalEncryptedStore {
                 state.path_key = destination_key.clone();
             }
         }
-        Ok(())
+        self.persist_namespace()
     }
     pub fn delete(&mut self, path: &VirtualPath) -> Result<(), StorageError> {
         let key = path.lookup_key();
@@ -656,6 +662,7 @@ impl LocalEncryptedStore {
             entry.delete_pending = true;
         } else {
             self.files.remove(key);
+            self.persist_namespace()?;
         }
         Ok(())
     }
@@ -764,6 +771,113 @@ impl LocalEncryptedStore {
             .join(self.identity.store_id().to_wire())
             .join("files")
             .join(file.to_wire())
+    }
+    fn namespace_path(&self) -> PathBuf {
+        self.root
+            .join("stores")
+            .join(self.identity.store_id().to_wire())
+            .join("namespace.rec")
+    }
+
+    fn persist_namespace(&mut self) -> Result<(), StorageError> {
+        let mut plaintext = String::from("dlp-namespace/v1\n");
+        for (key, display) in &self.directories {
+            plaintext.push_str(&format!("D\t{key}\t{display}\n"));
+        }
+        for (key, entry) in &self.files {
+            if !entry.delete_pending {
+                plaintext.push_str(&format!(
+                    "F\t{key}\t{}\t{}\n",
+                    entry.file_id.to_wire(),
+                    entry.display
+                ));
+            }
+        }
+        let generation = self
+            .namespace_generation
+            .checked_add(1)
+            .ok_or(StorageError::IoFailure)?;
+        let cipher = RecordCipher::from_store_key(&self.key);
+        let mut nonces = NonceTracker::default();
+        let record = EncryptedRecordV1::seal(
+            &cipher,
+            RecordAad {
+                format_version: FORMAT_VERSION_V1,
+                store_id: self.identity.store_id().to_wire().to_owned(),
+                file_id: "namespace-index".to_owned(),
+                generation,
+                record_kind: RecordKind::Manifest,
+                chunk_index: 0,
+                plaintext_length: plaintext.len() as u64,
+            },
+            plaintext.as_bytes(),
+            &mut nonces,
+        )?;
+        let target = self.namespace_path();
+        let temporary = target.with_extension(format!("{generation}.tmp"));
+        self.write_record(&temporary, &record)?;
+        fs::rename(&temporary, &target).map_err(map_io)?;
+        self.flush_directory_marker(target.parent().ok_or(StorageError::IoFailure)?)?;
+        self.namespace_generation = generation;
+        Ok(())
+    }
+
+    fn load_namespace(&mut self) -> Result<(), StorageError> {
+        let target = self.namespace_path();
+        if !target.exists() {
+            return Ok(());
+        }
+        let record = self.read_record(&target)?;
+        if record.format_version != FORMAT_VERSION_V1
+            || record.store_id != self.identity.store_id().to_wire()
+            || record.file_id != "namespace-index"
+            || record.record_kind != RecordKind::Manifest
+            || record.chunk_index != 0
+        {
+            return Err(StorageError::IntegrityFailure);
+        }
+        let cipher = RecordCipher::from_store_key(&self.key);
+        let plaintext = record.open(&cipher)?;
+        let text = std::str::from_utf8(&plaintext).map_err(|_| StorageError::IntegrityFailure)?;
+        let mut lines = text.lines();
+        if lines.next() != Some("dlp-namespace/v1") {
+            return Err(StorageError::IntegrityFailure);
+        }
+        for line in lines {
+            let columns = line.split('\t').collect::<Vec<_>>();
+            match columns.as_slice() {
+                ["D", key, display] if !key.is_empty() && !display.is_empty() => {
+                    if self
+                        .directories
+                        .insert((*key).to_owned(), (*display).to_owned())
+                        .is_some()
+                    {
+                        return Err(StorageError::IntegrityFailure);
+                    }
+                }
+                ["F", key, file_id, display] if !key.is_empty() && !display.is_empty() => {
+                    let file_id =
+                        FileId::parse(*file_id).map_err(|_| StorageError::IntegrityFailure)?;
+                    if self
+                        .files
+                        .insert(
+                            (*key).to_owned(),
+                            FileEntry {
+                                file_id,
+                                display: (*display).to_owned(),
+                                delete_pending: false,
+                            },
+                        )
+                        .is_some()
+                    {
+                        return Err(StorageError::IntegrityFailure);
+                    }
+                }
+                _ => return Err(StorageError::IntegrityFailure),
+            }
+        }
+        self.namespace_generation = record.generation;
+        Ok(())
     }
     fn generation_dir(&self, file: &FileId, generation: u64) -> PathBuf {
         self.file_dir(file)
