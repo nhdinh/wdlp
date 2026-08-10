@@ -93,3 +93,74 @@ None.
 **User's choice:** Keep `hungdinh-lt` as a build/orchestration host. Run the server, database, and trusted provisioning on `LAB-DC01`; retain `LAB-DC02` as the secondary directory authority; run every real endpoint behavior on `LAB-CLIENT01`.
 
 **Notes:** The user initially selected developer tools plus WinFsp for `hungdinh-lt`, then explicitly revised that choice to developer tools only. Existing host-based WinFsp or endpoint evidence must not be used to satisfy replanned endpoint-runtime acceptance criteria.
+
+---
+
+# Update: Verification, Infrastructure, Privilege, and Evidence Policy
+
+**Date:** 2026-08-10
+
+## Verification Tiers
+
+| Decision point | Alternatives considered | Selected |
+|----------------|-------------------------|----------|
+| Gating model | Layered release gate, everything blocks, automation-only gate | Layered release gate |
+| Visual boundary | User-visible behavior, full walkthrough, minimal smoke | User-visible behavior only |
+| Hyper-V cadence | Integration boundaries plus final matrix, phase end only, every change | Integration boundaries plus final matrix |
+| Deferrals | Later-phase scope only, documented edge waivers, no deferrals | Later-phase scope only |
+
+**User's choice:** Portable automation runs continuously, focused lab checks gate relevant plans, and the full matrix gates Phase 1. No Phase 1 requirement may be waived.
+
+## Infrastructure Substitutes
+
+| Decision point | Alternatives considered | Selected |
+|----------------|-------------------------|----------|
+| SQLite boundary | Unit/component only, all development checks, behavior-based substitution | Unit/component only |
+| Development PKI | Production-shaped lab PKI, simple self-signed certificates, production CA | Production-shaped lab PKI |
+| VM disk identity | Stable fixture with mismatch proof, any VM ID, physical endpoint required | Stable fixture with mismatch proof |
+| General fixture rule | Contract-preserving only, realism at final matrix only, case-by-case | Contract-preserving only |
+
+**User's choice:** Fixtures may isolate portable logic but cannot replace the external boundary a Phase 1 criterion exists to prove.
+
+## Privileged Changes
+
+| Decision point | Alternatives considered | Selected |
+|----------------|-------------------------|----------|
+| Approval | Plan-scoped manifest, per-command approval, phase-wide approval | Plan-scoped manifest |
+| Cleanup | Restore temporary/retain declared, restore everything, keep successful state | Restore temporary/retain declared |
+| Repeatability | Idempotent apply/verify/remove, clean-snapshot only, manual recovery | Idempotent apply/verify/remove |
+| Machine boundaries | Strict role allowlist, host fallback, any reversible target | Strict role allowlist |
+
+**User's choice:** Elevated changes are predeclared, machine-specific, reversible, repeatable, and restricted to each machine's established role.
+
+## Evidence and Provenance
+
+| Decision point | Alternatives considered | Selected |
+|----------------|-------------------------|----------|
+| Blocking evidence | Structured manifest, raw test output, human report | Structured manifest |
+| Visual evidence | Checklist with screenshots, recording, signed checklist only | Signed checklist only |
+| Storage | Sanitized Git manifest plus controlled raw storage, everything in Git, everything external | Sanitized Git manifest plus controlled raw storage |
+| Staleness | Impact-based, every commit, manual judgment | Impact-based |
+| Attestation | Authenticated identity record, cryptographic signature, typed name | Authenticated identity record |
+| Failed attempts | Preserve audit trail, final only, summaries only | Preserve audit trail |
+| Traceability | Requirement-indexed matrix, plan-indexed, narrative | Requirement-indexed matrix |
+| Missing raw artifact | Invalidate result, manifest authoritative, verifier judgment | Invalidate result |
+| Manifest format | Versioned machine-readable schema, Markdown, native formats | Versioned machine-readable schema |
+| Time integrity | Synchronized UTC with skew, UTC only, sequence IDs | Synchronized UTC with skew |
+| Sanitization | Mandatory gate, manual review, encrypted sensitive evidence | Mandatory gate |
+| Environment fingerprint | Reproducibility-focused, full inventory, minimal versions | Reproducibility-focused |
+| Final approval | Independent phase review, executing operator, automation only | Independent phase review |
+| Procedure deviations | Non-passing by default, operator judgment, always rerun | Non-passing by default |
+| Attempt identity | Immutable ID per attempt, stable ID per check, file path | Immutable ID per attempt |
+| Raw retention | Policy-based expiration, indefinite, immediate deletion after audit | Policy-based expiration |
+
+**User's choice:** Evidence must be reproducible, immutable per attempt, requirement-indexed, sanitized, independently reviewed, and auditable without silently losing failures or deviations.
+
+## the agent's Discretion
+
+- Select the concrete JSON or YAML schema and the clock-skew threshold during planning, while preserving the locked evidence contract.
+- Select the controlled raw-artifact storage implementation and retention duration, subject to project security constraints and explicit documentation.
+
+## Deferred Ideas
+
+None. Packaging, broad compatibility, stress/load/fuzz testing, credential rotation, and cross-user hardening remain in their already assigned later phases.
