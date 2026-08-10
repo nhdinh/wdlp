@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-08-10T12:55:15.497Z",
+  "phase": "01",
+  "phase_name": "first-encrypted-drive-vertical-slice",
+  "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
+  "plan": 13,
+  "task": 1,
+  "total_tasks": 3,
+  "status": "paused",
+  "completed_tasks": [],
+  "remaining_tasks": [
+    {"id": 1, "name": "Reconcile four machine roles and serve LAB-DC01 readiness", "status": "blocked"},
+    {"id": 2, "name": "Prove production PostgreSQL migration/listener/readiness path", "status": "not_started"},
+    {"id": 3, "name": "Execute trusted LAB-CLIENT01 provisioning on LAB-DC01", "status": "not_started"}
+  ],
+  "blockers": [
+    {
+      "description": "LAB-DC01, LAB-DC02, and LAB-CLIENT01 are not discoverable or running from hungdinh-lt.",
+      "type": "human_action",
+      "workaround": "Bring the three exact named VMs online and confirm Get-VM discovers them before resuming."
+    },
+    {
+      "description": "No runtime-only secret provider is configured for the lab workflow.",
+      "type": "human_action",
+      "workaround": "Configure the runtime secret provider required by Plan 01-13 without committing secrets."
+    }
+  ],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Bring LAB-DC01, LAB-DC02, and LAB-CLIENT01 online and make them discoverable from hungdinh-lt.", "context": "Plan 01-13 Task 1 fail-closed preflight requires all binding lab machines.", "blocking": true},
+    {"action": "Configure the runtime-only secret provider for lab reconciliation and provisioning.", "context": "Plan 01-13 refuses lab mutation without runtime credential material.", "blocking": true}
+  ],
+  "decisions": [
+    {"decision": "Approved all eight exact privilege-manifest digests via approve-listed-digests.", "rationale": "Elevated lab mutations are authorized only when bound to reviewed manifest digests.", "phase": "01"},
+    {"decision": "Pause after the current executor checkpoint because of API limits.", "rationale": "Preserve committed progress and avoid spawning additional executors.", "phase": "01"}
+  ],
+  "uncommitted_files": [
+    ".planning/config.json",
+    ".planning/research/.cache/*.json"
+  ],
+  "next_action": "Bring the three named VMs online, configure the runtime-only secret provider, then run $gsd-resume-work and resume Plan 01-13 Task 1.",
+  "context_notes": "Plans 01-17, 01-22, and 01-23 completed this session. Plan 01-13 made no task-file or planning-state changes before its preflight blocked. Do not spawn Wave 5 until Plan 01-13 completes."
+}
