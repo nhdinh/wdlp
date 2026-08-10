@@ -8,10 +8,18 @@ mod provisioning {
     const VERSION: &[u8] = b"dlp-fingerprint/v1\0";
 
     #[derive(Clone, Debug, Eq, PartialEq)]
-    pub struct FingerprintSources { system_uuid: String, bios_serial: String, system_disk_serial: String }
+    pub struct FingerprintSources {
+        system_uuid: String,
+        bios_serial: String,
+        system_disk_serial: String,
+    }
 
     impl FingerprintSources {
-        pub fn new(system_uuid: impl AsRef<str>, bios_serial: impl AsRef<str>, system_disk_serial: impl AsRef<str>) -> Result<Self, ()> {
+        pub fn new(
+            system_uuid: impl AsRef<str>,
+            bios_serial: impl AsRef<str>,
+            system_disk_serial: impl AsRef<str>,
+        ) -> Result<Self, ()> {
             Ok(Self {
                 system_uuid: normalize(system_uuid.as_ref())?,
                 bios_serial: normalize(bios_serial.as_ref())?,
@@ -23,7 +31,14 @@ mod provisioning {
     pub fn fingerprint_v1(sources: &FingerprintSources) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(VERSION);
-        for (name, value) in [(b"smbios_uuid".as_slice(), sources.system_uuid.as_bytes()), (b"bios_serial".as_slice(), sources.bios_serial.as_bytes()), (b"system_disk_serial".as_slice(), sources.system_disk_serial.as_bytes())] {
+        for (name, value) in [
+            (b"smbios_uuid".as_slice(), sources.system_uuid.as_bytes()),
+            (b"bios_serial".as_slice(), sources.bios_serial.as_bytes()),
+            (
+                b"system_disk_serial".as_slice(),
+                sources.system_disk_serial.as_bytes(),
+            ),
+        ] {
             hasher.update((name.len() as u16).to_be_bytes());
             hasher.update(name);
             hasher.update((value.len() as u16).to_be_bytes());
@@ -33,26 +48,66 @@ mod provisioning {
     }
 
     /// Uses Kerberos WinRM-over-HTTPS and keeps raw CIM values local to the trusted station.
-    pub fn collect_from_trusted_station(computer: &str, allow_lab_virtual_disk_unique_id: bool) -> Result<FingerprintSources, ()> {
+    pub fn collect_from_trusted_station(
+        computer: &str,
+        allow_lab_virtual_disk_unique_id: bool,
+    ) -> Result<FingerprintSources, ()> {
         let script = "$ErrorActionPreference='Stop';$computer=$env:DLP_PROVISIONING_COMPUTER;$mode=$env:DLP_PROVISIONING_DISK_MODE;if([string]::IsNullOrWhiteSpace($computer) -or $mode -notin @('production','lab-only')){throw 'invalid trusted collector configuration'};$o=New-CimSessionOption -UseSsl;$s=New-CimSession -ComputerName $computer -Authentication Kerberos -SessionOption $o;try{$p=Get-CimInstance -CimSession $s Win32_ComputerSystemProduct;$b=Get-CimInstance -CimSession $s Win32_BIOS;$l=Get-CimInstance -CimSession $s Win32_LogicalDisk -Filter \"DeviceID='C:'\";$part=Get-CimAssociatedInstance -CimSession $s -InputObject $l -Association Win32_LogicalDiskToPartition;$disk=Get-CimAssociatedInstance -CimSession $s -InputObject $part -Association Win32_DiskDriveToDiskPartition;if(@($p).Count -ne 1 -or @($b).Count -ne 1 -or @($l).Count -ne 1 -or @($part).Count -ne 1 -or @($disk).Count -ne 1){throw 'unexpected CIM cardinality'};$identity=$disk.SerialNumber;if([string]::IsNullOrWhiteSpace($identity)){if($mode -ne 'lab-only'){throw 'physical disk serial missing'};$virtual=Get-CimInstance -CimSession $s -Namespace root/Microsoft/Windows/Storage MSFT_Disk -Filter ('Number='+$disk.Index);if(@($virtual).Count -ne 1 -or -not $virtual.IsBoot -or -not $virtual.IsSystem -or [string]::IsNullOrWhiteSpace($virtual.UniqueId)){throw 'lab virtual boot disk identity unavailable'};$identity=$virtual.UniqueId};Write-Output $p.UUID;Write-Output $b.SerialNumber;Write-Output $identity}finally{Remove-CimSession $s}";
-        let mode = if allow_lab_virtual_disk_unique_id { "lab-only" } else { "production" };
-        let output = Command::new("powershell.exe").env("DLP_PROVISIONING_COMPUTER", computer).env("DLP_PROVISIONING_DISK_MODE", mode).args(["-NoProfile", "-NonInteractive", "-Command", script]).output().map_err(|_| ())?;
-        if !output.status.success() { return Err(()); }
+        let mode = if allow_lab_virtual_disk_unique_id {
+            "lab-only"
+        } else {
+            "production"
+        };
+        let output = Command::new("powershell.exe")
+            .env("DLP_PROVISIONING_COMPUTER", computer)
+            .env("DLP_PROVISIONING_DISK_MODE", mode)
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .output()
+            .map_err(|_| ())?;
+        if !output.status.success() {
+            return Err(());
+        }
         let values = String::from_utf8(output.stdout).map_err(|_| ())?;
         let mut values = values.lines();
-        let result = FingerprintSources::new(values.next().ok_or(())?, values.next().ok_or(())?, values.next().ok_or(())?);
-        if values.next().is_some() { return Err(()); }
+        let result = FingerprintSources::new(
+            values.next().ok_or(())?,
+            values.next().ok_or(())?,
+            values.next().ok_or(())?,
+        );
+        if values.next().is_some() {
+            return Err(());
+        }
         result
     }
 
     fn normalize(value: &str) -> Result<String, ()> {
         let value = value.trim().to_uppercase();
-        if value.is_empty() || value.len() > 512 || ["UNKNOWN", "NONE", "N/A", "TO BE FILLED BY O.E.M.", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"].contains(&value.as_str()) { Err(()) } else { Ok(value) }
+        if value.is_empty()
+            || value.len() > 512
+            || [
+                "UNKNOWN",
+                "NONE",
+                "N/A",
+                "TO BE FILLED BY O.E.M.",
+                "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF",
+            ]
+            .contains(&value.as_str())
+        {
+            Err(())
+        } else {
+            Ok(value)
+        }
     }
 
     #[cfg(test)]
     pub fn child_environment_for_test(computer: &str, lab_mode: bool) -> [(&str, &str); 2] {
-        [("DLP_PROVISIONING_COMPUTER", computer), ("DLP_PROVISIONING_DISK_MODE", if lab_mode { "lab-only" } else { "production" })]
+        [
+            ("DLP_PROVISIONING_COMPUTER", computer),
+            (
+                "DLP_PROVISIONING_DISK_MODE",
+                if lab_mode { "lab-only" } else { "production" },
+            ),
+        ]
     }
 }
 
@@ -93,14 +148,33 @@ impl Command {
                     _ => Err(CliError::Usage),
                 }
             }
-            Some(argument) if argument == "provision-device" => match (arguments.next(), arguments.next(), arguments.next()) {
-                (Some(flag), Some(computer), None) if flag.as_ref() == "--computer" && valid_fqdn(computer.as_ref()) => Ok(Self::ProvisionDevice { computer: computer.as_ref().to_owned() }),
-                _ => Err(CliError::Usage),
-            },
-            Some(argument) if argument == "enrollment-token" => match (arguments.next(), arguments.next(), arguments.next()) {
-                (Some(create), Some(ttl_flag), Some(ttl)) if create.as_ref() == "create" && ttl_flag.as_ref() == "--ttl" => ttl.as_ref().parse().ok().filter(|ttl: &u32| *ttl > 0 && *ttl <= 10_080).map(|ttl_minutes| Self::EnrollmentTokenCreate { ttl_minutes }).ok_or(CliError::Usage),
-                _ => Err(CliError::Usage),
-            },
+            Some(argument) if argument == "provision-device" => {
+                match (arguments.next(), arguments.next(), arguments.next()) {
+                    (Some(flag), Some(computer), None)
+                        if flag.as_ref() == "--computer" && valid_fqdn(computer.as_ref()) =>
+                    {
+                        Ok(Self::ProvisionDevice {
+                            computer: computer.as_ref().to_owned(),
+                        })
+                    }
+                    _ => Err(CliError::Usage),
+                }
+            }
+            Some(argument) if argument == "enrollment-token" => {
+                match (arguments.next(), arguments.next(), arguments.next()) {
+                    (Some(create), Some(ttl_flag), Some(ttl))
+                        if create.as_ref() == "create" && ttl_flag.as_ref() == "--ttl" =>
+                    {
+                        ttl.as_ref()
+                            .parse()
+                            .ok()
+                            .filter(|ttl: &u32| *ttl > 0 && *ttl <= 10_080)
+                            .map(|ttl_minutes| Self::EnrollmentTokenCreate { ttl_minutes })
+                            .ok_or(CliError::Usage)
+                    }
+                    _ => Err(CliError::Usage),
+                }
+            }
             _ => Err(CliError::Usage),
         }
     }
@@ -132,7 +206,13 @@ impl fmt::Display for CliError {
     }
 }
 
-fn valid_fqdn(value: &str) -> bool { value.len() <= 253 && value.split('.').count() >= 2 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-') }
+fn valid_fqdn(value: &str) -> bool {
+    value.len() <= 253
+        && value.split('.').count() >= 2
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+}
 
 impl std::error::Error for CliError {}
 
@@ -194,7 +274,10 @@ async fn main() -> Result<(), CliError> {
             Ok(())
         }
         Command::ProvisionDevice { computer } => {
-            let lab_mode = env::var("DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID").ok().as_deref() == Some("true");
+            let lab_mode = env::var("DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID")
+                .ok()
+                .as_deref()
+                == Some("true");
             let sources = provisioning::collect_from_trusted_station(&computer, lab_mode)
                 .map_err(|_| CliError::TrustedStationRequired)?;
             let _digest = provisioning::fingerprint_v1(&sources);
@@ -211,7 +294,10 @@ async fn main() -> Result<(), CliError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, MIGRATION_VERSION, provisioning::{FingerprintSources, fingerprint_v1, child_environment_for_test}};
+    use super::{
+        Command, MIGRATION_VERSION,
+        provisioning::{FingerprintSources, child_environment_for_test, fingerprint_v1},
+    };
 
     #[test]
     fn migration_status_command_is_explicit_and_read_only() {
@@ -224,22 +310,42 @@ mod tests {
 
     #[test]
     fn enrollment_fingerprint_is_a_versioned_digest_of_only_the_three_required_sources() {
-        let sources = FingerprintSources::new(" system-uuid ", "bios-serial", "disk-serial").unwrap();
+        let sources =
+            FingerprintSources::new(" system-uuid ", "bios-serial", "disk-serial").unwrap();
         let first = fingerprint_v1(&sources);
         assert_eq!(first, fingerprint_v1(&sources));
-        assert_ne!(first, fingerprint_v1(&FingerprintSources::new("system-uuid", "bios-serial", "different-disk").unwrap()));
+        assert_ne!(
+            first,
+            fingerprint_v1(
+                &FingerprintSources::new("system-uuid", "bios-serial", "different-disk").unwrap()
+            )
+        );
         assert!(FingerprintSources::new("", "bios", "disk").is_err());
-        assert!(FingerprintSources::new("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", "bios", "disk").is_err());
+        assert!(
+            FingerprintSources::new("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", "bios", "disk")
+                .is_err()
+        );
     }
 
     #[test]
     fn provisioning_accepts_only_a_computer_fqdn_and_no_serial_or_mac_arguments() {
-        assert_eq!(Command::parse(["provision-device", "--computer", "device.lab.local"]), Ok(Command::ProvisionDevice { computer: "device.lab.local".into() }));
+        assert_eq!(
+            Command::parse(["provision-device", "--computer", "device.lab.local"]),
+            Ok(Command::ProvisionDevice {
+                computer: "device.lab.local".into()
+            })
+        );
         assert!(Command::parse(["provision-device", "--serial", "raw"]).is_err());
     }
 
     #[test]
     fn collector_passes_named_environment_without_relying_on_powershell_args() {
-        assert_eq!(child_environment_for_test("LAB-CLIENT01.lab.local", true), [("DLP_PROVISIONING_COMPUTER", "LAB-CLIENT01.lab.local"), ("DLP_PROVISIONING_DISK_MODE", "lab-only")]);
+        assert_eq!(
+            child_environment_for_test("LAB-CLIENT01.lab.local", true),
+            [
+                ("DLP_PROVISIONING_COMPUTER", "LAB-CLIENT01.lab.local"),
+                ("DLP_PROVISIONING_DISK_MODE", "lab-only")
+            ]
+        );
     }
 }

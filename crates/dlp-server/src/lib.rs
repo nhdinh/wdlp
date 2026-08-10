@@ -4,9 +4,18 @@
 //! deliberately added by later plans; this seam owns process-only liveness and
 //! migration-before-bind ordering now.
 
-use axum::{Router, http::{HeaderMap, StatusCode}, routing::{get, post}};
+use axum::{
+    Json, Router,
+    http::{HeaderMap, StatusCode},
+    routing::{get, post},
+};
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
-use std::{fmt, net::SocketAddr, sync::Arc};
+use std::{
+    fmt,
+    net::SocketAddr,
+    sync::{Arc, OnceLock},
+};
 
 pub mod ad;
 pub mod enrollment;
@@ -149,7 +158,10 @@ pub fn build_app(_state: ServerState) -> Router {
     Router::new()
         .route("/health/live", get(health_live))
         .route("/api/v1/tracer", get(tracer_contract))
-        .route("/api/v1/admin/provisioning", post(admin_provisioning_contract))
+        .route(
+            "/api/v1/admin/provisioning",
+            post(admin_provisioning_contract),
+        )
 }
 
 pub async fn health_live() -> StatusCode {
@@ -164,8 +176,65 @@ pub async fn tracer_contract() -> StatusCode {
 
 /// Authentication is a deliberate hard gate: the real handler is wired only with
 /// an administrator-auth provider. This public contract cannot accept raw serials.
-async fn admin_provisioning_contract(headers: HeaderMap) -> StatusCode {
-    if headers.get("x-dlp-admin-authorization").is_none() { StatusCode::UNAUTHORIZED } else { StatusCode::NOT_IMPLEMENTED }
+#[derive(Deserialize)]
+struct ProvisioningRequest {
+    version: u16,
+    device_id: String,
+    fingerprint_version: u16,
+    fingerprint_digest_hex: String,
+    preferred_drive_letter: String,
+}
+#[derive(Serialize)]
+struct ProvisioningResponse {
+    version: u16,
+    device_id: String,
+    enrollment_token: String,
+}
+async fn admin_provisioning_contract(
+    headers: HeaderMap,
+    Json(request): Json<ProvisioningRequest>,
+) -> Result<Json<ProvisioningResponse>, StatusCode> {
+    let secret =
+        std::env::var("DLP_ADMIN_PROVISIONING_KEY").map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let supplied = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if request.version != 1
+        || request.fingerprint_version != 1
+        || request.device_id.is_empty()
+        || request.preferred_drive_letter.len() != 1
+        || request.fingerprint_digest_hex.len() != 64
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let bytes = (0..32)
+        .map(|i| {
+            u8::from_str_radix(&request.fingerprint_digest_hex[i * 2..i * 2 + 2], 16)
+                .map_err(|_| StatusCode::BAD_REQUEST)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    static AUTHORITY_REPOSITORY: OnceLock<Arc<crate::repository::AuthorityRepository>> =
+        OnceLock::new();
+    let repository = Arc::clone(
+        AUTHORITY_REPOSITORY
+            .get_or_init(|| Arc::new(crate::repository::AuthorityRepository::default())),
+    );
+    let service = crate::enrollment::AdminProvisioningService::new(repository, &secret)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let token = service
+        .provision(
+            supplied,
+            &request.device_id,
+            bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?,
+        )
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    Ok(Json(ProvisioningResponse {
+        version: 1,
+        device_id: request.device_id,
+        enrollment_token: token,
+    }))
 }
 
 /// Development-only state used by the SQLite tracer. It is unavailable from a release build,

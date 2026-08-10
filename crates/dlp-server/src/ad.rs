@@ -46,7 +46,11 @@ impl LdapDirectoryVerifier {
         {
             return Err(DirectoryError::InvalidConfiguration);
         }
-        Ok(Self { primary_ldaps_url, secondary_ldaps_url, base_dn })
+        Ok(Self {
+            primary_ldaps_url,
+            secondary_ldaps_url,
+            base_dn,
+        })
     }
 
     pub fn corroborate(
@@ -69,12 +73,22 @@ impl LdapDirectoryVerifier {
         (&self.primary_ldaps_url, &self.secondary_ldaps_url)
     }
 
-    pub fn base_dn(&self) -> &str { &self.base_dn }
+    pub fn base_dn(&self) -> &str {
+        &self.base_dn
+    }
 }
 
 fn is_hostname_ldaps_url(value: &str) -> bool {
-    let Some(authority) = value.strip_prefix("ldaps://") else { return false };
-    let host = authority.split('/').next().unwrap_or_default().split(':').next().unwrap_or_default();
+    let Some(authority) = value.strip_prefix("ldaps://") else {
+        return false;
+    };
+    let host = authority
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default();
     !host.is_empty() && IpAddr::from_str(host).is_err() && host.contains('.')
 }
 
@@ -83,14 +97,38 @@ mod tests {
     use super::*;
 
     fn identity() -> VerifiedComputerIdentity {
-        VerifiedComputerIdentity { object_guid: vec![1; 16], object_sid: vec![2; 16], dns_name: "device.lab.local".into(), domain: "LAB".into(), enabled: true }
+        VerifiedComputerIdentity {
+            object_guid: vec![1; 16],
+            object_sid: vec![2; 16],
+            dns_name: "device.lab.local".into(),
+            domain: "LAB".into(),
+            enabled: true,
+        }
     }
 
     #[test]
     fn requires_two_hostname_verified_ldaps_endpoints_to_agree() {
-        let verifier = LdapDirectoryVerifier::new("ldaps://LAB-DC01.lab.local", "ldaps://LAB-DC02.lab.local", "DC=lab,DC=local").unwrap();
-        assert_eq!(verifier.corroborate(Ok(identity()), Ok(identity())), Ok(identity()));
-        assert!(matches!(verifier.corroborate(Ok(identity()), Err(DirectoryError::Unavailable)), Err(DirectoryError::Unavailable)));
-        assert!(LdapDirectoryVerifier::new("ldaps://192.168.50.10", "ldaps://LAB-DC02.lab.local", "DC=lab,DC=local").is_err());
+        let verifier = LdapDirectoryVerifier::new(
+            "ldaps://LAB-DC01.lab.local",
+            "ldaps://LAB-DC02.lab.local",
+            "DC=lab,DC=local",
+        )
+        .unwrap();
+        assert_eq!(
+            verifier.corroborate(Ok(identity()), Ok(identity())),
+            Ok(identity())
+        );
+        assert!(matches!(
+            verifier.corroborate(Ok(identity()), Err(DirectoryError::Unavailable)),
+            Err(DirectoryError::Unavailable)
+        ));
+        assert!(
+            LdapDirectoryVerifier::new(
+                "ldaps://192.168.50.10",
+                "ldaps://LAB-DC02.lab.local",
+                "DC=lab,DC=local"
+            )
+            .is_err()
+        );
     }
 }
