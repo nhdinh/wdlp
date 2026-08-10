@@ -1,4 +1,5 @@
 use dlp_server::enrollment::{EnrollmentAttempt, EnrollmentError, EnrollmentService};
+use dlp_server::routes::RouteState;
 use dlp_server::tls::{
     AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus, PeerIdentity, TlsPaths,
 };
@@ -61,4 +62,26 @@ fn device_leaf_requires_uri_san_serial_and_client_profile() {
         .expect("valid fixture certificate");
     let peer = PeerIdentity::device_from_verified_leaf(leaf.as_ref()).expect("valid device leaf");
     assert!(AuthenticatedDevice::from_peer(peer, CredentialStatus::Active).is_ok());
+}
+
+#[test]
+fn mtls_routes_bind_signed_configuration_and_health_to_the_active_device() {
+    let state = RouteState::for_test();
+    let device = AuthenticatedDevice::from_peer(
+        PeerIdentity::device_for_test("device-test", vec![1, 2, 3]),
+        CredentialStatus::Active,
+    )
+    .expect("active test device");
+
+    state.activate_device_for_test(device.device_id(), device.credential_serial());
+    let configuration = state
+        .signed_configuration_for(&device)
+        .expect("active device receives a signed configuration");
+    assert_eq!(configuration.envelope().bundle_version().to_wire(), "1");
+    assert!(state.record_health_for(&device, "mounted").is_ok());
+    assert_eq!(state.health_report_count_for_test(device.device_id()), 1);
+
+    state.revoke_device_for_test(device.device_id(), device.credential_serial());
+    assert!(state.signed_configuration_for(&device).is_err());
+    assert!(state.record_health_for(&device, "mounted").is_err());
 }
