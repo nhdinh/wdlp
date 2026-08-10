@@ -112,5 +112,20 @@ switch ($Scenario) {
     'ContractFixtures' { Invoke-ContractFixtures }
     'ContractsAndPrivileges' { Invoke-ContractsAndPrivileges }
     'VisualAndReviewFixtures' { Invoke-VisualAndReviewFixtures }
-    'PrivilegeApprovals' { throw 'Privilege approvals are intentionally blocking until an authenticated operator records each exact manifest digest.' }
+    'PrivilegeApprovals' {
+        Invoke-ContractsAndPrivileges
+        $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+        $plans = @('01-13', '01-14', '01-18', '01-19', '01-15', '01-20', '01-16', '01-21')
+        Assert-Phase1 (@($config.privilege_approvals).Count -eq $plans.Count) 'exactly one approval per privileged plan is required'
+        foreach ($plan in $plans) {
+            $approval = @($config.privilege_approvals | Where-Object { $_.plan_id -eq $plan })
+            Assert-Phase1 ($approval.Count -eq 1) "missing or duplicate approval for $plan"
+            $manifest = @($config.privilege_manifests | Where-Object { $_.plan_id -eq $plan })[0]
+            Assert-Phase1 ($approval[0].decision -eq 'approve-listed-digests') "approval decision is invalid for $plan"
+            Assert-Phase1 ($approval[0].manifest_digest -eq $manifest.approval_digest) "approval digest does not bind current manifest for $plan"
+            Assert-Phase1 ($approval[0].authenticated_identity.kind -eq 'authenticated_domain_operator' -and -not [string]::IsNullOrWhiteSpace($approval[0].authenticated_identity.name)) "authenticated operator identity is missing for $plan"
+            $utc = [datetime]::MinValue
+            Assert-Phase1 ([datetime]::TryParse([string]$approval[0].utc, [ref]$utc)) "approval UTC is invalid for $plan"
+        }
+    }
 }
