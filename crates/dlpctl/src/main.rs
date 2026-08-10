@@ -107,6 +107,7 @@ pub enum CliError {
     DatabaseUnavailable,
     MigrationMissing,
     TrustedStationRequired,
+    ProvisioningApiUnavailable,
 }
 
 impl fmt::Display for CliError {
@@ -119,6 +120,7 @@ impl fmt::Display for CliError {
             Self::DatabaseUnavailable => "database_unavailable",
             Self::MigrationMissing => "expected_migration_missing",
             Self::TrustedStationRequired => "trusted_station_required",
+            Self::ProvisioningApiUnavailable => "provisioning_api_unavailable",
         };
         write!(formatter, "{code}")
     }
@@ -191,7 +193,7 @@ async fn main() -> Result<(), CliError> {
             let _digest = provisioning::fingerprint_v1(&sources);
             // Persistence requires the authenticated administrator server API from 01-07;
             // the CLI deliberately emits neither raw CIM values nor a token here.
-            Err(CliError::TrustedStationRequired)
+            Err(CliError::ProvisioningApiUnavailable)
         }
         Command::EnrollmentTokenCreate { ttl_minutes: _ } => {
             // Token display is deliberately an authenticated provisioning-station operation.
