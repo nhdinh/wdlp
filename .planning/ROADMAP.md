@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 9 historical summaries preserved; 5 replacement plans pending
+**Plans**: 9 historical summaries preserved; 9 replacement plans pending
 
 Plans:
 **Wave 1**
@@ -42,15 +42,31 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-14-PLAN.md (Wave 3) — Finish trusted enrollment, DPAPI custody, signed current/LKG configuration, and the automatic LAB-CLIENT01 endpoint service
+- [ ] 01-14-PLAN.md (Wave 3) — Finish trusted enrollment, endpoint-local DPAPI credential custody, device mTLS, replacement revocation, and redacted health
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-15-PLAN.md (Wave 4) — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, and real WinFsp/restart behavior on LAB-CLIENT01
+- [ ] 01-18-PLAN.md (Wave 4) — Activate signed configuration into a durable concurrency-safe current/LKG cache on LAB-CLIENT01
 
-**Wave 5** *(blocked on Waves 1-4 completion)*
+**Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 01-16-PLAN.md (Wave 5) — Execute the four-machine Office/Shell/size/restart/hard-off matrix and publish independently reviewed requirement-indexed evidence
+- [ ] 01-19-PLAN.md (Wave 5) — Install and exercise the automatic noninteractive LAB-CLIENT01 endpoint service and Windows-native fingerprint collector
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 01-15-PLAN.md (Wave 6) — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, isolation, sign-out drain, and service-restart behavior
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 01-20-PLAN.md (Wave 7) — Revalidate real WinFsp integrity denial, disk-full last-commit preservation, service restart, and Windows reboot on LAB-CLIENT01
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 01-16-PLAN.md (Wave 8) — Execute the four-machine production vertical slice and complete the D-16 through D-18 Office, operation, and size matrix
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 01-21-PLAN.md (Wave 9) — Execute D-19 failure recovery, seal requirement-indexed evidence, and require independent Phase 1 review
 
 ### Phase 2: Policy Enforcement and User Feedback
 
@@ -111,7 +127,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 9/14 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 9/18 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |

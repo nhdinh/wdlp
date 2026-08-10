@@ -9,7 +9,7 @@ Binding execution roles:
 - LAB-DC02 independently supplies secondary AD corroboration.
 - LAB-CLIENT01 runs every endpoint service, DPAPI, session, WinFsp, file, restart, and reboot verification.
 - Every operation first asserts the actual computer name against the expected role. Sensitive values enter only through a runtime secret provider and never appear in this file, commands, evidence, or commits.
-- Plan 01-17 owns the versioned evidence schema, verification-tier rules, substitute boundaries, requirement matrix, and exact per-plan privilege manifests. Plans 01-13 through 01-16 may publish a passing result only through that contract.
+- Plan 01-17 owns the versioned evidence schema, verification-tier rules, substitute boundaries, requirement matrix, and exact privilege manifests for Plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21. Every downstream plan may publish a passing result only through that contract.
 
 | capability | decision | reason |
 |---|---|---|
@@ -19,7 +19,7 @@ Binding execution roles:
 | role.remove-verified-host-dlp-endpoint-artifacts | INTEGRATE | Plan 01-13 removes only exact DLP endpoint residue from hungdinh-lt |
 | role.remove-host-developer-tools | OPT-OUT | D-20 requires Rust LLVM Hyper-V repositories and unrelated tools to remain |
 | role.collect-endpoint-evidence-on-host | OPT-OUT | D-24 makes hungdinh-lt evidence invalid for endpoint requirements |
-| privilege.validate-plan-manifest-digest | INTEGRATE | Plan 01-17 records exact plan/machine changes and Plans 01-13 through 01-16 fail before mutation unless the matching digest is approved |
+| privilege.validate-plan-manifest-digest | INTEGRATE | Plan 01-17 records exact plan/machine changes and each of Plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21 fails before mutation unless its matching digest is approved |
 | privilege.capture-baseline-and-cleanup | INTEGRATE | Every elevated plan captures before-state, declares persistence, cleans temporary state after success/failure, and verifies final state |
 | privilege.idempotent-apply-verify-remove | INTEGRATE | Every elevated operation exposes safe apply, verify, and remove behavior and handles partial prior state explicitly |
 | evidence.validate-versioned-manifest | INTEGRATE | Plan 01-17 validates every attempt against the versioned D-37/D-44 schema |
@@ -29,7 +29,7 @@ Binding execution roles:
 | evidence.invalidate-relevant-drift | INTEGRATE | Binary, source, configuration, infrastructure, procedure, or machine-baseline drift stales only affected rows |
 | evidence.block-clock-skew | INTEGRATE | Domain UTC hierarchy and observed offset are recorded; excessive skew blocks publication |
 | evidence.signed-visual-checklist | INTEGRATE | Only D-26 visible LAB-CLIENT01 rows use authenticated-domain-identity signed checklist records |
-| evidence.independent-phase-exit-review | INTEGRATE | Plan 01-16 requires an independent verifier to sign the complete matrix/provenance/deviation/artifact-integrity digest |
+| evidence.independent-phase-exit-review | INTEGRATE | Plan 01-21 requires an independent verifier to sign the complete matrix/provenance/deviation/artifact-integrity digest |
 | evidence.silent-prohibition-check-synthesis | OPT-OUT | SPEC-less prohibitions remain descriptor-less flagged-unverified; no wired check is fabricated |
 | postgres.start-development-database | INTEGRATE | Plan 01-13 starts PostgreSQL inside LAB-DC01 |
 | postgres.apply-versioned-sqlx-migrations | INTEGRATE | Plan 01-13 applies checksummed forward migrations inside LAB-DC01 before listener bind |
@@ -46,7 +46,7 @@ Binding execution roles:
 | winrm.kerberos-authenticated-cim-query | INTEGRATE | Trusted LAB-DC01 collects LAB-CLIENT01 hardware over WinRM HTTPS |
 | winrm.basic-or-ntlm-collector-auth | OPT-OUT | The trusted collector requires Kerberos and cannot downgrade |
 | windows.hardware-fingerprint-api | INTEGRATE | LAB-CLIENT01 service and LAB-DC01 collector use documented Windows APIs |
-| windows.powershell-production-fingerprint | OPT-OUT | Plan 01-14 replaces the partial production PowerShell collector |
+| windows.powershell-production-fingerprint | OPT-OUT | Plan 01-19 replaces the partial production PowerShell collector |
 | http.live-readiness | INTEGRATE | LAB-CLIENT01 probes LAB-DC01 health live |
 | http.dependency-readiness | INTEGRATE | LAB-CLIENT01 probes LAB-DC01 health ready after PostgreSQL migrations |
 | http.admin-create-enrollment-token | INTEGRATE | Trusted provisioning executes on LAB-DC01 using admin mTLS |
@@ -68,7 +68,7 @@ Binding execution roles:
 | dpapi.machine-scope-protect | INTEGRATE | LAB-CLIENT01 protects device credential and store key material |
 | dpapi.machine-scope-unprotect | INTEGRATE | LAB-CLIENT01 service unprotects only after owner and DACL validation |
 | dpapi.interactive-ui | OPT-OUT | The automatic service uses UI-forbidden DPAPI |
-| scm.install-automatic-service | INTEGRATE | Plan 01-14 installs and verifies the service on LAB-CLIENT01 |
+| scm.install-automatic-service | INTEGRATE | Plan 01-19 installs and verifies the service on LAB-CLIENT01 |
 | scm.start-stop-shutdown | INTEGRATE | LAB-CLIENT01 exercises start stop shutdown force-kill and restart |
 | scm.session-change-control | INTEGRATE | Plan 01-15 consumes sign-in and sign-out events on LAB-CLIENT01 |
 | wts.enumerate-active-sessions | INTEGRATE | LAB-CLIENT01 service enumerates eligible interactive domain sessions |
@@ -76,19 +76,19 @@ Binding execution roles:
 | createprocessasuser.launch-session-host | INTEGRATE | LAB-CLIENT01 launches the drive host into the captured user session |
 | ipc.named-pipe-authenticated-storage | INTEGRATE | LAB-CLIENT01 validates SID session PID generation and pipe DACL |
 | ipc.client-selects-identity-or-store | OPT-OUT | Identity and store selection remain service-owned |
-| winfsp.install-official-runtime | INTEGRATE | Plan 01-15 verifies official pinned runtime only on LAB-CLIENT01 |
+| winfsp.install-official-runtime | INTEGRATE | Plan 01-20 verifies official pinned runtime only on LAB-CLIENT01 |
 | winfsp.install-runtime-on-hungdinh-lt | OPT-OUT | D-20 forbids endpoint runtime on the developer host |
 | winfsp.start-user-session-mount | INTEGRATE | LAB-CLIENT01 user host starts the approved WinFsp mount |
 | winfsp.stop-user-session-mount | INTEGRATE | LAB-CLIENT01 drains cancels and unmounts at sign-out and service stop |
-| winfsp.callback-create-open | INTEGRATE | Plan 01-15 binds create and open to authenticated encrypted storage |
-| winfsp.callback-read-write-flush | INTEGRATE | Plan 01-15 binds data and durability callbacks to encrypted storage |
-| winfsp.callback-rename-delete-cleanup-close | INTEGRATE | Plan 01-15 preserves operation and lifecycle semantics |
-| winfsp.callback-directory-metadata-security | INTEGRATE | Plan 01-15 preserves enumeration metadata and security mapping |
+| winfsp.callback-create-open | INTEGRATE | Plan 01-15 binds session-owned create/open to authenticated storage and Plan 01-20 revalidates integrity failures on the real runtime |
+| winfsp.callback-read-write-flush | INTEGRATE | Plan 01-15 binds data/durability callbacks and Plan 01-20 proves corruption and NoSpace mapping |
+| winfsp.callback-rename-delete-cleanup-close | INTEGRATE | Plan 01-15 preserves operation and lifecycle semantics; Plan 01-16 exercises the matrix |
+| winfsp.callback-directory-metadata-security | INTEGRATE | Plan 01-15 preserves enumeration/metadata/security mapping; Plan 01-16 exercises the matrix |
 | winfsp.kernel-filter-enforcement | OPT-OUT | The locked architecture is a user-mode WinFsp drive |
 | hyperv.query-vm-state | INTEGRATE | hungdinh-lt validates all VM state before orchestration |
 | hyperv.start-and-connect-vms | INTEGRATE | hungdinh-lt starts and reaches the assigned VMs |
 | hyperv.invoke-guest-commands | INTEGRATE | hungdinh-lt dispatches commands that execute inside their named VMs |
-| hyperv.hard-turnoff-lab-client01 | INTEGRATE | Plan 01-16 uses host-controlled abrupt loss for LAB-CLIENT01 only |
+| hyperv.hard-turnoff-lab-client01 | INTEGRATE | Plan 01-21 uses host-controlled abrupt loss for LAB-CLIENT01 only |
 | hyperv.hard-turnoff-domain-controllers | OPT-OUT | Phase 1 abrupt-loss scope targets the endpoint and preserves AD authorities |
 | office.word-com-file-roundtrip | INTEGRATE | Plan 01-16 executes Word inside the eligible LAB-CLIENT01 user session |
 | office.excel-com-file-roundtrip | INTEGRATE | Plan 01-16 executes Excel inside the eligible LAB-CLIENT01 user session |

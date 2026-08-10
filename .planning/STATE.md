@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Phase 01 replanned; ready to execute 01-17
-last_updated: "2026-08-10T10:44:33Z"
+stopped_at: Phase 01 scope revision complete; ready to execute 01-17
+last_updated: "2026-08-10T11:04:56Z"
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 5
+  total_plans: 9
   completed_plans: 0
 ---
 
@@ -23,9 +23,9 @@ progress:
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 9 of 14
+- **Plan**: 9 of 18
 - **Status**: In progress
-- **Progress**: 64%
+- **Progress**: 50%
 - **Next plan**: 01-17 (Wave 1)
 
 ## Performance Metrics
@@ -66,10 +66,10 @@ progress:
 
 **Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/01-CONTEXT.md
 
-**Last session:** 2026-08-10T10:44:33Z
-**Stopped at:** Phase 01 replanned; ready to execute 01-17
+**Last session:** 2026-08-10T11:04:56Z
+**Stopped at:** Phase 01 scope revision complete; ready to execute 01-17
 
-- Last action: Reconciled replacement Plans 01-13 through 01-17 with D-01 through D-50, layered machine-specific verification, exact privilege manifests, and immutable evidence/provenance gates; nine historical summaries remain preserved.
+- Last action: Split the security-sensitive replacement work into nine plans across nine acyclic waves: enrollment (01-14), signed configuration (01-18), service lifecycle (01-19), session/IPC (01-15), integrity/recovery (01-20), matrix execution (01-16), and final evidence sealing (01-21), while 01-17 and 01-13 remain the evidence/privilege and server-role tracers. All D-01 through D-50, 30 Phase 1 requirements, layered machine-specific verification, exact per-plan privilege manifests, and nine historical summaries remain preserved.
 
 ## Decisions
 
