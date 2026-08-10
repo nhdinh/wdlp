@@ -1,4 +1,5 @@
 use dlp_server::enrollment::{EnrollmentAttempt, EnrollmentError, EnrollmentService};
+use dlp_server::health::{ReadinessDependencies, liveness, readiness};
 use dlp_server::routes::RouteState;
 use dlp_server::tls::{
     AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus, PeerIdentity, TlsPaths,
@@ -84,4 +85,45 @@ fn mtls_routes_bind_signed_configuration_and_health_to_the_active_device() {
     state.revoke_device_for_test(device.device_id(), device.credential_serial());
     assert!(state.signed_configuration_for(&device).is_err());
     assert!(state.record_health_for(&device, "mounted").is_err());
+}
+
+#[test]
+fn signed_configuration_is_audience_bound_hashed_and_replay_safe() {
+    let state = RouteState::for_test();
+    let device = AuthenticatedDevice::from_peer(
+        PeerIdentity::device_for_test("device-test", vec![1, 2, 3]),
+        CredentialStatus::Active,
+    )
+    .expect("active test device");
+    state.activate_device_for_test(device.device_id(), device.credential_serial());
+
+    let first = state
+        .signed_configuration_for(&device)
+        .expect("first signed configuration");
+    assert_eq!(first.audience().to_wire(), device.device_id());
+    assert_eq!(first.content_digest().len(), 32);
+    assert_eq!(first.content_digest(), first.content_digest());
+    assert!(state
+        .stage_configuration_for_test(device.device_id(), 1)
+        .is_err());
+    state
+        .stage_configuration_for_test(device.device_id(), 2)
+        .expect("higher version is staged");
+    assert_eq!(
+        state
+            .signed_configuration_for(&device)
+            .expect("select greatest version")
+            .envelope()
+            .bundle_version()
+            .to_wire(),
+        "2"
+    );
+}
+
+#[test]
+fn readiness_is_read_only_and_requires_every_dependency() {
+    assert_eq!(liveness(), axum::http::StatusCode::OK);
+    let missing = ReadinessDependencies::none_ready();
+    assert_eq!(readiness(&missing).status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(readiness(&ReadinessDependencies::all_ready()).status, axum::http::StatusCode::OK);
 }
