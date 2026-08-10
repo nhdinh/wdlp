@@ -33,9 +33,10 @@ mod provisioning {
     }
 
     /// Uses Kerberos WinRM-over-HTTPS and keeps raw CIM values local to the trusted station.
-    pub fn collect_from_trusted_station(computer: &str) -> Result<FingerprintSources, ()> {
-        let script = "$ErrorActionPreference='Stop';$o=New-CimSessionOption -UseSsl;$s=New-CimSession -ComputerName $args[0] -Authentication Kerberos -SessionOption $o;$p=Get-CimInstance -CimSession $s Win32_ComputerSystemProduct;$b=Get-CimInstance -CimSession $s Win32_BIOS;$l=Get-CimInstance -CimSession $s Win32_LogicalDisk -Filter \"DeviceID='C:'\";$part=Get-CimAssociatedInstance -CimSession $s -InputObject $l -Association Win32_LogicalDiskToPartition;$disk=Get-CimAssociatedInstance -CimSession $s -InputObject $part -Association Win32_DiskDriveToDiskPartition;if(@($disk).Count -ne 1){throw 'OS volume does not resolve to one physical disk'};Write-Output $p.UUID;Write-Output $b.SerialNumber;Write-Output $disk.SerialNumber;Remove-CimSession $s";
-        let output = Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", script, computer]).output().map_err(|_| ())?;
+    pub fn collect_from_trusted_station(computer: &str, allow_lab_virtual_disk_unique_id: bool) -> Result<FingerprintSources, ()> {
+        let script = "$ErrorActionPreference='Stop';$o=New-CimSessionOption -UseSsl;$s=New-CimSession -ComputerName $args[0] -Authentication Kerberos -SessionOption $o;try{$p=Get-CimInstance -CimSession $s Win32_ComputerSystemProduct;$b=Get-CimInstance -CimSession $s Win32_BIOS;$l=Get-CimInstance -CimSession $s Win32_LogicalDisk -Filter \"DeviceID='C:'\";$part=Get-CimAssociatedInstance -CimSession $s -InputObject $l -Association Win32_LogicalDiskToPartition;$disk=Get-CimAssociatedInstance -CimSession $s -InputObject $part -Association Win32_DiskDriveToDiskPartition;if(@($p).Count -ne 1 -or @($b).Count -ne 1 -or @($l).Count -ne 1 -or @($part).Count -ne 1 -or @($disk).Count -ne 1){throw 'unexpected CIM cardinality'};$identity=$disk.SerialNumber;if([string]::IsNullOrWhiteSpace($identity)){if($args[1] -ne 'lab-only'){throw 'physical disk serial missing'};$virtual=Get-CimInstance -CimSession $s -Namespace root/Microsoft/Windows/Storage MSFT_Disk -Filter ('Number='+$disk.Index);if(@($virtual).Count -ne 1 -or -not $virtual.IsBoot -or -not $virtual.IsSystem -or [string]::IsNullOrWhiteSpace($virtual.UniqueId)){throw 'lab virtual boot disk identity unavailable'};$identity=$virtual.UniqueId};Write-Output $p.UUID;Write-Output $b.SerialNumber;Write-Output $identity}finally{Remove-CimSession $s}";
+        let mode = if allow_lab_virtual_disk_unique_id { "lab-only" } else { "production" };
+        let output = Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", script, computer, mode]).output().map_err(|_| ())?;
         if !output.status.success() { return Err(()); }
         let values = String::from_utf8(output.stdout).map_err(|_| ())?;
         let mut values = values.lines();
@@ -188,7 +189,8 @@ async fn main() -> Result<(), CliError> {
             Ok(())
         }
         Command::ProvisionDevice { computer } => {
-            let sources = provisioning::collect_from_trusted_station(&computer)
+            let lab_mode = env::var("DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID").ok().as_deref() == Some("true");
+            let sources = provisioning::collect_from_trusted_station(&computer, lab_mode)
                 .map_err(|_| CliError::TrustedStationRequired)?;
             let _digest = provisioning::fingerprint_v1(&sources);
             // Persistence requires the authenticated administrator server API from 01-07;
