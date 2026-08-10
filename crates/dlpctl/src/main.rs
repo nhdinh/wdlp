@@ -34,9 +34,9 @@ mod provisioning {
 
     /// Uses Kerberos WinRM-over-HTTPS and keeps raw CIM values local to the trusted station.
     pub fn collect_from_trusted_station(computer: &str, allow_lab_virtual_disk_unique_id: bool) -> Result<FingerprintSources, ()> {
-        let script = "$ErrorActionPreference='Stop';$o=New-CimSessionOption -UseSsl;$s=New-CimSession -ComputerName $args[0] -Authentication Kerberos -SessionOption $o;try{$p=Get-CimInstance -CimSession $s Win32_ComputerSystemProduct;$b=Get-CimInstance -CimSession $s Win32_BIOS;$l=Get-CimInstance -CimSession $s Win32_LogicalDisk -Filter \"DeviceID='C:'\";$part=Get-CimAssociatedInstance -CimSession $s -InputObject $l -Association Win32_LogicalDiskToPartition;$disk=Get-CimAssociatedInstance -CimSession $s -InputObject $part -Association Win32_DiskDriveToDiskPartition;if(@($p).Count -ne 1 -or @($b).Count -ne 1 -or @($l).Count -ne 1 -or @($part).Count -ne 1 -or @($disk).Count -ne 1){throw 'unexpected CIM cardinality'};$identity=$disk.SerialNumber;if([string]::IsNullOrWhiteSpace($identity)){if($args[1] -ne 'lab-only'){throw 'physical disk serial missing'};$virtual=Get-CimInstance -CimSession $s -Namespace root/Microsoft/Windows/Storage MSFT_Disk -Filter ('Number='+$disk.Index);if(@($virtual).Count -ne 1 -or -not $virtual.IsBoot -or -not $virtual.IsSystem -or [string]::IsNullOrWhiteSpace($virtual.UniqueId)){throw 'lab virtual boot disk identity unavailable'};$identity=$virtual.UniqueId};Write-Output $p.UUID;Write-Output $b.SerialNumber;Write-Output $identity}finally{Remove-CimSession $s}";
+        let script = "$ErrorActionPreference='Stop';$computer=$env:DLP_PROVISIONING_COMPUTER;$mode=$env:DLP_PROVISIONING_DISK_MODE;if([string]::IsNullOrWhiteSpace($computer) -or $mode -notin @('production','lab-only')){throw 'invalid trusted collector configuration'};$o=New-CimSessionOption -UseSsl;$s=New-CimSession -ComputerName $computer -Authentication Kerberos -SessionOption $o;try{$p=Get-CimInstance -CimSession $s Win32_ComputerSystemProduct;$b=Get-CimInstance -CimSession $s Win32_BIOS;$l=Get-CimInstance -CimSession $s Win32_LogicalDisk -Filter \"DeviceID='C:'\";$part=Get-CimAssociatedInstance -CimSession $s -InputObject $l -Association Win32_LogicalDiskToPartition;$disk=Get-CimAssociatedInstance -CimSession $s -InputObject $part -Association Win32_DiskDriveToDiskPartition;if(@($p).Count -ne 1 -or @($b).Count -ne 1 -or @($l).Count -ne 1 -or @($part).Count -ne 1 -or @($disk).Count -ne 1){throw 'unexpected CIM cardinality'};$identity=$disk.SerialNumber;if([string]::IsNullOrWhiteSpace($identity)){if($mode -ne 'lab-only'){throw 'physical disk serial missing'};$virtual=Get-CimInstance -CimSession $s -Namespace root/Microsoft/Windows/Storage MSFT_Disk -Filter ('Number='+$disk.Index);if(@($virtual).Count -ne 1 -or -not $virtual.IsBoot -or -not $virtual.IsSystem -or [string]::IsNullOrWhiteSpace($virtual.UniqueId)){throw 'lab virtual boot disk identity unavailable'};$identity=$virtual.UniqueId};Write-Output $p.UUID;Write-Output $b.SerialNumber;Write-Output $identity}finally{Remove-CimSession $s}";
         let mode = if allow_lab_virtual_disk_unique_id { "lab-only" } else { "production" };
-        let output = Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", script, computer, mode]).output().map_err(|_| ())?;
+        let output = Command::new("powershell.exe").env("DLP_PROVISIONING_COMPUTER", computer).env("DLP_PROVISIONING_DISK_MODE", mode).args(["-NoProfile", "-NonInteractive", "-Command", script]).output().map_err(|_| ())?;
         if !output.status.success() { return Err(()); }
         let values = String::from_utf8(output.stdout).map_err(|_| ())?;
         let mut values = values.lines();
@@ -48,6 +48,11 @@ mod provisioning {
     fn normalize(value: &str) -> Result<String, ()> {
         let value = value.trim().to_uppercase();
         if value.is_empty() || value.len() > 512 || ["UNKNOWN", "NONE", "N/A", "TO BE FILLED BY O.E.M.", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"].contains(&value.as_str()) { Err(()) } else { Ok(value) }
+    }
+
+    #[cfg(test)]
+    pub fn child_environment_for_test(computer: &str, lab_mode: bool) -> [(&str, &str); 2] {
+        [("DLP_PROVISIONING_COMPUTER", computer), ("DLP_PROVISIONING_DISK_MODE", if lab_mode { "lab-only" } else { "production" })]
     }
 }
 
@@ -206,7 +211,7 @@ async fn main() -> Result<(), CliError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, MIGRATION_VERSION, provisioning::{FingerprintSources, fingerprint_v1}};
+    use super::{Command, MIGRATION_VERSION, provisioning::{FingerprintSources, fingerprint_v1, child_environment_for_test}};
 
     #[test]
     fn migration_status_command_is_explicit_and_read_only() {
@@ -231,5 +236,10 @@ mod tests {
     fn provisioning_accepts_only_a_computer_fqdn_and_no_serial_or_mac_arguments() {
         assert_eq!(Command::parse(["provision-device", "--computer", "device.lab.local"]), Ok(Command::ProvisionDevice { computer: "device.lab.local".into() }));
         assert!(Command::parse(["provision-device", "--serial", "raw"]).is_err());
+    }
+
+    #[test]
+    fn collector_passes_named_environment_without_relying_on_powershell_args() {
+        assert_eq!(child_environment_for_test("LAB-CLIENT01.lab.local", true), [("DLP_PROVISIONING_COMPUTER", "LAB-CLIENT01.lab.local"), ("DLP_PROVISIONING_DISK_MODE", "lab-only")]);
     }
 }
