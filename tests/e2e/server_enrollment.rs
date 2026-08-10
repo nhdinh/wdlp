@@ -1,5 +1,7 @@
 use dlp_server::enrollment::{EnrollmentAttempt, EnrollmentError, EnrollmentService};
-use dlp_server::tls::{AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus, PeerIdentity};
+use dlp_server::tls::{
+    AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus, PeerIdentity, TlsPaths,
+};
 
 #[test]
 fn authority_issues_one_credential_only_after_exact_identity_checks() {
@@ -34,4 +36,15 @@ fn mtls_routes_reject_cross_role_revoked_and_forwarded_identities() {
         .is_err()
     );
     assert!(AuthenticatedAdmin::from_forwarded_header("X-Forwarded-Client-Cert").is_err());
+}
+
+#[test]
+fn mtls_server_config_requires_the_mounted_phase1_material() {
+    let configuration = TlsPaths::from_environment()
+        .and_then(|paths| paths.server_config())
+        .expect("test fixture paths must build a required-client-auth server config");
+    assert_eq!(
+        configuration.alpn_protocols,
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+    );
 }
