@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$Extended,
-    [ValidateRange(0, 60)]
+    [ValidateRange(0, 120)]
     [int]$HoldSeconds = 0
 )
 

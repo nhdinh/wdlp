@@ -106,8 +106,8 @@ fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
             .parse::<u64>()
             .expect("interactive hold must be an integer number of milliseconds");
         assert!(
-            milliseconds <= 60_000,
-            "interactive hold is bounded to one minute"
+            milliseconds <= 120_000,
+            "interactive hold is bounded to two minutes"
         );
         eprintln!("mounted smoke is holding {drive} for visual verification");
         thread::sleep(Duration::from_millis(milliseconds));
