@@ -21,6 +21,7 @@ pub mod ad;
 pub mod enrollment;
 pub mod pki;
 pub mod repository;
+pub mod tls;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
