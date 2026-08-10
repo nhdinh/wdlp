@@ -15,8 +15,10 @@ dlp-domain = { path = "../dlp-domain" }
 dlp-protocol = { path = "../dlp-protocol" }
 dlp-server = { path = "../dlp-server" }
 dlp-storage = { path = "../dlp-storage" }
+sha2 = "=0.11.0"
 sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "sqlite", "tls-rustls-ring"] }
 tokio = { version = "=1.53.1", features = ["macros", "net", "rt-multi-thread"] }
+uuid = { version = "=1.24.0", features = ["v4"] }
 
 [[test]]
 name = "walking_skeleton"

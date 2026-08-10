@@ -127,7 +127,7 @@ async fn main() -> Result<(), CliError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, MIGRATION_VERSION};
+    use super::{Command, MIGRATION_VERSION, provisioning::{FingerprintSources, fingerprint_v1}};
 
     #[test]
     fn migration_status_command_is_explicit_and_read_only() {
@@ -136,5 +136,15 @@ mod tests {
             Ok(Command::MigrationStatus)
         );
         assert_eq!(MIGRATION_VERSION, 202608070001);
+    }
+
+    #[test]
+    fn enrollment_fingerprint_is_a_versioned_digest_of_only_the_three_required_sources() {
+        let sources = FingerprintSources::new(" system-uuid ", "bios-serial", "disk-serial").unwrap();
+        let first = fingerprint_v1(&sources);
+        assert_eq!(first, fingerprint_v1(&sources));
+        assert_ne!(first, fingerprint_v1(&FingerprintSources::new("system-uuid", "bios-serial", "different-disk").unwrap()));
+        assert!(FingerprintSources::new("", "bios", "disk").is_err());
+        assert!(FingerprintSources::new("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", "bios", "disk").is_err());
     }
 }
