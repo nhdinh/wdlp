@@ -29,47 +29,24 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 9/12 plans executed
+**Plans**: 9 historical summaries preserved; 4 replacement plans pending
 
 Plans:
 **Wave 1**
 
-- [x] 01-03-PLAN.md (Wave 1) — Blocking package-legitimacy and persisted encrypted-format approvals before installs/writes
+- [ ] 01-13-PLAN.md (Wave 1) — Reconcile machine roles, safely remove disallowed hungdinh-lt endpoint residue, and prove LAB-DC01 PostgreSQL migrations and readiness
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [x] 01-01-PLAN.md (Wave 2) — Portable workspace, typed domain/protocol/policy/signing/storage contracts, and TST-01/TST-02
+- [ ] 01-14-PLAN.md (Wave 2) — Finish trusted enrollment, DPAPI custody, signed current/LKG configuration, and the automatic LAB-CLIENT01 endpoint service
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [x] 01-02-PLAN.md (Wave 3) — Exact ten-crate executable workspace, migration-before-bind prerequisites, and isolated Windows boundaries
-- [x] 01-04-PLAN.md (Wave 3) — Approved durable AEAD generation store, SID-safe paths, complete operations, and disk-full preservation
+- [ ] 01-15-PLAN.md (Wave 3) — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, and real WinFsp/restart behavior on LAB-CLIENT01
 
-**Wave 4** *(blocked on Wave 3 completion)*
+**Wave 4** *(blocked on Waves 1-3 completion)*
 
-- [x] 01-05-PLAN.md (Wave 4) — Production-quality PostgreSQL/API/signed-activation/encrypted-store tracer
-- [x] 01-09-PLAN.md (Wave 4) — Crash/restart recovery, integrity evidence, disk-full preservation, and plaintext-leak tests
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [x] 01-06-PLAN.md (Wave 5) — Trusted-station fingerprint provisioning, dual-DC authority, offline-root/online-device-CA issuance/replacement, and migrations
-
-**Wave 6** *(blocked on Wave 5 completion)*
-
-- [x] 01-07-PLAN.md (Wave 6) — Distinct admin/device mTLS APIs, per-request revocation checks, signed configuration, health/readiness, and Compose deployment
-- [x] 01-10-PLAN.md (Wave 6) — Approved real WinFsp mount, complete callbacks, status mapping, and runtime validation
-
-**Wave 7** *(blocked on Wave 6 completion)*
-
-- [ ] 01-08-PLAN.md (Wave 7) — Automatic Windows enrollment with endpoint-generated CSR, DPAPI credential custody, mTLS polling, and current/LKG cache
-
-**Wave 8** *(blocked on Wave 7 completion)*
-
-- [ ] 01-11-PLAN.md (Wave 8) — LocalSystem-to-user-session drive-host launch, authenticated storage IPC, letter fallback, sign-out drain, and restart remount
-
-**Wave 9** *(blocked on Wave 8 completion)*
-
-- [ ] 01-12-PLAN.md (Wave 9) — Production provisioning/PKI/session-host plus Windows/Office/size/operation/restart/abrupt-loss evidence matrix
+- [ ] 01-16-PLAN.md (Wave 4) — Execute the four-machine Office/Shell/size/restart/hard-off matrix and publish requirement-indexed evidence
 
 ### Phase 2: Policy Enforcement and User Feedback
 
@@ -130,7 +107,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 9/12 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 9/13 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |

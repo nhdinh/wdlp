@@ -1,103 +1,118 @@
-# Phase 1 Multi-Source Coverage Audit
+# Phase 01 Replan Source Coverage Audit
 
-The revised 12-plan set was audited against the ROADMAP goal, all 30 Phase 1 requirements, every CONTEXT decision D-01 through D-19, RESEARCH.md features/constraints, all 36 deterministic spec-less edge-probe dispositions, the eight descriptor-less prohibitions, and the complete API coverage matrix. `COVERED` means a named plan task plus verification/acceptance criteria implement or prove the item. Deferred/out-of-phase research remains excluded, not missing.
+This audit is for the replacement plan set 01-13 through 01-16. Historical summaries 01-01 through 01-10 remain evidence of completed implementation; they are inputs, not work to repeat.
 
-## Approval-First Wave Schedule
+## Coverage result
 
-| Wave | Plans | Dependency guarantee |
-|---:|---|---|
-| 1 | 01-03 | Blocking package-legitimacy and persisted-format decisions complete without modifying manifests, lockfiles, or production artifacts. |
-| 2 | 01-01 | Cargo workspace, manifests, and lockfile are created only after 01-03 approval. |
-| 3 | 01-02, 01-04 | Executable workspace and approved storage format expand independently from 01-01. |
-| 4 | 01-05, 01-09 | Portable end-to-end tracer and recovery/integrity expansion run without file overlap. |
-| 5 | 01-06 | Production enrollment authority builds on the tracer. |
-| 6 | 01-07, 01-10 | Authenticated server deployment and WinFsp integration run without file overlap. |
-| 7 | 01-08 | Windows agent enrollment, DPAPI custody, polling, and cache integrate the server and drive prerequisites. |
-| 8 | 01-11 | User-session drive lifecycle integrates the agent, recovery, and WinFsp work. |
-| 9 | 01-12 | Full production-provider Windows evidence matrix closes the phase. |
+| Source | Items audited | Covered | Missing | Excluded |
+|---|---:|---:|---:|---:|
+| ROADMAP goal | 1 | 1 | 0 | 0 |
+| REQUIREMENTS phase IDs | 30 | 30 | 0 | 0 |
+| RESEARCH features and constraints | 14 | 14 | 0 | 0 |
+| CONTEXT locked decisions | 24 | 24 | 0 | 0 |
+| Spec-less fallback edges | 36 | 36 | 0 | 0 |
+| External API/service capabilities | all detected | all classified in COVERAGE.md | 0 | reasoned OPT-OUT rows only |
 
-## Goal, Requirements, and Context Decisions
+## GOAL coverage
 
-| Source | ID | Feature / requirement | Plan | Status | Notes |
-|---|---|---|---|---|
-| GOAL | — | One server, one Windows endpoint, one user completes enroll → signed config → mount → encrypted write/read → restart recovery | 01-05, 01-12 | COVERED | Format-gated portable tracer, then production Windows proof. |
-| REQ | WRK-01 | Exact ten-crate Cargo workspace | 01-01, 01-02 | COVERED | Portable members first; exact closed list completes before tracer. |
-| REQ | WRK-02 | Shared IDs, policy types, decisions, errors | 01-01 | COVERED | `dlp-domain` contracts/tests. |
-| REQ | WRK-03 | Versioned protocol DTOs/wire schemas | 01-01 | COVERED | `/api/v1`, signed envelope, unknown-version behavior. |
-| REQ | WRK-04 | Deny portable unsafe; isolate Windows FFI | 01-01, 01-02, 01-10 | COVERED | Portable lints, two Windows boundaries, WinFsp audit. |
-| REQ | SRV-01 | Authenticated HTTP JSON APIs | 01-05, 01-06, 01-07 | COVERED | Tracer routes, authority, distinct admin/device mTLS. |
-| REQ | SRV-03 | Single-use/short-lived enrollment token | 01-05, 01-06 | COVERED | Hashed, expiring, transactionally consumed. |
-| REQ | SRV-11 | PostgreSQL and versioned migrations | 01-02, 01-05, 01-06, 01-07 | COVERED | Real migration ledger, authority migration, readiness gate. |
-| REQ | SRV-12 | Liveness/readiness | 01-07 | COVERED | Process-only liveness; dependency/migration readiness. |
-| REQ | CRY-01 | AEAD content and sensitive metadata | 01-03, 01-04, 01-05 | COVERED | Human-approved AES-GCM format before first record. |
-| REQ | CRY-02 | Ed25519 signing/pre-activation verification | 01-01, 01-05, 01-07, 01-08 | COVERED | Canonical strict verification, server selection, agent cache. |
-| REQ | CRY-04 | No plaintext long-lived endpoint secret | 01-04, 01-08, 01-11 | COVERED | Secret interfaces, DPAPI credential and per-SID key wrappers. |
-| REQ | AGT-01 | Automatic noninteractive Windows service | 01-02, 01-08, 01-11 | COVERED | Boundary, SCM runtime, session mount lifecycle. |
-| REQ | AGT-02 | Enrollment and protected credentials | 01-08 | COVERED | Automatic enrollment plus DPAPI/service ACL. |
-| REQ | AGT-03 | Periodic TLS contact/server identity | 01-08 | COVERED | Pinned bootstrap trust and device mTLS polling. |
-| REQ | AGT-04 | Download, verify, cache, atomically activate | 01-05, 01-08 | COVERED | Tracer/current-LKG plus Windows cache. |
-| REQ | AGT-05 | Current and LKG configurations | 01-05, 01-08 | COVERED | Two immutable selected generations across restart. |
-| REQ | AGT-06 | Invalid/partial bundle preserves active | 01-05, 01-08 | COVERED | Signature/schema/hash/replay/partial negative suite. |
-| REQ | AGT-07 | Version/health/drive/policy/errors | 01-07, 01-08, 01-11 | COVERED | Device-bound server persistence and local/session health. |
-| REQ | DRV-01 | One isolated store per authenticated user | 01-04, 01-11 | COVERED | SID-bound portable store and session actor. |
-| REQ | DRV-02 | WinFsp configurable mount | 01-10, 01-11 | COVERED | Real host plus preferred/next-free letter. |
-| REQ | DRV-03 | Correct Windows user for every request | 01-04, 01-10, 01-11 | COVERED | Captured SID/store, no request selector. |
-| REQ | DRV-04 | Encrypted content and metadata | 01-04, 01-05, 01-10 | COVERED | Store owns AEAD; tracer/WinFsp prove no plaintext backing. |
-| REQ | DRV-06 | Crash-consistent updates | 01-04, 01-09, 01-10, 01-12 | COVERED | Staged generation, authenticated publication, fault matrix. |
-| REQ | DRV-07 | Corruption denial/no unauthenticated plaintext | 01-09, 01-10, 01-12 | COVERED | Stable status, zero-byte release, evidence retention. |
-| REQ | DRV-09 | Restart survival | 01-09, 01-11, 01-12 | COVERED | Recovery, service remount, reboot/kill/hard-off evidence. |
-| REQ | TST-01 | Policy matching/priority/conflict/default tests | 01-01 | COVERED | Complete deterministic Phase 1 evaluator tests. |
-| REQ | TST-02 | Bundle validation/signature tests | 01-01, 01-05, 01-08 | COVERED | Positive/negative/replay/cache cases. |
-| REQ | TST-03 | Storage crypto/integrity/key tests | 01-04, 01-05, 01-09 | COVERED | Boundary, nonce/AAD, recovery, evidence, marker scans. |
-| REQ | TST-05 | Enrollment through first activation integration | 01-05, 01-06, 01-07, 01-08, 01-12 | COVERED | Fixture-trust tracer followed by production providers/agent. |
-| REQ | TST-08 | Representative real WinFsp validation | 01-10, 01-11, 01-12 | COVERED | Runtime smoke, session lifecycle, complete Office matrix. |
-| CONTEXT | D-01 | Agent auto-registers to configured server | 01-08 | COVERED | Service startup state machine. |
-| CONTEXT | D-02 | Exact allowlisted fingerprint incl. system disk | 01-06, 01-08, 01-12 | COVERED | Trusted station captures the three sources through Kerberos remote CIM; agent repeats the version-1 tuple; MAC excluded. |
-| CONTEXT | D-03 | Fingerprinted component change blocks enrollment | 01-06, 01-08 | COVERED | Exact digest mismatch denial. |
-| CONTEXT | D-04 | Query primary and secondary AD DC | 01-06, 01-12 | COVERED | Provisioning and enrollment independently require authenticated direct LDAPS agreement on GUID/SID/state/domain/DNS identity. |
-| CONTEXT | D-05 | Device mTLS credential in DPAPI service file | 01-06, 01-07, 01-08, 01-12 | COVERED | Offline root/online device issuer, endpoint-generated CSR/key, constrained 30-day leaf, protected local custody, per-request active-serial authorization. |
-| CONTEXT | D-06 | Missing/undecryptable credential re-enrolls/revokes prior | 01-06, 01-07, 01-08, 01-12 | COVERED | Fresh endpoint key/CSR, complete rechecks, atomic old-serial revocation/new activation, and old-serial denial on every agent API. |
-| CONTEXT | D-07 | Auto-mount isolated store per eligible user | 01-11, 01-12 | COVERED | LocalSystem actor launches one `dlp-drive-host` with the WTS primary token; the host owns the user-session WinFsp mapping. |
-| CONTEXT | D-08 | Preferred letter then next available | 01-11 | COVERED | Deterministic collision-safe scan. |
-| CONTEXT | D-09 | Reject opens, grace, unmount at sign-out | 01-11 | COVERED | 30-second drain then cancel/unmount. |
-| CONTEXT | D-10 | Failed mount absent/retried/diagnosed | 01-11 | COVERED | No placeholder; capped exponential retry. |
-| CONTEXT | D-11 | Normal Windows filesystem semantics | 01-04, 01-10, 01-12 | COVERED | Portable model, callbacks, real applications. |
-| CONTEXT | D-12 | Flush/close waits for durability | 01-04, 01-10 | COVERED | Ordered durable commit before callback success. |
-| CONTEXT | D-13 | Interrupted replacement preserves last commit | 01-09, 01-12 | COVERED | Authenticated old/new-complete recovery. |
-| CONTEXT | D-14 | Integrity denial/evidence/redaction/no plaintext | 01-09, 01-10, 01-12 | COVERED | Per-record fixtures and stable Windows mapping. |
-| CONTEXT | D-15 | Disk-full error preserves prior version | 01-04, 01-09, 01-10, 01-12 | COVERED | Fault injection through real status/evidence. |
-| CONTEXT | D-16 | Explorer/PowerShell/Notepad/Word/Excel | 01-12 | COVERED | Named versioned real-drive evidence. |
-| CONTEXT | D-17 | Complete operation list | 01-12 | COVERED | Machine-readable application/operation matrix. |
-| CONTEXT | D-18 | Empty through ≥1 GiB and chunk boundaries | 01-04, 01-12 | COVERED | Approved 4 MiB boundaries plus 1 GiB. |
-| CONTEXT | D-19 | Restart/reboot/forced kill/abrupt loss | 01-09, 01-12 | COVERED | Fault hooks plus host-controlled hard-off. |
+| Source item | Status | Plan coverage |
+|---|---|---|
+| An employee can sign in on LAB-CLIENT01, receive a session-scoped encrypted drive, use it through ordinary applications, survive service/server restarts as specified, and prove graceful/hard-failure behavior against the real four-machine topology | COVERED | 01-13 establishes correct LAB-DC01 persistence and role hygiene; 01-14 completes enrollment/config/service runtime; 01-15 proves the actual endpoint drive lifecycle; 01-16 executes the production-shaped acceptance matrix |
 
-## Research Features and Constraints
+## REQ coverage
 
-| Source | ID | Feature / constraint | Plan | Status | Notes |
-|---|---|---|---|---|
-| RESEARCH | R-01 | WinFsp and every SUS/ASSUMED package gate before install | 01-03, 01-10 | COVERED | Human exact-package approval precedes manifests. |
-| RESEARCH | R-02 | PostgreSQL migrations before readiness/traffic | 01-02, 01-05, 01-06, 01-07 | COVERED | Migration-before-listen and exact ledger probe. |
-| RESEARCH | R-03 | Fingerprint is not remote attestation | 01-06, 01-08 | COVERED | Admin digest + residual privileged-local risk. |
-| RESEARCH | R-04 | Phase 1 offline-root/online-device-CA contract | 01-06, 01-07, 01-08, 01-12 | COVERED | ECDSA P-256 offline root, owner-readable online issuer, same-root DNS-bound server cert, endpoint CSR, constrained 30-day leaf, active lookup. |
-| RESEARCH | R-05 | Canonical signed bytes/current-LKG | 01-01, 01-05, 01-07, 01-08 | COVERED | Strict hash/version/audience/replay gates. |
-| RESEARCH | R-06 | 4 MiB AEAD chunk/boundary corpus | 01-03, 01-04, 01-12 | COVERED | Approved before bytes; matrix matches format. |
-| RESEARCH | R-07 | 30-second drain/5-minute retry cap | 01-11 | COVERED | Explicit discretion choice and tests. |
-| RESEARCH | R-08 | One actor per session ID/captured SID | 01-11, 01-12 | COVERED | Immutable actor authority plus WTS-token host launch and SID/session/PID/generation-authenticated pipe. |
-| RESEARCH | R-09 | Delay-load helper/no manual WinFsp DLL loading | 01-10 | COVERED | Exact documented build helper. |
-| RESEARCH | R-10 | Path normalization/untrusted input bounds | 01-04, 01-10 | COVERED | Portable parser and callback validation. |
-| RESEARCH | R-11 | Real Windows validation/no Linux substitute | 01-10, 01-12 | COVERED | Real runtime, Office, session/fault evidence. |
-| RESEARCH | R-12 | WinFsp/Docker/PostgreSQL initially absent | 01-02, 01-06, 01-10, 01-12 | COVERED | Explicit setup/preconditions and hard stops. |
-| RESEARCH | R-13 | Complete AD, WinFsp, HTTP capability surface | COVERAGE.md; 01-06, 01-07, 01-10 | COVERED | Every row integrated or reasoned OPT-OUT. |
-| RESEARCH | R-14 | Redact secrets/raw serials/plaintext/protected paths | 01-05 through 01-12 | COVERED | Stable codes/digests and marker scans. |
-| RESEARCH | R-15 | Trusted provisioning station workflow | 01-06, 01-12 | COVERED | `provision-device --computer <FQDN>` requires dual-DC identity agreement then Kerberos WinRM-over-HTTPS CIM capture; only the version-1 digest persists. |
-| RESEARCH | R-16 | Certificate replacement without CRL/OCSP | 01-06, 01-07, 01-08, 01-12 | COVERED | Server transaction revokes old serial and activates replacement; every agent API maps peer SAN+serial to active status, so the old chain is denied before expiry. |
-| RESEARCH | R-17 | LocalSystem-to-user-session drive host contract | 01-11, 01-12 | COVERED | `WTSQueryUserToken` + `CreateProcessAsUser` launches credential-free `dlp-drive-host`; service-owned pipe authenticates SID/session/PID/generation; LocalSystem has no mapping. |
+| Requirement IDs | Status | Plan coverage |
+|---|---|---|
+| WRK-01, WRK-02, WRK-03, WRK-04 | COVERED | 01-13, 01-16 |
+| SRV-01 | COVERED | 01-13, 01-16 |
+| SRV-03 | COVERED | 01-14, 01-16 |
+| SRV-11, SRV-12 | COVERED | 01-13, 01-16 |
+| CRY-01 | COVERED | 01-15, 01-16 |
+| CRY-02 | COVERED | 01-14, 01-16 |
+| CRY-04 | COVERED | 01-14, 01-15, 01-16 |
+| AGT-01 | COVERED | 01-14, 01-15, 01-16 |
+| AGT-02, AGT-03, AGT-04, AGT-05, AGT-06 | COVERED | 01-14, 01-16 |
+| AGT-07 | COVERED | 01-14, 01-15, 01-16 |
+| DRV-01, DRV-02, DRV-03, DRV-04, DRV-06, DRV-07, DRV-09 | COVERED | 01-15, 01-16 |
+| TST-01, TST-02, TST-03 | COVERED | preserved automated source tests plus 01-16 |
+| TST-05 | COVERED | 01-14, 01-16 |
+| TST-08 | COVERED | 01-15, 01-16 |
 
-## Spec-less Probe and Prohibition Accounting
+Every Phase 01 requirement ID appears in at least one replacement PLAN.md frontmatter requirements list. Plan 01-16 deliberately carries the full set because its final verifier produces the authoritative requirement-by-requirement evidence index.
 
-| Probe class | Surfaced | Authored | Status |
-|---|---:|---:|---|
-| Deterministic edge probes | 36 | 16 classified truths plus 20 `flagged_assumptions` across the revised plans | COVERED |
-| Descriptor-less prohibition recall | 8 | `PROH-01` through `PROH-08`, each `status: unverified`, `flagged: true` | COVERED |
+## RESEARCH coverage
 
-The 20 unclassified deterministic probes remain explicitly unresolved exactly as required by the spec-less fallback protocol; the 16 classified concurrency/idempotency/adjacency/empty/ordering probes remain observable automated truths. None was dismissed, silently converted to a backstop, or lost during renumbering. Generic security candidates are handled by each plan's STRIDE plus executable ASVS L1 map. There are no deferred CONTEXT ideas and no missing source item.
+| Research item | Status | Plan coverage |
+|---|---|---|
+| Preserve approved Rust/LLVM/Hyper-V development stack and completed implementations | COVERED | 01-13 inventory guard; all plans use existing crates and source patterns |
+| Correct four-machine responsibility map | COVERED | 01-13 through 01-16, plus COVERAGE.md |
+| Two independent AD authorities with authenticated directory access | COVERED | 01-13, 01-16 |
+| Kerberos-authenticated WinRM/CIM collection from trusted LAB-DC01 | COVERED | 01-13, 01-16 |
+| Authenticated HTTPS server boundary and mTLS endpoint identity | COVERED | 01-14, 01-16 |
+| Trusted enrollment station and fingerprint confirmation | COVERED | 01-14 |
+| DPAPI machine-scope custody with explicit ACLs and failure closure | COVERED | 01-14 |
+| Durable last-known-good configuration cache | COVERED | 01-14 |
+| Automatic Windows service plus per-session WTS/IPC host lifecycle | COVERED | 01-14, 01-15 |
+| Existing encrypted storage, journal, recovery, audit, and key-lifecycle code remains authoritative | COVERED | 01-15 preservation and real-runtime wiring |
+| Real WinFsp callback/runtime integration | COVERED | 01-15 on LAB-CLIENT01 only |
+| PostgreSQL with versioned SQLx migrations and durable restart behavior | COVERED | 01-13 on LAB-DC01; SQLite explicitly limited to isolated unit tests |
+| Office/Shell/large-file and graceful restart matrix | COVERED | 01-16 |
+| Hyper-V hard-off validation and evidence integrity | COVERED | 01-16 |
+
+Package legitimacy result: no new npm, pip, or cargo package installation is planned. Existing lockfiles and approved dependencies are reused, so no package-legitimacy checkpoint is introduced.
+
+Schema-push result: no listed JavaScript ORM push pattern is present. Rust SQLx versioned migrations are planned directly; no ORM push is fabricated.
+
+## CONTEXT decision coverage
+
+| Locked decision IDs | Status | Plan coverage |
+|---|---|---|
+| D-01, D-02, D-03, D-04, D-05, D-06 | COVERED | 01-14 enrollment, attestation, credential custody, configuration, and SCM actions; 01-16 final proof |
+| D-07, D-08, D-09, D-10 | COVERED | 01-15 session detection, deterministic drive selection, per-session host, and mount lifecycle; 01-16 |
+| D-11, D-12, D-13, D-14, D-15 | COVERED | preserved storage/recovery implementation wired and revalidated in 01-15; 01-16 |
+| D-16, D-17, D-18, D-19 | COVERED | 01-16 application, operations, size-boundary, restart, and hard-off matrix |
+| D-20, D-21, D-22, D-23, D-24 | COVERED | 01-13 role reconciliation and all machine-bound commands; 01-14 through 01-16 enforce the same topology |
+
+Deferred ideas: none were imported into the replan.
+
+Agent discretion: the primary noun for the detected fallback assumption delta is **session-scoped mount target**. The replan promotes that noun because the phase outcome depends on a per-session drive, while preferred/next-free letters remain selection details. This is recorded as `<assumption_delta_decision>` in 01-15. No assumption delta is silently ignored.
+
+## Spec-less fallback edge coverage
+
+Each unresolved probe row is explicit in replacement-plan `must_haves.assumptions` as either `flagged-unverified` or `covered`.
+
+| Probe rows | Count | Disposition and plan |
+|---|---:|---|
+| WRK-01, WRK-02, WRK-03, WRK-04 unclassified | 4 | flagged-unverified in 01-13 |
+| SRV-01 concurrency | 1 | covered by concurrent readiness/collection proof in 01-13 |
+| SRV-03 unclassified | 1 | flagged-unverified in 01-14 |
+| SRV-11 idempotency and concurrency | 2 | covered by repeated/concurrent migration starts in 01-13 |
+| SRV-12 concurrency | 1 | covered by concurrent collector proof in 01-13 |
+| CRY-01 concurrency | 1 | covered by session/key concurrency proof in 01-15 |
+| CRY-02 unclassified | 1 | flagged-unverified in 01-14 |
+| CRY-04 idempotency and concurrency | 2 | covered by repeated/concurrent service/config behavior in 01-14 |
+| AGT-01, AGT-02, AGT-03 unclassified | 3 | flagged-unverified in 01-14 |
+| AGT-04 concurrency | 1 | covered by concurrent health/state behavior in 01-14 |
+| AGT-05, AGT-06, AGT-07 unclassified | 3 | flagged-unverified in 01-14 |
+| DRV-01 idempotency and concurrency | 2 | covered by repeated/concurrent session mount behavior in 01-15 |
+| DRV-02 unclassified | 1 | flagged-unverified in 01-15 |
+| DRV-03 adjacency, empty, ordering, concurrency | 4 | covered by deterministic letter-selection matrix in 01-15 |
+| DRV-04 concurrency | 1 | covered by multi-session isolation proof in 01-15 |
+| DRV-06 concurrency | 1 | covered by concurrent I/O and restart proof in 01-15 |
+| DRV-07, DRV-09 unclassified | 2 | flagged-unverified in 01-15 |
+| TST-01, TST-02, TST-03, TST-05, TST-08 unclassified | 5 | flagged-unverified in 01-16 |
+| **Total** | **36** | **36 explicit; none dropped** |
+
+## Prohibition recall
+
+Adversarial requirement-by-requirement recall retained only product-value, safety, evidence-integrity, role-boundary, and secret-handling prohibitions. Retained entries are descriptor-less `flagged-unverified` values under each plan's `must_haves.prohibitions`; none were auto-dismissed.
+
+Routine engineering and canonical security/compliance candidates were not duplicated as bespoke prohibitions. Their breadcrumbs remain the per-plan ASVS L1 STRIDE registers, existing path/input test suites, and the post-execution `$gsd-secure-phase 1` workflow. This exclusion does not waive any threat mitigation or requirement.
+
+## External integration coverage
+
+This phase integrates external services and platform APIs. `COVERAGE.md` is the complete capability matrix for LDAP/AD, Kerberos WinRM/CIM, PostgreSQL, HTTPS/mTLS, Windows SCM/DPAPI/WTS/CreateProcessAsUser/named pipes, WinFsp callbacks/runtime, Hyper-V orchestration, and Office/Shell validation. Every capability is INTEGRATE or has a reasoned phase-boundary OPT-OUT, with the execution machine and owning plan named.
+
+## Final audit verdict
+
+COVERED. No GOAL, REQ, RESEARCH, or CONTEXT item is missing. No phase split or developer deferral is required.
