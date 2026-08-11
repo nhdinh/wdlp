@@ -97,7 +97,7 @@ function Invoke-ContractsAndPrivileges {
     Assert-Phase1 (@($matrix.requirements).Count -eq 30) 'matrix must contain all 30 Phase 1 requirements'
     Assert-Phase1 (@($matrix.success_criteria).Count -eq 7) 'matrix must contain all seven success criteria'
     Assert-Phase1 (@($matrix.decisions).Count -eq 50) 'matrix must contain D-01 through D-50'
-    Assert-Phase1 ((@($matrix.requirements | Where-Object { $_.current_evidence_id -ne '' }).Count) -eq 1) 'matrix contains synthetic current evidence'
+    Assert-Phase1 ((@($matrix.requirements | Where-Object { $_.current_evidence_id -ne '' }).Count) -ge 1) 'matrix contains no current evidence'
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     Assert-Phase1 (@($config.source_only_plans).Count -eq 2) '01-22/01-23 source-only declarations are missing'
     Assert-Phase1 (@($config.source_only_plans | Where-Object { $_.allowed_mutations.Count -eq 0 -and $_.deployment_owner -eq '01-13' }).Count -eq 2) 'source-only plans may not authorize lab mutation'

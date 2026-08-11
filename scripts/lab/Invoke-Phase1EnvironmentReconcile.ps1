@@ -147,7 +147,7 @@ $evidence = [ordered]@{
     clock_offset_seconds = 0
     commit_id = (git -C $RepoRoot rev-parse --short HEAD)
     target_machine = 'hungdinh-lt'
-    target_role = 'developer_host'
+    target_role = 'developer_orchestrator'
     procedure_version = 1
     identity = [pscustomobject]@{ kind = 'automation'; name = 'Invoke-Phase1EnvironmentReconcile.ps1' }
     environment_fingerprint = Get-EnvironmentFingerprint

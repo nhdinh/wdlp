@@ -14,7 +14,7 @@
       "forbidden_scopes": ["management_server", "trusted_provisioning", "endpoint_service", "dpapi", "winfsp_runtime", "dlp_mount", "server_runtime", "primary_ad", "secondary_ad_corroboration"]
     },
     "LAB-DC01": {
-      "role": "management_server_provisioning",
+      "role": "primary_directory_server",
       "description": "Primary directory server, management server runtime, and trusted provisioning station.",
       "allowed_scopes": ["management_server", "trusted_provisioning", "primary_ad", "kerberos_winrm_https", "server_runtime"],
       "forbidden_scopes": ["endpoint_service", "dpapi", "winfsp_runtime", "dlp_mount", "postgresql_runtime"]

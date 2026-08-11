@@ -1,651 +1,651 @@
 {
-  "schema_version": "phase1-requirement-matrix/v1",
-  "requirements": [
-    {
-      "id": "WRK-01",
-      "verification_tier": "portable_automation",
-      "checks": [
-        "workspace-contract"
-      ],
-      "substitute_policy": "none",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "WRK-02",
-      "verification_tier": "portable_automation",
-      "checks": [
-        "domain-contract"
-      ],
-      "substitute_policy": "none",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "WRK-03",
-      "verification_tier": "portable_automation",
-      "checks": [
-        "protocol-contract"
-      ],
-      "substitute_policy": "none",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "WRK-04",
-      "verification_tier": "portable_automation",
-      "checks": [
-        "unsafe-boundary"
-      ],
-      "substitute_policy": "none",
-      "current_evidence_id": "601028fa-8d7a-49e6-b7b9-0f067edd84f6",
-      "status": "pass"
-    },
-    {
-      "id": "SRV-01",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "server-route"
-      ],
-      "substitute_policy": "no mocks or fakes",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SRV-03",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "device-enrollment"
-      ],
-      "substitute_policy": "no mocks or fakes",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SRV-11",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "postgresql-migration"
-      ],
-      "substitute_policy": "SQLite component fixture only; never acceptance",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SRV-12",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "server-readiness"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "CRY-01",
-      "verification_tier": "portable_automation",
-      "checks": [
-        "aead-store"
-      ],
-      "substitute_policy": "deterministic portable faults only",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "CRY-02",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "signed-config"
-      ],
-      "substitute_policy": "no substitute for endpoint activation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "CRY-04",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "device-mtls-dpapi"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "AGT-01",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "service-runtime"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "AGT-02",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "enrollment-runtime"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "AGT-03",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "config-runtime"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "AGT-04",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "config-concurrency"
-      ],
-      "substitute_policy": "portable fixture cannot fill runtime tier",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "AGT-05",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "credential-replacement"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "AGT-06",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "offline-runtime"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "AGT-07",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "restart-runtime"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "DRV-01",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "mount-lifecycle"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "DRV-02",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "file-commit"
-      ],
-      "substitute_policy": "portable storage fixture cannot fill WinFsp tier",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "DRV-03",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "drive-letter-session"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "DRV-04",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "flush-close"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "DRV-06",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "session-isolation"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "DRV-07",
-      "verification_tier": "signed_visual_checklist",
-      "checks": [
-        "explorer-office"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "DRV-09",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "mount-recovery"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "TST-01",
-      "verification_tier": "portable_automation",
-      "checks": [
-        "dlp-policy deterministic corpus"
-      ],
-      "substitute_policy": "none",
-      "current_evidence_id": "2d211a45-7d92-4bbf-8209-601d45fc85c8",
-      "status": "pass"
-    },
-    {
-      "id": "TST-02",
-      "verification_tier": "portable_automation",
-      "checks": [
-        "signed-bundle corpus"
-      ],
-      "substitute_policy": "deterministic portable faults only",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "TST-03",
-      "verification_tier": "portable_automation",
-      "checks": [
-        "crypto corpus"
-      ],
-      "substitute_policy": "deterministic portable faults only",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "TST-05",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "enrollment integration"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "TST-08",
-      "verification_tier": "focused_hyperv",
-      "checks": [
-        "recovery integration"
-      ],
-      "substitute_policy": "no substitute",
-      "current_evidence_id": "",
-      "status": "unverified"
-    }
-  ],
-  "success_criteria": [
-    {
-      "id": "SC-01",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SC-02",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SC-03",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SC-04",
-      "verification_tier": "signed_visual_checklist",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SC-05",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SC-06",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "SC-07",
-      "verification_tier": "phase_exit_review",
-      "current_evidence_id": "",
-      "status": "unverified"
-    }
-  ],
-  "decisions": [
-    {
-      "id": "D-01",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-02",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-03",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-04",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-05",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-06",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-07",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-08",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-09",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-10",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-11",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-12",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-13",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-14",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-15",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-16",
-      "verification_tier": "signed_visual_checklist",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-17",
-      "verification_tier": "signed_visual_checklist",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-18",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-19",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-20",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-21",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-22",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-23",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-24",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-25",
-      "verification_tier": "phase_exit_review",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-26",
-      "verification_tier": "signed_visual_checklist",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-27",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-28",
-      "verification_tier": "phase_exit_review",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-29",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-30",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-31",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-32",
-      "verification_tier": "focused_hyperv",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-33",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-34",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-35",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-36",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-37",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-38",
-      "verification_tier": "signed_visual_checklist",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-39",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-40",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-41",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-42",
-      "verification_tier": "phase_exit_review",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-43",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-44",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-45",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-46",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-47",
-      "verification_tier": "portable_automation",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-48",
-      "verification_tier": "phase_exit_review",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-49",
-      "verification_tier": "phase_exit_review",
-      "current_evidence_id": "",
-      "status": "unverified"
-    },
-    {
-      "id": "D-50",
-      "verification_tier": "phase_exit_review",
-      "current_evidence_id": "",
-      "status": "unverified"
-    }
-  ]
+    "schema_version":  "phase1-requirement-matrix/v1",
+    "requirements":  [
+                         {
+                             "id":  "WRK-01",
+                             "verification_tier":  "portable_automation",
+                             "checks":  [
+                                            "workspace-contract"
+                                        ],
+                             "substitute_policy":  "none",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "WRK-02",
+                             "verification_tier":  "portable_automation",
+                             "checks":  [
+                                            "domain-contract"
+                                        ],
+                             "substitute_policy":  "none",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "WRK-03",
+                             "verification_tier":  "portable_automation",
+                             "checks":  [
+                                            "protocol-contract"
+                                        ],
+                             "substitute_policy":  "none",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "WRK-04",
+                             "verification_tier":  "portable_automation",
+                             "checks":  [
+                                            "unsafe-boundary"
+                                        ],
+                             "substitute_policy":  "none",
+                             "current_evidence_id":  "39e36102-1f96-471a-bdc5-a443ae4343ae",
+                             "status":  "pass"
+                         },
+                         {
+                             "id":  "SRV-01",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "server-route"
+                                        ],
+                             "substitute_policy":  "no mocks or fakes",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "SRV-03",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "device-enrollment"
+                                        ],
+                             "substitute_policy":  "no mocks or fakes",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "SRV-11",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "postgresql-migration"
+                                        ],
+                             "substitute_policy":  "SQLite component fixture only; never acceptance",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "SRV-12",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "server-readiness"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "CRY-01",
+                             "verification_tier":  "portable_automation",
+                             "checks":  [
+                                            "aead-store"
+                                        ],
+                             "substitute_policy":  "deterministic portable faults only",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "CRY-02",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "signed-config"
+                                        ],
+                             "substitute_policy":  "no substitute for endpoint activation",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "CRY-04",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "device-mtls-dpapi"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "AGT-01",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "service-runtime"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "AGT-02",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "enrollment-runtime"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "AGT-03",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "config-runtime"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "AGT-04",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "config-concurrency"
+                                        ],
+                             "substitute_policy":  "portable fixture cannot fill runtime tier",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "AGT-05",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "credential-replacement"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "AGT-06",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "offline-runtime"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "AGT-07",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "restart-runtime"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "DRV-01",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "mount-lifecycle"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "DRV-02",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "file-commit"
+                                        ],
+                             "substitute_policy":  "portable storage fixture cannot fill WinFsp tier",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "DRV-03",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "drive-letter-session"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "DRV-04",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "flush-close"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "DRV-06",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "session-isolation"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "DRV-07",
+                             "verification_tier":  "signed_visual_checklist",
+                             "checks":  [
+                                            "explorer-office"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "DRV-09",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "mount-recovery"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "TST-01",
+                             "verification_tier":  "portable_automation",
+                             "checks":  [
+                                            "dlp-policy deterministic corpus"
+                                        ],
+                             "substitute_policy":  "none",
+                             "current_evidence_id":  "2d211a45-7d92-4bbf-8209-601d45fc85c8",
+                             "status":  "pass"
+                         },
+                         {
+                             "id":  "TST-02",
+                             "verification_tier":  "portable_automation",
+                             "checks":  [
+                                            "signed-bundle corpus"
+                                        ],
+                             "substitute_policy":  "deterministic portable faults only",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "TST-03",
+                             "verification_tier":  "portable_automation",
+                             "checks":  [
+                                            "crypto corpus"
+                                        ],
+                             "substitute_policy":  "deterministic portable faults only",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "TST-05",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "enrollment integration"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         },
+                         {
+                             "id":  "TST-08",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "recovery integration"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
+                         }
+                     ],
+    "success_criteria":  [
+                             {
+                                 "id":  "SC-01",
+                                 "verification_tier":  "focused_hyperv",
+                                 "current_evidence_id":  "",
+                                 "status":  "unverified"
+                             },
+                             {
+                                 "id":  "SC-02",
+                                 "verification_tier":  "focused_hyperv",
+                                 "current_evidence_id":  "",
+                                 "status":  "unverified"
+                             },
+                             {
+                                 "id":  "SC-03",
+                                 "verification_tier":  "focused_hyperv",
+                                 "current_evidence_id":  "",
+                                 "status":  "unverified"
+                             },
+                             {
+                                 "id":  "SC-04",
+                                 "verification_tier":  "signed_visual_checklist",
+                                 "current_evidence_id":  "",
+                                 "status":  "unverified"
+                             },
+                             {
+                                 "id":  "SC-05",
+                                 "verification_tier":  "focused_hyperv",
+                                 "current_evidence_id":  "",
+                                 "status":  "unverified"
+                             },
+                             {
+                                 "id":  "SC-06",
+                                 "verification_tier":  "focused_hyperv",
+                                 "current_evidence_id":  "",
+                                 "status":  "unverified"
+                             },
+                             {
+                                 "id":  "SC-07",
+                                 "verification_tier":  "phase_exit_review",
+                                 "current_evidence_id":  "",
+                                 "status":  "unverified"
+                             }
+                         ],
+    "decisions":  [
+                      {
+                          "id":  "D-01",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-02",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-03",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-04",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-05",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-06",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-07",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-08",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-09",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-10",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-11",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-12",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-13",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-14",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-15",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-16",
+                          "verification_tier":  "signed_visual_checklist",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-17",
+                          "verification_tier":  "signed_visual_checklist",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-18",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-19",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-20",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-21",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-22",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-23",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-24",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-25",
+                          "verification_tier":  "phase_exit_review",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-26",
+                          "verification_tier":  "signed_visual_checklist",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-27",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-28",
+                          "verification_tier":  "phase_exit_review",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-29",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-30",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-31",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-32",
+                          "verification_tier":  "focused_hyperv",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-33",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-34",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-35",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-36",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-37",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-38",
+                          "verification_tier":  "signed_visual_checklist",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-39",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-40",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-41",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-42",
+                          "verification_tier":  "phase_exit_review",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-43",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-44",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-45",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-46",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-47",
+                          "verification_tier":  "portable_automation",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-48",
+                          "verification_tier":  "phase_exit_review",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-49",
+                          "verification_tier":  "phase_exit_review",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      },
+                      {
+                          "id":  "D-50",
+                          "verification_tier":  "phase_exit_review",
+                          "current_evidence_id":  "",
+                          "status":  "unverified"
+                      }
+                  ]
 }
