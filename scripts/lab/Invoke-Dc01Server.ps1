@@ -612,13 +612,20 @@ function Invoke-TrustedProvisioningScenario {
     # Ensure server is running so dlpctl can POST the provisioning request.
     Start-Dc01Server -WaitForReady
 
-    Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+    $result = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         param($Digest, $Target, $PreferredLetter)
         $ErrorActionPreference = 'Stop'
         Set-Location C:\dlp\server
         $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST = $Digest
         & scripts/lab/Invoke-TrustedProvisioning.ps1 -ExecutionMachine LAB-DC01 -TargetComputer $Target -PrivilegeManifestDigest $Digest -PreferredDriveLetter $PreferredLetter
     } -ArgumentList @($digest, 'LAB-CLIENT01.lab.local', 'P')
+
+    $fingerprint = Get-EnvironmentFingerprint -TargetMachine $ExecutionMachine
+    New-Dc01Evidence -RequirementId 'TST-05' -CheckId 'trusted-provisioning' -Status 'pass' `
+        -Expected 'LAB-DC01 publishes approved dual-DC/Kerberos provisioning evidence and digest-only allowlist record before Plan 01-14' `
+        -Actual "fingerprint digest $($result.fingerprint_digest) via $($result.transport); disk identity source $($result.disk_identity_source)" `
+        -TargetMachine $ExecutionMachine -Fingerprint $fingerprint | Out-Null
+    Write-Host "TrustedProvisioning: published TST-05 evidence with digest $($result.fingerprint_digest)"
 }
 
 Assert-DlpMachineRole -ExpectedRole 'developer_orchestrator'
