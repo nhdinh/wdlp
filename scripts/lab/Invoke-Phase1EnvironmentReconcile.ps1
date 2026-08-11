@@ -32,31 +32,30 @@ function Assert-DlpMachineRole {
 
 function Get-DlpBaseline {
     $baseline = @{
-        winfsp_products = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+        winfsp_products = @((Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
             Where-Object { $_.GetValue('DisplayName') -like '*WinFsp*' } |
-            ForEach-Object { $_.GetValue('DisplayName') + '|' + $_.GetValue('DisplayVersion') + '|' + $_.PSChildName })
-        dlp_services = @(Get-Service -Name 'dlp*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-        dlp_processes = @(Get-Process -Name 'dlp*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+            ForEach-Object { $_.GetValue('DisplayName') + '|' + $_.GetValue('DisplayVersion') + '|' + $_.PSChildName }) | Where-Object { $_ -ne $null })
+        dlp_services = @((Get-Service -Name 'dlp*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) | Where-Object { $_ -ne $null })
+        dlp_processes = @((Get-Process -Name 'dlp*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) | Where-Object { $_ -ne $null })
         dlp_mounts = @()
         dlp_directories = @()
         dlp_cert_thumbprints = @()
         dlp_hosts_entries = @()
         dlp_network_changes = @()
     }
-    $baseline.dlp_directories = @(
-        'C:\Program Files\DLP',
+    $baseline.dlp_directories = @((@('C:\Program Files\DLP',
         'C:\Program Files (x86)\DLP',
         'C:\ProgramData\DLP',
         "$env:LOCALAPPDATA\DLP",
         "$env:ProgramData\WinFsp"
-    ) | Where-Object { Test-Path -LiteralPath $_ }
-    $baseline.dlp_cert_thumbprints = @(Get-ChildItem Cert:\LocalMachine\Root, Cert:\LocalMachine\CA, Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
+    ) | Where-Object { Test-Path -LiteralPath $_ }) | Where-Object { $_ -ne $null })
+    $baseline.dlp_cert_thumbprints = @((Get-ChildItem Cert:\LocalMachine\Root, Cert:\LocalMachine\CA, Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
         Where-Object { $_.FriendlyName -like '*DLP*' -or $_.Subject -like '*DLP*' } |
-        ForEach-Object { $_.Thumbprint })
+        ForEach-Object { $_.Thumbprint }) | Where-Object { $_ -ne $null })
     $hostsPath = 'C:\Windows\System32\drivers\etc\hosts'
     if (Test-Path -LiteralPath $hostsPath) {
-        $baseline.dlp_hosts_entries = @(Get-Content -LiteralPath $hostsPath |
-            Where-Object { $_ -match 'dlp|lab-client01|lab-dc01|lab-dc02' -and $_ -notmatch '^\s*#' })
+        $baseline.dlp_hosts_entries = @((Get-Content -LiteralPath $hostsPath |
+            Where-Object { $_ -match 'dlp|lab-client01|lab-dc01|lab-dc02' -and $_ -notmatch '^\s*#' }) | Where-Object { $_ -ne $null })
     }
     return $baseline
 }
@@ -64,19 +63,19 @@ function Get-DlpBaseline {
 function Show-DlpTargets {
     param([Parameter(Mandatory)]$Baseline)
     Write-Host '=== Developer host cleanup targets (hungdinh-lt) ==='
-    Write-Host "WinFsp products: $($Baseline.winfsp_products.Count)"
-    foreach ($p in $Baseline.winfsp_products) { Write-Host "  $p" }
-    Write-Host "DLP services: $($Baseline.dlp_services.Count)"
-    foreach ($s in $Baseline.dlp_services) { Write-Host "  $s" }
-    Write-Host "DLP processes: $($Baseline.dlp_processes.Count)"
-    foreach ($p in $Baseline.dlp_processes) { Write-Host "  $p" }
-    Write-Host "DLP directories: $($Baseline.dlp_directories.Count)"
-    foreach ($d in $Baseline.dlp_directories) { Write-Host "  $d" }
-    Write-Host "DLP certificate thumbprints: $($Baseline.dlp_cert_thumbprints.Count)"
-    foreach ($t in $Baseline.dlp_cert_thumbprints) { Write-Host "  $t" }
-    Write-Host "DLP hosts entries: $($Baseline.dlp_hosts_entries.Count)"
-    foreach ($h in $Baseline.dlp_hosts_entries) { Write-Host "  $h" }
-    Write-Host "DLP network changes: $($Baseline.dlp_network_changes.Count)"
+    Write-Host "WinFsp products: $(@($Baseline.winfsp_products).Count)"
+    foreach ($p in @($Baseline.winfsp_products)) { Write-Host "  $p" }
+    Write-Host "DLP services: $(@($Baseline.dlp_services).Count)"
+    foreach ($s in @($Baseline.dlp_services)) { Write-Host "  $s" }
+    Write-Host "DLP processes: $(@($Baseline.dlp_processes).Count)"
+    foreach ($p in @($Baseline.dlp_processes)) { Write-Host "  $p" }
+    Write-Host "DLP directories: $(@($Baseline.dlp_directories).Count)"
+    foreach ($d in @($Baseline.dlp_directories)) { Write-Host "  $d" }
+    Write-Host "DLP certificate thumbprints: $(@($Baseline.dlp_cert_thumbprints).Count)"
+    foreach ($t in @($Baseline.dlp_cert_thumbprints)) { Write-Host "  $t" }
+    Write-Host "DLP hosts entries: $(@($Baseline.dlp_hosts_entries).Count)"
+    foreach ($h in @($Baseline.dlp_hosts_entries)) { Write-Host "  $h" }
+    Write-Host "DLP network changes: $(@($Baseline.dlp_network_changes).Count)"
 }
 
 function Invoke-DeveloperHostCleanup {
@@ -97,7 +96,7 @@ function Invoke-DeveloperHostCleanup {
             Remove-Item -Force -ErrorAction SilentlyContinue
     }
     $hostsPath = 'C:\Windows\System32\drivers\etc\hosts'
-    if (Test-Path -LiteralPath $hostsPath -and $Baseline.dlp_hosts_entries.Count -gt 0) {
+    if ((Test-Path -LiteralPath $hostsPath) -and (@($Baseline.dlp_hosts_entries).Count -gt 0)) {
         $lines = Get-Content -LiteralPath $hostsPath |
             Where-Object { $_ -notin $Baseline.dlp_hosts_entries }
         [System.IO.File]::WriteAllLines($hostsPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
@@ -126,11 +125,11 @@ Show-DlpTargets -Baseline $preBaseline
 if ($Apply) {
     Invoke-DeveloperHostCleanup -Baseline $preBaseline
     $postBaseline = Get-DlpBaseline
-    Assert-Reconcile ($postBaseline.winfsp_products.Count -eq 0) 'winfsp_removal_failed'
-    Assert-Reconcile ($postBaseline.dlp_services.Count -eq 0) 'dlp_service_removal_failed'
-    Assert-Reconcile ($postBaseline.dlp_directories.Count -eq 0) 'dlp_directory_removal_failed'
-    Assert-Reconcile ($postBaseline.dlp_cert_thumbprints.Count -eq 0) 'dlp_cert_removal_failed'
-    Assert-Reconcile ($postBaseline.dlp_hosts_entries.Count -eq 0) 'dlp_hosts_removal_failed'
+    Assert-Reconcile (@($postBaseline.winfsp_products).Count -eq 0) 'winfsp_removal_failed'
+    Assert-Reconcile (@($postBaseline.dlp_services).Count -eq 0) 'dlp_service_removal_failed'
+    Assert-Reconcile (@($postBaseline.dlp_directories).Count -eq 0) 'dlp_directory_removal_failed'
+    Assert-Reconcile (@($postBaseline.dlp_cert_thumbprints).Count -eq 0) 'dlp_cert_removal_failed'
+    Assert-Reconcile (@($postBaseline.dlp_hosts_entries).Count -eq 0) 'dlp_hosts_removal_failed'
     Write-Host 'Cleanup applied and verified on hungdinh-lt.'
 } else {
     Write-Host "Dry-run complete. Use -Apply to remove the listed targets."
@@ -154,7 +153,7 @@ $evidence = [ordered]@{
     environment_fingerprint = Get-EnvironmentFingerprint
     expected_result = 'hungdinh-lt has no WinFsp, DLP service/process/mount, DPAPI credential, DLP PKI trust, DLP hosts, or DLP network change; Rust/LLVM/Hyper-V/repos remain'
     actual_result = 'cleanup applied and post-audit passed'
-    verification_tier = 'focused_hyperv'
+    verification_tier = 'portable_automation'
     substitute = 'none'
     deviation = [pscustomobject]@{ state = 'none' }
     raw_artifacts = @(
