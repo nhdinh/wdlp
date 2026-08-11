@@ -13,7 +13,7 @@ $script:RequiredEvidenceFields = @(
     'expected_result', 'actual_result', 'verification_tier', 'substitute', 'deviation', 'raw_artifacts', 'retention',
     'redaction_scan', 'self_contained'
 )
-$script:MachineRoles = @{ 'hungdinh-lt' = 'developer_host'; 'LAB-DC01' = 'primary_directory_server'; 'LAB-DC02' = 'secondary_directory_server'; 'LAB-CLIENT01' = 'endpoint_runtime' }
+$script:MachineRoles = @{ 'hungdinh-lt' = 'developer_host'; 'LAB-SERVER01' = 'database_server'; 'LAB-DC01' = 'primary_directory_server'; 'LAB-DC02' = 'secondary_directory_server'; 'LAB-CLIENT01' = 'endpoint_runtime' }
 $script:ForbiddenEvidencePattern = '(?i)(password\s*[:=]|private[ _-]?key|bearer\s+\S+|api[ _-]?key|secret\s*[:=]|protected\s+plaintext)'
 
 function Get-Phase1RepositoryRoot {

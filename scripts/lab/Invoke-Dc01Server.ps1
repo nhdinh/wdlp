@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt')][string]$CallerMachine,
     [Parameter(Mandatory)][ValidateSet('LAB-DC01')][string]$ExecutionMachine,
     [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$ProbeMachine,
-    [Parameter(Mandatory)][ValidateSet('LAB-SERVER01')][string]$DatabaseMachine,
+    [Parameter()][ValidateSet('LAB-SERVER01')][string]$DatabaseMachine = 'LAB-SERVER01',
     [Parameter()][ValidateSet('LAB-DC02')][string]$SecondaryDcMachine,
     [Parameter(Mandatory)][ValidateSet('Runtime')][string]$SecretProvider,
     [Parameter(Mandatory)][ValidateSet('Tracer', 'PostgresFresh', 'PostgresRepeat', 'MigrationFailure', 'ConcurrentStart', 'ReadinessConcurrency', 'TrustedProvisioning', 'All')][string]$Scenario,
@@ -109,6 +109,10 @@ function New-Dc01Evidence {
         [Parameter()][string]$PriorAttemptId = ''
     )
     New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
+    $artifactId = [guid]::NewGuid().ToString()
+    $artifactPath = Join-Path $EvidenceDir ("$CheckId-fingerprint-$artifactId.json")
+    [System.IO.File]::WriteAllText($artifactPath, ($Fingerprint | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
+    $artifactHash = Get-Phase1Sha256 $artifactPath
     $evidence = [ordered]@{
         schema_version = 'phase1-evidence/v1'
         evidence_id = [guid]::NewGuid().ToString()
@@ -128,11 +132,11 @@ function New-Dc01Evidence {
         verification_tier = 'focused_hyperv'
         substitute = 'none'
         deviation = [pscustomobject]@{ state = 'none' }
-        raw_artifacts = @([pscustomobject]@{ uri = 'self'; sha256 = 'self'; accessible = $true })
+        raw_artifacts = @([pscustomobject]@{ uri = $artifactPath; sha256 = $artifactHash; accessible = $true })
         retention = [pscustomobject]@{ deadline_utc = (Get-Date).ToUniversalTime().AddDays(90).ToString('o'); state = 'retained'; hold = $false }
         redaction_scan = 'passed'
-        self_contained = $true
-        dependency_digests = [pscustomobject]@{ 'lab-contract' = (Get-Phase1Sha256 $ConfigPath); 'lab-roles' = (Get-Phase1Sha256 $RoleConfigPath); 'migrations' = (Get-Phase1Sha256 (Join-Path $RepoRoot 'migrations')) }
+        self_contained = $false
+        dependency_digests = [pscustomobject]@{ 'lab-contract' = (Get-Phase1Sha256 $ConfigPath); 'lab-roles' = (Get-Phase1Sha256 $RoleConfigPath); 'migrations' = (Get-MigrationsDigest) }
     }
     if ($PriorAttemptId) { $evidence.prior_attempt_id = $PriorAttemptId }
     $path = Join-Path $EvidenceDir ("$CheckId-" + [guid]::NewGuid().ToString() + '.json')
@@ -140,24 +144,47 @@ function New-Dc01Evidence {
     return $path
 }
 
+function Get-MigrationsDigest {
+    $migrationsDir = Join-Path $RepoRoot 'migrations'
+    $files = Get-ChildItem -LiteralPath $migrationsDir -Filter '*.sql' | Sort-Object Name
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $buffer = New-Object System.Collections.Generic.List[byte]
+        foreach ($file in $files) {
+            $nameBytes = [System.Text.Encoding]::UTF8.GetBytes($file.Name)
+            $buffer.AddRange([byte[]]([BitConverter]::GetBytes([UInt32]$nameBytes.Length)[3..0]))
+            $buffer.AddRange($nameBytes)
+            $content = [System.IO.File]::ReadAllBytes($file.FullName)
+            $buffer.AddRange([byte[]]([BitConverter]::GetBytes([UInt32]$content.Length)[3..0]))
+            $buffer.AddRange($content)
+        }
+        return [System.BitConverter]::ToString($sha.ComputeHash($buffer.ToArray())).Replace('-', '').ToLowerInvariant()
+    } finally { $sha.Dispose() }
+}
+
+function Get-AppliedMigrationCount {
+    $dbUrl = $env:DLP_DATABASE_URL
+    Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($dbUrl)) 'database_url_missing'
+    $env:DATABASE_URL = $dbUrl
+    $migrationsDir = Join-Path $RepoRoot 'migrations'
+    $output = sqlx migrate info --source $migrationsDir 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "sqlx migrate info failed: $output" }
+    $applied = @($output | Where-Object { $_ -match '/installed' })
+    return $applied.Count
+}
+
 function Invoke-DatabaseCommand {
     param([Parameter(Mandatory)][string]$Sql)
     $dbUrl = $env:DLP_DATABASE_URL
     Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($dbUrl)) 'database_url_missing'
-    # psql is preferred when available; otherwise fall back to sqlx-cli query.
+    # Prefer psql when available; otherwise fall back to the embedded migration ledger.
     $psql = Get-Command psql -ErrorAction SilentlyContinue
     if ($null -ne $psql) {
         $result = psql $dbUrl -t -c $Sql
         if ($LASTEXITCODE -ne 0) { throw "psql failed: $result" }
         return $result
     }
-    $sqlx = Get-Command sqlx -ErrorAction SilentlyContinue
-    Assert-Dc01 ($null -ne $sqlx) 'psql_or_sqlx_required'
-    # sqlx-cli query against DATABASE_URL
-    $env:DATABASE_URL = $dbUrl
-    $result = sqlx query $Sql --database-url $dbUrl
-    if ($LASTEXITCODE -ne 0) { throw "sqlx query failed" }
-    return $result
+    throw 'psql is required for ad-hoc SQL queries; sqlx-cli does not provide a generic query subcommand'
 }
 
 function Invoke-SqlxMigrate {
@@ -186,16 +213,16 @@ function Invoke-Dc01PostgresProof {
             psql $adminUrl -t -c "DROP DATABASE IF EXISTS $databaseName;" | Out-Null
             psql $adminUrl -t -c "CREATE DATABASE $databaseName;" | Out-Null
             Invoke-SqlxMigrate
-            $rows = Invoke-DatabaseCommand -Sql "SELECT COUNT(*) FROM _sqlx_migrations;"
-            Assert-Dc01 ([int]$rows.Trim() -eq 3) "expected 3 migrations, got $rows"
+            $count = Get-AppliedMigrationCount
+            Assert-Dc01 ($count -eq 3) "expected 3 migrations, got $count"
             New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'postgres-fresh' -Status 'pass' `
                 -Expected 'empty LAB-SERVER01 PostgreSQL applies each migration once' `
                 -Actual "3 migrations applied" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
         }
         'PostgresRepeat' {
             Invoke-SqlxMigrate
-            $rows = Invoke-DatabaseCommand -Sql "SELECT COUNT(*) FROM _sqlx_migrations;"
-            Assert-Dc01 ([int]$rows.Trim() -eq 3) "repeat migration idempotency failed: $rows"
+            $count = Get-AppliedMigrationCount
+            Assert-Dc01 ($count -eq 3) "repeat migration idempotency failed: $count"
             New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'postgres-repeat' -Status 'pass' `
                 -Expected 'repeated SQLx run is ledger-idempotent' `
                 -Actual "3 migrations remain" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
@@ -208,8 +235,8 @@ function Invoke-Dc01PostgresProof {
         'ConcurrentStart' {
             $jobs = 1..2 | ForEach-Object { Start-Job { Invoke-SqlxMigrate } }
             $jobs | Wait-Job | Receive-Job
-            $rows = Invoke-DatabaseCommand -Sql "SELECT COUNT(*) FROM _sqlx_migrations;"
-            Assert-Dc01 ([int]$rows.Trim() -eq 3) "concurrent start converged incorrectly: $rows"
+            $count = Get-AppliedMigrationCount
+            Assert-Dc01 ($count -eq 3) "concurrent start converged incorrectly: $count"
             New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'postgres-concurrent' -Status 'pass' `
                 -Expected 'concurrent starters converge on one complete ledger' `
                 -Actual "3 migrations after concurrent run" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
@@ -219,10 +246,19 @@ function Invoke-Dc01PostgresProof {
             Invoke-LabCommand -VMName $ProbeMachine -ScriptBlock {
                 param($ServerHost)
                 $ErrorActionPreference = 'Stop'
+                Add-Type -TypeDefinition @'
+                using System.Net;
+                using System.Security.Cryptography.X509Certificates;
+                public class TrustAllCertsPolicy : ICertificatePolicy {
+                    public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) { return true; }
+                }
+'@ -ErrorAction SilentlyContinue
+                [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
                 $uris = @("https://${ServerHost}:8443/health/live", "https://${ServerHost}:8443/health/ready")
                 $jobs = 1..4 | ForEach-Object {
                     $uri = $uris[$_ % 2]
-                    Start-Job { Invoke-RestMethod -Uri $using:uri -SkipCertificateCheck }
+                    Start-Job { Invoke-WebRequest -Uri $using:uri -UseBasicParsing }
                 }
                 $jobs | Wait-Job | Receive-Job
             } -ArgumentList @($env:DLP_SERVER_HOST)
@@ -236,8 +272,8 @@ function Invoke-Dc01PostgresProof {
 function Invoke-Dc01Tracer {
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine 'LAB-SERVER01'
     Invoke-SqlxMigrate
-    $rows = Invoke-DatabaseCommand -Sql "SELECT COUNT(*) FROM _sqlx_migrations;"
-    Assert-Dc01 ([int]$rows.Trim() -eq 3) "expected 3 migrations, got $rows"
+    $count = Get-AppliedMigrationCount
+    Assert-Dc01 ($count -eq 3) "expected 3 migrations, got $count"
     New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'dc01-tracer-migrations' -Status 'pass' `
         -Expected 'LAB-SERVER01 PostgreSQL has all three versioned migrations before server binds' `
         -Actual "3 migrations present" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
@@ -246,8 +282,23 @@ function Invoke-Dc01Tracer {
     Invoke-LabCommand -VMName $ProbeMachine -ScriptBlock {
         param($ServerHost)
         $ErrorActionPreference = 'Stop'
-        $live = Invoke-RestMethod -Uri "https://${ServerHost}:8443/health/live" -SkipCertificateCheck
-        $ready = Invoke-RestMethod -Uri "https://${ServerHost}:8443/health/ready" -SkipCertificateCheck
+        # PowerShell 5.1 on LAB-CLIENT01 lacks -SkipCertificateCheck; use a runtime policy override.
+        Add-Type -TypeDefinition @'
+        using System.Net;
+        using System.Security.Cryptography.X509Certificates;
+        public class TrustAllCertsPolicy : ICertificatePolicy {
+            public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) { return true; }
+        }
+'@ -ErrorAction SilentlyContinue
+        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+        function Invoke-Dc01HealthProbe([string]$Uri) {
+            $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing
+            $content = $response.Content | ConvertFrom-Json
+            return $content
+        }
+        $live = Invoke-Dc01HealthProbe -Uri "https://${ServerHost}:8443/health/live"
+        $ready = Invoke-Dc01HealthProbe -Uri "https://${ServerHost}:8443/health/ready"
         if ($live.status -ne 'ok' -or $ready.status -ne 'ok') { throw "probe could not reach server at $ServerHost" }
     } -ArgumentList @($env:DLP_SERVER_HOST)
     New-Dc01Evidence -RequirementId 'SRV-12' -CheckId 'dc01-tracer-readiness' -Status 'pass' `
