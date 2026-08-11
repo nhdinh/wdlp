@@ -91,14 +91,20 @@ function Get-EnvironmentFingerprint {
     param([Parameter(Mandatory)][string]$TargetMachine)
     $roleConfig = Get-Content -LiteralPath $RoleConfigPath -Raw | ConvertFrom-Json
     if ($TargetMachine -eq 'LAB-SERVER01') { return Get-DatabaseFingerprint }
+    $remoteInfo = Invoke-LabCommand -VMName $TargetMachine -ScriptBlock {
+        [pscustomobject]@{
+            os_build = [System.Environment]::OSVersion.VersionString
+            domain_network_identity = (Get-WmiObject -Class Win32_ComputerSystem).Domain
+        }
+    }
     return [pscustomobject]@{
         machine_identity = $TargetMachine
         role = $roleConfig.machines.$TargetMachine.role
-        os_build = (Invoke-LabCommand -VMName $TargetMachine -ScriptBlock { [System.Environment]::OSVersion.VersionString })
+        os_build = $remoteInfo.os_build
         dependency_versions = 'sqlx; postgres'
         service_config_digest = (Get-Phase1Sha256 $ConfigPath)
         test_tool_versions = 'powershell'
-        domain_network_identity = (Invoke-LabCommand -VMName $TargetMachine -ScriptBlock { (Get-WmiObject -Class Win32_ComputerSystem).Domain })
+        domain_network_identity = $remoteInfo.domain_network_identity
         baseline_id = [guid]::NewGuid().ToString()
         binary_hashes = 'none'
     }
@@ -207,12 +213,6 @@ function Invoke-SqlxMigrate {
 function Assert-RuntimeSecretsPresent {
     $required = @(
         'DLP_DATABASE_URL',
-        'DLP_AD_PRIMARY_LDAPS_URL',
-        'DLP_AD_SECONDARY_LDAPS_URL',
-        'DLP_AD_BASE_DN',
-        'DLP_AD_BIND_DN',
-        'DLP_AD_BIND_PASSWORD',
-        'DLP_AD_CA_CERT_PEM',
         'DLP_SERVER_CERT_PEM',
         'DLP_SERVER_KEY_PEM',
         'DLP_ADMIN_CA_CERT_PEM',
@@ -222,8 +222,23 @@ function Assert-RuntimeSecretsPresent {
         'DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX',
         'DLP_ADMIN_PROVISIONING_KEY'
     )
-    $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace($env:$_) })
+    $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
     if ($missing.Count -gt 0) { Stop-Dc01 ("runtime_secrets_missing: " + ($missing -join ', ')) }
+}
+
+function Test-RuntimeAdSecretsPresent {
+    return -not ([string]::IsNullOrWhiteSpace($env:DLP_AD_PRIMARY_LDAPS_URL) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_SECONDARY_LDAPS_URL) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_BASE_DN) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_BIND_DN) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_BIND_PASSWORD) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_CA_CERT_PEM))
+}
+
+function Assert-RuntimeAdSecretsPresent {
+    if (-not (Test-RuntimeAdSecretsPresent)) {
+        Stop-Dc01 'runtime_secrets_missing: AD/LDAPS configuration required for this scenario'
+    }
 }
 
 function Install-Dc01ServerBinary {
@@ -270,14 +285,18 @@ function Stop-Dc01Server {
 function Install-Dc01ServerSecrets {
     # The runtime provider supplies PEM content as environment variables. The
     # server expects file paths, so write them to LAB-DC01 and return the paths.
-    $secrets = @{
+    # AD/LDAPS material is only written when present; health-only scenarios do
+    # not require Active Directory to be reachable.
+    $secrets = [ordered]@{
         'server-cert.pem' = $env:DLP_SERVER_CERT_PEM
         'server-key.pem' = $env:DLP_SERVER_KEY_PEM
         'admin-ca.pem' = $env:DLP_ADMIN_CA_CERT_PEM
         'root-ca.pem' = $env:DLP_PHASE1_ROOT_CA_CERT_PEM
         'device-issuing-ca.pem' = $env:DLP_DEVICE_ISSUING_CA_CERT_PEM
         'device-issuing-ca.key' = $env:DLP_DEVICE_ISSUING_CA_KEY_PEM
-        'ad-ca.pem' = $env:DLP_AD_CA_CERT_PEM
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:DLP_AD_CA_CERT_PEM)) {
+        $secrets['ad-ca.pem'] = $env:DLP_AD_CA_CERT_PEM
     }
     foreach ($name in $secrets.Keys) {
         Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($secrets[$name])) "secret_missing_$name"
@@ -300,37 +319,39 @@ function Install-Dc01ServerSecrets {
 function Start-Dc01Server {
     param([Parameter()][switch]$WaitForReady)
 
+    Write-Host 'Start-Dc01Server: installing binary...'
     Install-Dc01ServerBinary
+    Write-Host 'Start-Dc01Server: installing secrets...'
     Install-Dc01ServerSecrets
 
-    $serverHost = if ($env:DLP_SERVER_HOST) { $env:DLP_SERVER_HOST } else { $script:Dc01Ip }
     $listenAddress = "0.0.0.0:$($script:ServerPort)"
     $databaseUrl = $env:DLP_DATABASE_URL
 
     # Build the env file content inside LAB-DC01. Secret values travel only
     # through the already-established PowerShell Direct session, never through
     # repository files or command-line arguments.
-    $envLines = @(
-        "DATABASE_URL=$databaseUrl"
-        "DLP_LISTEN_ADDRESS=$listenAddress"
-        "DLP_AD_PRIMARY_LDAPS_URL=$($env:DLP_AD_PRIMARY_LDAPS_URL)"
-        "DLP_AD_SECONDARY_LDAPS_URL=$($env:DLP_AD_SECONDARY_LDAPS_URL)"
-        "DLP_AD_BASE_DN=$($env:DLP_AD_BASE_DN)"
-        "DLP_AD_BIND_DN=$($env:DLP_AD_BIND_DN)"
-        "DLP_AD_BIND_PASSWORD=$($env:DLP_AD_BIND_PASSWORD)"
-        "DLP_AD_CA_CERT_PEM=C:\dlp\secrets\ad-ca.pem"
-        "DLP_SERVER_CERT_PEM=C:\dlp\secrets\server-cert.pem"
-        "DLP_SERVER_KEY_PEM=C:\dlp\secrets\server-key.pem"
-        "DLP_ADMIN_CA_CERT_PEM=C:\dlp\secrets\admin-ca.pem"
-        "DLP_PHASE1_ROOT_CA_CERT_PEM=C:\dlp\secrets\root-ca.pem"
-        "DLP_DEVICE_ISSUING_CA_CERT_PEM=C:\dlp\secrets\device-issuing-ca.pem"
-        "DLP_DEVICE_ISSUING_CA_KEY_PEM=C:\dlp\secrets\device-issuing-ca.key"
-        "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX=$($env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX)"
-        "DLP_ADMIN_PROVISIONING_KEY=$($env:DLP_ADMIN_PROVISIONING_KEY)"
-    )
+    $envLines = [System.Collections.Generic.List[string]]::new()
+    $envLines.Add("DATABASE_URL=$databaseUrl")
+    $envLines.Add("DLP_LISTEN_ADDRESS=$listenAddress")
+    if (Test-RuntimeAdSecretsPresent) {
+        $envLines.Add("DLP_AD_PRIMARY_LDAPS_URL=$($env:DLP_AD_PRIMARY_LDAPS_URL)")
+        $envLines.Add("DLP_AD_SECONDARY_LDAPS_URL=$($env:DLP_AD_SECONDARY_LDAPS_URL)")
+        $envLines.Add("DLP_AD_BASE_DN=$($env:DLP_AD_BASE_DN)")
+        $envLines.Add("DLP_AD_BIND_DN=$($env:DLP_AD_BIND_DN)")
+        $envLines.Add("DLP_AD_BIND_PASSWORD=$($env:DLP_AD_BIND_PASSWORD)")
+        $envLines.Add('DLP_AD_CA_CERT_PEM=C:\dlp\secrets\ad-ca.pem')
+    }
+    $envLines.Add('DLP_SERVER_CERT_PEM=C:\dlp\secrets\server-cert.pem')
+    $envLines.Add('DLP_SERVER_KEY_PEM=C:\dlp\secrets\server-key.pem')
+    $envLines.Add('DLP_ADMIN_CA_CERT_PEM=C:\dlp\secrets\admin-ca.pem')
+    $envLines.Add('DLP_PHASE1_ROOT_CA_CERT_PEM=C:\dlp\secrets\root-ca.pem')
+    $envLines.Add('DLP_DEVICE_ISSUING_CA_CERT_PEM=C:\dlp\secrets\device-issuing-ca.pem')
+    $envLines.Add('DLP_DEVICE_ISSUING_CA_KEY_PEM=C:\dlp\secrets\device-issuing-ca.key')
+    $envLines.Add("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX=$($env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX)")
+    $envLines.Add("DLP_ADMIN_PROVISIONING_KEY=$($env:DLP_ADMIN_PROVISIONING_KEY)")
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
-        param($EnvLines, $ListenAddress)
+        param($EnvLines, $ListenAddress, $Port)
         $ErrorActionPreference = 'Stop'
         $envPath = 'C:\dlp\server\server.env'
         [System.IO.File]::WriteAllLines($envPath, $EnvLines, (New-Object System.Text.UTF8Encoding($false)))
@@ -339,43 +360,53 @@ function Start-Dc01Server {
         Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 1
 
-        $logPath = 'C:\dlp\server\dlp-server.log'
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = 'C:\dlp\server\dlp-server.exe'
-        $psi.WorkingDirectory = 'C:\dlp\server'
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.Environment['DATABASE_URL'] = ($EnvLines | Where-Object { $_ -like 'DATABASE_URL=*' }).Split('=', 2)[1]
-        $psi.Environment['DLP_LISTEN_ADDRESS'] = $ListenAddress
-        foreach ($line in $EnvLines | Where-Object { $_ -like 'DLP_*=*' }) {
-            $parts = $line.Split('=', 2)
-            $psi.Environment[$parts[0]] = $parts[1]
+        # Ensure the management-server port is reachable from LAB-CLIENT01 probes.
+        $existing = Get-NetFirewallRule -Direction Inbound -ErrorAction SilentlyContinue |
+            Where-Object { ($_ | Get-NetFirewallPortFilter).LocalPort -eq $Port }
+        if (-not $existing) {
+            New-NetFirewallRule -DisplayName 'DLP Management Server' -Direction Inbound -LocalPort $Port -Protocol TCP -Action Allow -Profile Domain,Private -ErrorAction Stop | Out-Null
         }
-        $proc = [System.Diagnostics.Process]::Start($psi)
-        $proc.StandardOutput.ReadToEnd() | Set-Content -Path $logPath
-        $proc.StandardError.ReadToEnd() | Add-Content -Path $logPath
-    } -ArgumentList @($envLines, $listenAddress)
+
+        # Load environment into the current process so the child inherits it.
+        foreach ($line in $EnvLines) {
+            $parts = $line.Split('=', 2)
+            [Environment]::SetEnvironmentVariable($parts[0], $parts[1], 'Process')
+        }
+
+        $logPath = 'C:\dlp\server\dlp-server.log'
+        $errPath = 'C:\dlp\server\dlp-server.err'
+        $pidPath = 'C:\dlp\server\dlp-server.pid'
+        Remove-Item -LiteralPath $logPath, $errPath -Force -ErrorAction SilentlyContinue
+        $proc = Start-Process -FilePath 'C:\dlp\server\dlp-server.exe' -WorkingDirectory 'C:\dlp\server' `
+            -RedirectStandardOutput $logPath -RedirectStandardError $errPath -WindowStyle Hidden -PassThru
+        $proc.Id | Set-Content -Path $pidPath -Encoding UTF8
+    } -ArgumentList @($envLines, $listenAddress, $script:ServerPort)
 
     if ($WaitForReady) {
         $deadline = (Get-Date).AddSeconds(60)
         $ready = $false
         while ((Get-Date) -lt $deadline) {
             try {
-                $test = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+                Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
                     param($Port)
                     $ErrorActionPreference = 'Stop'
                     $tcp = New-Object System.Net.Sockets.TcpClient
                     $tcp.Connect('127.0.0.1', $Port)
                     $tcp.Close()
-                } -ArgumentList @($script:ServerPort)
+                } -ArgumentList @($script:ServerPort) | Out-Null
                 $ready = $true
                 break
             } catch {
                 Start-Sleep -Seconds 1
             }
         }
-        if (-not $ready) { Stop-Dc01 'server_failed_to_bind' }
+        if (-not $ready) {
+            Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+                Get-Content -LiteralPath 'C:\dlp\server\dlp-server.err' -ErrorAction SilentlyContinue
+                Get-Content -LiteralPath 'C:\dlp\server\dlp-server.log' -ErrorAction SilentlyContinue
+            } | Write-Host
+            Stop-Dc01 'server_failed_to_bind'
+        }
     }
 }
 
@@ -384,13 +415,24 @@ function Invoke-Dc01PostgresProof {
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine 'LAB-SERVER01'
     switch ($SubScenario) {
         'PostgresFresh' {
-            $dbUrl = $env:DLP_DATABASE_URL
-            $match = [regex]::Match($dbUrl, '^(.*)/([^/]+)$')
-            Assert-Dc01 $match.Success 'database_url_unparseable'
-            $adminUrl = $match.Groups[1].Value
-            $databaseName = $match.Groups[2].Value
-            psql $adminUrl -t -c "DROP DATABASE IF EXISTS $databaseName;" | Out-Null
-            psql $adminUrl -t -c "CREATE DATABASE $databaseName;" | Out-Null
+            $adminUrl = $env:DLP_DATABASE_ADMIN_URL
+            if ([string]::IsNullOrWhiteSpace($adminUrl)) {
+                # Fall back to replacing the user in DLP_DATABASE_URL with dlpadmin so the
+                # admin connection string is not stored in the repository. The password is
+                # supplied by the runtime secret provider (DLP_DATABASE_ADMIN_PASSWORD).
+                $dbUrl = $env:DLP_DATABASE_URL
+                $adminPassword = $env:DLP_DATABASE_ADMIN_PASSWORD
+                Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($adminPassword)) 'database_admin_password_missing'
+                $adminUrl = $dbUrl -replace '://[^@]+@', "://dlpadmin:${adminPassword}@"
+            }
+            $previousUrl = $env:DATABASE_URL
+            try {
+                $env:DATABASE_URL = $adminUrl
+                $output = sqlx database reset --source (Join-Path $RepoRoot 'migrations') -y 2>&1
+                if ($LASTEXITCODE -ne 0) { throw "sqlx database reset failed: $output" }
+            } finally {
+                $env:DATABASE_URL = $previousUrl
+            }
             Invoke-SqlxMigrate
             $count = Get-AppliedMigrationCount
             Assert-Dc01 ($count -eq 3) "expected 3 migrations, got $count"
@@ -422,7 +464,7 @@ function Invoke-Dc01PostgresProof {
         }
         'ReadinessConcurrency' {
             Start-Dc01Server -WaitForReady
-            $serverHost = if ($env:DLP_SERVER_HOST) { $env:DLP_SERVER_HOST } else { $script:Dc01Ip }
+            $serverHost = $script:Dc01Ip
             Invoke-LabCommand -VMName $ProbeMachine -ScriptBlock {
                 param($ServerHost, $Port)
                 $ErrorActionPreference = 'Stop'
@@ -436,9 +478,10 @@ function Invoke-Dc01PostgresProof {
                 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
                 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
                 $uris = @("https://${ServerHost}:$Port/health/live", "https://${ServerHost}:$Port/health/ready")
-                $jobs = 1..4 | ForEach-Object {
-                    $uri = $uris[$_ % 2]
-                    Start-Job { Invoke-WebRequest -Uri $using:uri -UseBasicParsing }
+                $jobs = @()
+                for ($i = 0; $i -lt 4; $i++) {
+                    $uri = $uris[$i % 2]
+                    $jobs += Start-Job -ScriptBlock { param($u) Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 60 } -ArgumentList $uri
                 }
                 $jobs | Wait-Job | Receive-Job
             } -ArgumentList @($serverHost, $script:ServerPort)
@@ -450,6 +493,7 @@ function Invoke-Dc01PostgresProof {
 }
 
 function Invoke-Dc01Tracer {
+    Write-Host 'Tracer: running migrations...'
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine 'LAB-SERVER01'
     Invoke-SqlxMigrate
     $count = Get-AppliedMigrationCount
@@ -458,9 +502,14 @@ function Invoke-Dc01Tracer {
         -Expected 'LAB-SERVER01 PostgreSQL has all three versioned migrations before server binds' `
         -Actual "3 migrations present" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
 
+    Write-Host 'Tracer: starting server...'
     Start-Dc01Server -WaitForReady
-    $serverHost = if ($env:DLP_SERVER_HOST) { $env:DLP_SERVER_HOST } else { $script:Dc01Ip }
+    $serverHost = $script:Dc01Ip
 
+    Write-Host 'Tracer: collecting probe fingerprint...'
+    $probeFingerprint = Get-EnvironmentFingerprint -TargetMachine $ProbeMachine
+
+    Write-Host "Tracer: probing from $ProbeMachine to $serverHost..."
     Invoke-LabCommand -VMName $ProbeMachine -ScriptBlock {
         param($ServerHost, $Port)
         $ErrorActionPreference = 'Stop'
@@ -474,7 +523,7 @@ function Invoke-Dc01Tracer {
         [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
         function Invoke-Dc01HealthProbe([string]$Uri) {
-            $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing
+            $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 60
             $content = $response.Content | ConvertFrom-Json
             return $content
         }
@@ -482,13 +531,16 @@ function Invoke-Dc01Tracer {
         $ready = Invoke-Dc01HealthProbe -Uri "https://${ServerHost}:$Port/health/ready"
         if ($live.status -ne 'ok' -or $ready.status -ne 'ok') { throw "probe could not reach server at $ServerHost" }
     } -ArgumentList @($serverHost, $script:ServerPort)
+    Write-Host 'Tracer: probes succeeded, publishing readiness evidence...'
     New-Dc01Evidence -RequirementId 'SRV-12' -CheckId 'dc01-tracer-readiness' -Status 'pass' `
         -Expected 'LAB-CLIENT01 reaches management server on LAB-DC01 over validated TLS' `
-        -Actual "live/ready ok from $ProbeMachine to $serverHost" -TargetMachine $ProbeMachine -Fingerprint (Get-EnvironmentFingerprint -TargetMachine $ProbeMachine) | Out-Null
+        -Actual "live/ready ok from $ProbeMachine to $serverHost" -TargetMachine $ProbeMachine -Fingerprint $probeFingerprint | Out-Null
+    Write-Host 'Tracer: complete.'
 }
 
 function Invoke-TrustedProvisioningScenario {
     Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($SecondaryDcMachine)) 'secondary_dc_required'
+    Assert-RuntimeAdSecretsPresent
     $digest = Get-ApprovedPrivilegeManifestDigest
 
     # Ensure server is running so dlpctl can POST the provisioning request.

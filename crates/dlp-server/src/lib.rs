@@ -125,14 +125,28 @@ impl ProductionProviders {
     /// directory endpoint, PostgreSQL URL, issuer, signer, clock, or TLS path
     /// fails before migrations or listener binding.
     pub fn from_environment(config: &ServerConfig) -> Result<Self, ServerError> {
-        let directory = ad::LdapDirectoryVerifier::new(
-            required_environment("DLP_AD_PRIMARY_LDAPS_URL")?,
-            required_environment("DLP_AD_SECONDARY_LDAPS_URL")?,
-            required_environment("DLP_AD_BASE_DN")?,
-        )
-        .map_err(|_| ServerError::MissingProvider {
-            provider: "directory_verifier",
-        })?;
+        // Directory verification is optional for scenarios that only exercise
+        // readiness/liveness (e.g. the 01-13 Tracer). When AD configuration is
+        // absent, the server starts without it; full provisioning paths still
+        // fail at runtime if the provider is None.
+        let directory: Option<Arc<dyn DirectoryVerifier>> = if std::env::var("DLP_AD_PRIMARY_LDAPS_URL")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .is_some()
+        {
+            Some(Arc::new(RuntimeDirectory(
+                ad::LdapDirectoryVerifier::new(
+                    required_environment("DLP_AD_PRIMARY_LDAPS_URL")?,
+                    required_environment("DLP_AD_SECONDARY_LDAPS_URL")?,
+                    required_environment("DLP_AD_BASE_DN")?,
+                )
+                .map_err(|_| ServerError::MissingProvider {
+                    provider: "directory_verifier",
+                })?,
+            )))
+        } else {
+            None
+        };
         let pool = PgPoolOptions::new()
             .connect_lazy(&config.database_url)
             .map_err(|_| ServerError::DatabaseUnavailable)?;
@@ -153,7 +167,7 @@ impl ProductionProviders {
             provider: "tls_paths",
         })?;
         Ok(Self {
-            directory_verifier: Some(Arc::new(RuntimeDirectory(directory))),
+            directory_verifier: directory,
             certificate_issuer: Some(Arc::new(RuntimeIssuer(issuer))),
             configuration_signer: Some(Arc::new(RuntimeSigner(Arc::new(
                 dlp_crypto::ConfigurationSigner::from_seed("phase1-runtime", seed),
@@ -268,11 +282,8 @@ impl ServerState {
 }
 
 fn validate_providers(providers: &ProductionProviders) -> Result<(), ServerError> {
-    if providers.directory_verifier.is_none() {
-        return Err(ServerError::MissingProvider {
-            provider: "directory_verifier",
-        });
-    }
+    // Directory verification is optional for health-only / Tracer scenarios.
+    // Provisioning routes that require it fail at runtime when it is None.
     if providers.certificate_issuer.is_none() {
         return Err(ServerError::MissingProvider {
             provider: "certificate_issuer",

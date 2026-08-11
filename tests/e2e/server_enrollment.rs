@@ -83,6 +83,9 @@ fn mtls_routes_reject_cross_role_revoked_and_forwarded_identities() {
 
 #[test]
 fn mtls_server_config_requires_the_mounted_phase1_material() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("ring crypto provider installs for test");
     let configuration = TlsPaths::from_environment()
         .and_then(|paths| paths.server_config())
         .expect("test fixture paths must build a required-client-auth server config");

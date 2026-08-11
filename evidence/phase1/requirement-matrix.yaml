@@ -38,7 +38,7 @@
                                             "unsafe-boundary"
                                         ],
                              "substitute_policy":  "none",
-                             "current_evidence_id":  "39e36102-1f96-471a-bdc5-a443ae4343ae",
+                             "current_evidence_id":  "dc47d360-6a94-49ae-a6b4-5b6e0e9cea59",
                              "status":  "pass"
                          },
                          {
@@ -68,8 +68,8 @@
                                             "postgresql-migration"
                                         ],
                              "substitute_policy":  "SQLite component fixture only; never acceptance",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "452cdf54-0dcb-4b83-b29a-979de8c70d05",
+                             "status":  "pass"
                          },
                          {
                              "id":  "SRV-12",
@@ -78,8 +78,8 @@
                                             "server-readiness"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "e79f05a4-8daa-4cf0-bf7c-04bbd5aa77d4",
+                             "status":  "pass"
                          },
                          {
                              "id":  "CRY-01",

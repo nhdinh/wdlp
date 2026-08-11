@@ -113,7 +113,7 @@ fn lab_roles_example_has_five_machine_contract() {
     let content = fs::read_to_string(&path).expect("lab.roles.example.json must exist");
     assert!(content.contains("developer_orchestrator"));
     assert!(content.contains("database_server"));
-    assert!(content.contains("management_server_provisioning"));
+    assert!(content.contains("primary_directory_server"));
     assert!(content.contains("secondary_ad_authority"));
     assert!(content.contains("endpoint_runtime"));
 }
