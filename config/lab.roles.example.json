@@ -7,11 +7,17 @@
       "allowed_scopes": ["source", "build", "rust", "llvm", "hyperv_orchestration", "evidence_orchestration"],
       "forbidden_scopes": ["endpoint_service", "dpapi", "trust", "hosts", "domain_network", "winfsp_runtime", "dlp_mount", "postgresql_runtime", "server_runtime"]
     },
+    "LAB-SERVER01": {
+      "role": "database_server",
+      "description": "Native PostgreSQL database server for the management server.",
+      "allowed_scopes": ["postgresql", "database_runtime"],
+      "forbidden_scopes": ["management_server", "trusted_provisioning", "endpoint_service", "dpapi", "winfsp_runtime", "dlp_mount", "server_runtime", "primary_ad", "secondary_ad_corroboration"]
+    },
     "LAB-DC01": {
-      "role": "management_server_database_provisioning",
-      "description": "Primary directory server, management server, PostgreSQL database, and trusted provisioning station.",
-      "allowed_scopes": ["management_server", "postgresql", "trusted_provisioning", "primary_ad", "kerberos_winrm_https", "server_runtime"],
-      "forbidden_scopes": ["endpoint_service", "dpapi", "winfsp_runtime", "dlp_mount"]
+      "role": "management_server_provisioning",
+      "description": "Primary directory server, management server runtime, and trusted provisioning station.",
+      "allowed_scopes": ["management_server", "trusted_provisioning", "primary_ad", "kerberos_winrm_https", "server_runtime"],
+      "forbidden_scopes": ["endpoint_service", "dpapi", "winfsp_runtime", "dlp_mount", "postgresql_runtime"]
     },
     "LAB-DC02": {
       "role": "secondary_ad_authority",

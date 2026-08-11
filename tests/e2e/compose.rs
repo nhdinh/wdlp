@@ -9,36 +9,20 @@ fn repo_root() -> PathBuf {
 }
 
 #[test]
-fn compose_yaml_has_migration_before_server_binding() {
+fn compose_yaml_documents_native_postgresql_lab_deployment() {
     let compose_path = repo_root().join("deploy/compose.yaml");
     let content = fs::read_to_string(&compose_path).expect("compose.yaml must exist");
     assert!(
-        content.contains("migrations:"),
-        "compose must declare a migrations service"
+        content.contains("LAB-SERVER01"),
+        "compose must document the native PostgreSQL host used by the lab"
     );
     assert!(
-        content.contains("server:"),
-        "compose must declare a server service"
-    );
-    let server_pos = content.find("server:").expect("server service must exist");
-    let rest = &content[server_pos..];
-    // The server block extends to the next top-level key (no leading whitespace) or EOF.
-    let block_end = rest[1..]
-        .find("\n[a-zA-Z]")
-        .map(|p| p + 1)
-        .unwrap_or(rest.len());
-    let server_block = &rest[..block_end];
-    assert!(
-        server_block.contains("depends_on:"),
-        "server must declare dependencies"
+        content.contains("192.168.50.12"),
+        "compose must document the native PostgreSQL IP"
     );
     assert!(
-        server_block.contains("migrations:"),
-        "server must wait for migrations service"
-    );
-    assert!(
-        server_block.contains("service_completed_successfully"),
-        "server must start only after migrations complete"
+        content.contains("migrations service is intentionally omitted"),
+        "compose must note that migrations are run directly against native PostgreSQL"
     );
 }
 
@@ -124,11 +108,12 @@ fn server_env_example_omits_secret_values() {
 }
 
 #[test]
-fn lab_roles_example_has_four_machine_contract() {
+fn lab_roles_example_has_five_machine_contract() {
     let path = repo_root().join("config/lab.roles.example.json");
     let content = fs::read_to_string(&path).expect("lab.roles.example.json must exist");
     assert!(content.contains("developer_orchestrator"));
-    assert!(content.contains("management_server_database_provisioning"));
+    assert!(content.contains("database_server"));
+    assert!(content.contains("management_server_provisioning"));
     assert!(content.contains("secondary_ad_authority"));
     assert!(content.contains("endpoint_runtime"));
 }

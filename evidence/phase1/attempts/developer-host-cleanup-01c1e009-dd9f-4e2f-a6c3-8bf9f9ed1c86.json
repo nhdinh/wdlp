@@ -1,0 +1,53 @@
+{
+    "dependency_digests":  {
+                               "lab-roles":  "4a8f0dcbd20ecb1bea329b5d5f6012af915cd011433854e02ccb45b0e6eea47f",
+                               "lab-contract":  "e8bc9ff8107d90365099d1df97735ba06806585b6faa20a7dc7065d4ce22b028"
+                           },
+    "target_machine":  "hungdinh-lt",
+    "environment_fingerprint":  {
+                                    "machine_identity":  "HUNGDINH-LT",
+                                    "role":  "developer_orchestrator",
+                                    "os_build":  "Microsoft Windows NT 10.0.26200.0",
+                                    "dependency_versions":  "PowerShell 5.1.26100.8972",
+                                    "service_config_digest":  "e8bc9ff8107d90365099d1df97735ba06806585b6faa20a7dc7065d4ce22b028",
+                                    "test_tool_versions":  "rtk",
+                                    "domain_network_identity":  "WORKGROUP",
+                                    "baseline_id":  "a977252f-2ed7-4ee9-b0f2-7729496954e4",
+                                    "binary_hashes":  "none"
+                                },
+    "self_contained":  true,
+    "identity":  {
+                     "kind":  "automation",
+                     "name":  "Invoke-Phase1EnvironmentReconcile.ps1"
+                 },
+    "commit_id":  "a3d5ceb",
+    "procedure_version":  1,
+    "actual_result":  "cleanup applied and post-audit passed",
+    "evidence_id":  "bdbd4fdd-9298-4162-ab40-91cc2575f71f",
+    "retention":  {
+                      "deadline_utc":  "2026-11-09T10:46:30.1276910Z",
+                      "state":  "retained",
+                      "hold":  false
+                  },
+    "redaction_scan":  "passed",
+    "requirement_id":  "WRK-04",
+    "check_id":  "developer-host-cleanup",
+    "expected_result":  "hungdinh-lt has no WinFsp, DLP service/process/mount, DPAPI credential, DLP PKI trust, DLP hosts, or DLP network change; Rust/LLVM/Hyper-V/repos remain",
+    "raw_artifacts":  [
+                          {
+                              "uri":  "C:\\Users\\nhdinh\\dev\\dleakprevention\\.claude\\worktrees\\agent-a6c91c34fcca46478\\evidence\\phase1\\attempts\\cleanup-baseline-405c0578-6c68-4644-adc3-4dc35af345b4.json",
+                              "sha256":  "313d30f02a9816bdc61aebb68d3b52a1b1a286985e09c4197a8bc1a075de83a1",
+                              "accessible":  false
+                          }
+                      ],
+    "substitute":  "none",
+    "observed_utc":  "2026-08-11T10:46:29.9603481Z",
+    "target_role":  "developer_host",
+    "clock_offset_seconds":  0,
+    "status":  "pass",
+    "schema_version":  "phase1-evidence/v1",
+    "verification_tier":  "portable_automation",
+    "deviation":  {
+                      "state":  "none"
+                  }
+}
