@@ -410,29 +410,36 @@ function Start-Dc01Server {
     }
 }
 
+function Reset-DlpDatabase {
+    # The native PostgreSQL instance on LAB-SERVER01 only exposes the dlp database
+    # to the dlp_server role. Database create/drop requires the postgres OS user,
+    # reached through SSH to the Ubuntu admin account followed by passwordless sudo.
+    Stop-Dc01Server
+    Start-Sleep -Seconds 2
+    $password = $env:DLP_SERVER01_ADMIN_PASSWORD
+    if ([string]::IsNullOrWhiteSpace($password)) {
+        Stop-Dc01 'DLP_SERVER01_ADMIN_PASSWORD is required for database reset'
+    }
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $python) { $python = Get-Command python3 -ErrorAction SilentlyContinue }
+    Assert-Dc01 ($null -ne $python) 'python is required for LAB-SERVER01 SSH reset'
+    $script = Join-Path $RepoRoot 'scripts/lab/Reset-DlpPostgres.py'
+    $previousPass = $env:DLP_SERVER01_ADMIN_PASSWORD
+    try {
+        $env:DLP_SERVER01_ADMIN_PASSWORD = $password
+        $output = & $python.Path $script 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "database reset failed: $output" }
+    } finally {
+        $env:DLP_SERVER01_ADMIN_PASSWORD = $previousPass
+    }
+}
+
 function Invoke-Dc01PostgresProof {
     param([Parameter(Mandatory)][string]$SubScenario)
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine 'LAB-SERVER01'
     switch ($SubScenario) {
         'PostgresFresh' {
-            $adminUrl = $env:DLP_DATABASE_ADMIN_URL
-            if ([string]::IsNullOrWhiteSpace($adminUrl)) {
-                # Fall back to replacing the user in DLP_DATABASE_URL with dlpadmin so the
-                # admin connection string is not stored in the repository. The password is
-                # supplied by the runtime secret provider (DLP_DATABASE_ADMIN_PASSWORD).
-                $dbUrl = $env:DLP_DATABASE_URL
-                $adminPassword = $env:DLP_DATABASE_ADMIN_PASSWORD
-                Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($adminPassword)) 'database_admin_password_missing'
-                $adminUrl = $dbUrl -replace '://[^@]+@', "://dlpadmin:${adminPassword}@"
-            }
-            $previousUrl = $env:DATABASE_URL
-            try {
-                $env:DATABASE_URL = $adminUrl
-                $output = sqlx database reset --source (Join-Path $RepoRoot 'migrations') -y 2>&1
-                if ($LASTEXITCODE -ne 0) { throw "sqlx database reset failed: $output" }
-            } finally {
-                $env:DATABASE_URL = $previousUrl
-            }
+            Reset-DlpDatabase
             Invoke-SqlxMigrate
             $count = Get-AppliedMigrationCount
             Assert-Dc01 ($count -eq 3) "expected 3 migrations, got $count"
@@ -449,13 +456,50 @@ function Invoke-Dc01PostgresProof {
                 -Actual "3 migrations remain" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
         }
         'MigrationFailure' {
-            # Checksum drift and failed migration keep the server unready.
-            # This scenario is implemented by temporarily corrupting a migration copy and verifying sqlx migrate fails.
-            throw 'checksum_drift_not_injected_in_source_mode'
+            # checksum drift against an already-applied ledger must fail closed without
+            # mutating the production database. sqlx migrate run detects the drift and
+            # exits non-zero before applying anything.
+            $tempMigrations = Join-Path $RepoRoot "target/phase1-migration-failure-$([guid]::NewGuid().ToString())"
+            Copy-Item -LiteralPath (Join-Path $RepoRoot 'migrations') -Destination $tempMigrations -Recurse -Force
+            try {
+                $firstMigration = Get-ChildItem -LiteralPath $tempMigrations -Filter '*.sql' | Sort-Object Name | Select-Object -First 1
+                Add-Content -LiteralPath $firstMigration.FullName -Value "-- checksum drift injection for MigrationFailure scenario" -Encoding UTF8
+                $previousUrl = $env:DATABASE_URL
+                try {
+                    $env:DATABASE_URL = $env:DLP_DATABASE_URL
+                    $runOutput = sqlx migrate run --source $tempMigrations 2>&1
+                    $failed = ($LASTEXITCODE -ne 0)
+                } finally {
+                    $env:DATABASE_URL = $previousUrl
+                }
+                Assert-Dc01 $failed "checksum drift was not rejected: $runOutput"
+            } finally {
+                Remove-Item -LiteralPath $tempMigrations -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'migration-failure' -Status 'pass' `
+                -Expected 'checksum drift and failed migration keep the server unbound/unready' `
+                -Actual 'checksum drift was rejected by sqlx migrate against the applied ledger' -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
         }
         'ConcurrentStart' {
-            $jobs = 1..2 | ForEach-Object { Start-Job { Invoke-SqlxMigrate } }
-            $jobs | Wait-Job | Receive-Job
+            $migrationsDir = Join-Path $RepoRoot 'migrations'
+            $starterScript = Join-Path $RepoRoot "target/phase1-concurrent-starter-$([guid]::NewGuid().ToString()).ps1"
+            New-Item -ItemType Directory -Path (Split-Path -Parent $starterScript) -Force | Out-Null
+            @"
+`$env:DATABASE_URL = '$($env:DLP_DATABASE_URL)'
+`$output = sqlx migrate run --source '$migrationsDir' 2>&1
+if (`$LASTEXITCODE -ne 0) { throw "sqlx migrate failed: `$output" }
+"@ | Set-Content -Path $starterScript -Encoding UTF8
+            try {
+                $procs = 1..2 | ForEach-Object {
+                    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $starterScript) -PassThru -WindowStyle Hidden
+                }
+                $procs | ForEach-Object { $_.WaitForExit() }
+                foreach ($proc in $procs) {
+                    Assert-Dc01 ($proc.ExitCode -eq 0) "concurrent starter exited with $($proc.ExitCode)"
+                }
+            } finally {
+                Remove-Item -LiteralPath $starterScript -Force -ErrorAction SilentlyContinue
+            }
             $count = Get-AppliedMigrationCount
             Assert-Dc01 ($count -eq 3) "concurrent start converged incorrectly: $count"
             New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'postgres-concurrent' -Status 'pass' `
@@ -468,20 +512,27 @@ function Invoke-Dc01PostgresProof {
             Invoke-LabCommand -VMName $ProbeMachine -ScriptBlock {
                 param($ServerHost, $Port)
                 $ErrorActionPreference = 'Stop'
-                Add-Type -TypeDefinition @'
-                using System.Net;
-                using System.Security.Cryptography.X509Certificates;
-                public class TrustAllCertsPolicy : ICertificatePolicy {
-                    public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) { return true; }
-                }
-'@ -ErrorAction SilentlyContinue
+                $trustAll = @'
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) { return true; }
+}
+'@
+                Add-Type -TypeDefinition $trustAll -ErrorAction SilentlyContinue
                 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
                 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
                 $uris = @("https://${ServerHost}:$Port/health/live", "https://${ServerHost}:$Port/health/ready")
                 $jobs = @()
                 for ($i = 0; $i -lt 4; $i++) {
                     $uri = $uris[$i % 2]
-                    $jobs += Start-Job -ScriptBlock { param($u) Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 60 } -ArgumentList $uri
+                    $jobs += Start-Job -ScriptBlock {
+                        param($u, $policyCode)
+                        Add-Type -TypeDefinition $policyCode -ErrorAction SilentlyContinue
+                        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+                        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+                        Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 60
+                    } -ArgumentList $uri, $trustAll
                 }
                 $jobs | Wait-Job | Receive-Job
             } -ArgumentList @($serverHost, $script:ServerPort)
@@ -580,8 +631,9 @@ switch ($Scenario) {
     'All' {
         Invoke-Dc01PostgresProof -SubScenario 'PostgresFresh'
         Invoke-Dc01PostgresProof -SubScenario 'PostgresRepeat'
+        Invoke-Dc01PostgresProof -SubScenario 'MigrationFailure'
         Invoke-Dc01PostgresProof -SubScenario 'ConcurrentStart'
-        Invoke-Dc01Tracer
+        Invoke-Dc01PostgresProof -SubScenario 'ReadinessConcurrency'
     }
 }
 
