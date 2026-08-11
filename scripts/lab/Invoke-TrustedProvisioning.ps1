@@ -45,12 +45,15 @@ function Get-ObservationDigest([string[]]$Values) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
         $buffer = New-Object System.Collections.Generic.List[byte]
-        $buffer.AddRange([Text.Encoding]::UTF8.GetBytes("dlp-fingerprint/v1`0"))
+        $buffer.AddRange([byte[]][Text.Encoding]::UTF8.GetBytes("dlp-fingerprint/v1`0"))
         $names = @('smbios_uuid', 'bios_serial', 'system_disk_serial')
         for ($index = 0; $index -lt 3; $index++) {
-            $name = [Text.Encoding]::UTF8.GetBytes($names[$index]); $value = [Text.Encoding]::UTF8.GetBytes($Values[$index])
-            $buffer.AddRange([BitConverter]::GetBytes([UInt16]$name.Length)[1..0]); $buffer.AddRange($name)
-            $buffer.AddRange([BitConverter]::GetBytes([UInt16]$value.Length)[1..0]); $buffer.AddRange($value)
+            $name = [byte[]][Text.Encoding]::UTF8.GetBytes($names[$index])
+            $value = [byte[]][Text.Encoding]::UTF8.GetBytes($Values[$index])
+            $buffer.AddRange([byte[]][BitConverter]::GetBytes([UInt16]$name.Length)[1..0])
+            $buffer.AddRange($name)
+            $buffer.AddRange([byte[]][BitConverter]::GetBytes([UInt16]$value.Length)[1..0])
+            $buffer.AddRange($value)
         }
         return [Convert]::ToHexString($sha.ComputeHash($buffer.ToArray()))
     } finally { $sha.Dispose() }
