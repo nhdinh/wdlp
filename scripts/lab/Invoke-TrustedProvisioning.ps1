@@ -55,7 +55,7 @@ function Get-ObservationDigest([string[]]$Values) {
             $buffer.AddRange([byte[]][BitConverter]::GetBytes([UInt16]$value.Length)[1..0])
             $buffer.AddRange($value)
         }
-        return [Convert]::ToHexString($sha.ComputeHash($buffer.ToArray()))
+        return ([System.BitConverter]::ToString($sha.ComputeHash($buffer.ToArray())) -replace '-', '').ToLowerInvariant()
     } finally { $sha.Dispose() }
 }
 
