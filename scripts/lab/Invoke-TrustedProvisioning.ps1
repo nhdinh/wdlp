@@ -13,12 +13,33 @@ function Stop-TrustedProvisioning([string]$Code) { throw $Code }
 function Assert-TrustedProvisioning([bool]$Condition, [string]$Code) {
     if (-not $Condition) { Stop-TrustedProvisioning $Code }
 }
+
+$script:InvalidObservations = @('UNKNOWN', 'NONE', 'N/A', 'TO BE FILLED BY O.E.M.', 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF')
+
+function Test-ObservationValid([string]$Value) {
+    $normalized = $Value.Trim().ToUpperInvariant()
+    return -not ([string]::IsNullOrWhiteSpace($normalized) -or $normalized -in $script:InvalidObservations)
+}
+
 function Normalize-Observation([string]$Value) {
     $normalized = $Value.Trim().ToUpperInvariant()
-    if ([string]::IsNullOrWhiteSpace($normalized) -or $normalized -in @('UNKNOWN', 'NONE', 'N/A', 'TO BE FILLED BY O.E.M.', 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF')) {
+    if ([string]::IsNullOrWhiteSpace($normalized) -or $normalized -in $script:InvalidObservations) {
         Stop-TrustedProvisioning 'fingerprint_source_invalid'
     }
     return $normalized
+}
+
+function Get-SystemDiskIdentity($Disk) {
+    # Physical serial is preferred. Hyper-V virtual disks expose a null
+    # SerialNumber but a stable PNPDeviceID, which the Phase 1 lab contract
+    # explicitly allows as a virtual-disk identifier substitute.
+    if (Test-ObservationValid $Disk.SerialNumber) {
+        return [pscustomobject]@{ value = $Disk.SerialNumber; source = 'Win32_DiskDrive.SerialNumber' }
+    }
+    if (Test-ObservationValid $Disk.PNPDeviceID) {
+        return [pscustomobject]@{ value = $Disk.PNPDeviceID; source = 'Win32_DiskDrive.PNPDeviceID' }
+    }
+    Stop-TrustedProvisioning 'fingerprint_source_invalid'
 }
 function Get-ObservationDigest([string[]]$Values) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -57,14 +78,15 @@ try {
     $partition = @($logical | Get-CimAssociatedInstance -Association Win32_LogicalDiskToPartition)
     $disk = @($partition | Get-CimAssociatedInstance -Association Win32_DiskDriveToDiskPartition)
     Assert-TrustedProvisioning ($product.Count -eq 1 -and $bios.Count -eq 1 -and $logical.Count -eq 1 -and $partition.Count -eq 1 -and $disk.Count -eq 1) 'fingerprint_source_ambiguous'
+    $diskIdentity = Get-SystemDiskIdentity $disk[0]
     $digest = Get-ObservationDigest @(
         (Normalize-Observation $product[0].UUID),
         (Normalize-Observation $bios[0].SerialNumber),
-        (Normalize-Observation $disk[0].SerialNumber)
+        (Normalize-Observation $diskIdentity.value)
     )
     # Plan 01-13 performs the actual runtime-provider handoff and lab mutation.
     # This source-complete preflight emits only non-secret provenance and digest.
-    [pscustomobject]@{ procedure_version = 1; target = $TargetComputer; fingerprint_digest = $digest; preferred_drive_letter = $PreferredDriveLetter; transport = 'Kerberos WinRM HTTPS'; evidence = 'sanitized' } | ConvertTo-Json -Compress
+    [pscustomobject]@{ procedure_version = 1; target = $TargetComputer; fingerprint_digest = $digest; preferred_drive_letter = $PreferredDriveLetter; transport = 'Kerberos WinRM HTTPS'; disk_identity_source = $diskIdentity.source; evidence = 'sanitized' } | ConvertTo-Json -Compress
 } finally {
     if ($null -ne $session) { Remove-CimSession -CimSession $session }
 }
