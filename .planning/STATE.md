@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: in_progress
 stopped_at: "Paused 01-13-PLAN.md at Task 1 precondition: runtime secret provider unavailable"
-last_updated: "2026-08-11T03:52:30.916Z"
+last_updated: "2026-08-11T07:29:17.898Z"
 progress:
   total_phases: 1
   completed_phases: 0
@@ -27,6 +27,7 @@ progress:
 - **Status**: In progress
 - **Progress**: 27%
 - **Next plan**: 01-13 (Wave 4)
+- **Topology update**: PostgreSQL database moved from LAB-DC01 to LAB-SERVER01 (192.168.50.12); LAB-DC01 retains management server and trusted provisioning.
 
 ## Performance Metrics
 
@@ -69,7 +70,7 @@ progress:
 
 **Resume file:** 01-13-PLAN.md
 
-**Last session:** 2026-08-11T03:52:17.557Z
+**Last session:** 2026-08-11T07:29:16.544Z
 **Stopped at:** Paused 01-13-PLAN.md at Task 1 precondition: runtime secret provider unavailable
 
 - Last action: Split previously implicit server authority and trusted provisioning into source-complete Plans 01-22/01-23, made 01-13 execute dual-DC plus Kerberos WinRM-over-HTTPS provisioning before 01-14 enrollment, narrowed 01-14 to client-owned files, and made every automated verification fail closed. Eleven replacement plans now form eleven acyclic waves while all D-01 through D-50, 30 Phase 1 requirements, privilege/evidence controls, and nine historical summaries remain preserved.
@@ -101,4 +102,5 @@ progress:
 
 ### Blockers
 
-- Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 without command-line disclosure. Hyper-V VMs LAB-DC01, LAB-DC02, and LAB-CLIENT01 are running and the 01-13 privilege manifest digest is valid, but required DLP_* environment variables or an equivalent runtime secret provider are absent.
+- Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 and LAB-SERVER01 without command-line disclosure. Hyper-V VMs LAB-DC01, LAB-DC02, LAB-CLIENT01, and the newly designated LAB-SERVER01 are required; required `DLP_*` environment variables or an equivalent runtime secret provider are absent.
+- Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 and LAB-SERVER01 without command-line disclosure. Required DLP_* environment variables or equivalent runtime secret provider are absent.
