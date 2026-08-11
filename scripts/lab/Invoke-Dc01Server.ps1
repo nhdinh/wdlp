@@ -241,6 +241,29 @@ function Assert-RuntimeAdSecretsPresent {
     }
 }
 
+function Copy-VMFileOrStream {
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][string]$DestinationPath
+    )
+    $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    Assert-Dc01 ($vm -and $vm.State -eq 'Running') 'execution_vm_not_running'
+    try {
+        Copy-VMFile -Name $VMName -SourcePath $SourcePath -DestinationPath $DestinationPath -CreateFullPath -Force -FileSource Host
+    } catch {
+        # Fallback: stream via PowerShell Direct.
+        $bytes = [System.IO.File]::ReadAllBytes($SourcePath)
+        $b64 = [Convert]::ToBase64String($bytes)
+        Invoke-LabCommand -VMName $VMName -ScriptBlock {
+            param($Base64, $Path)
+            $ErrorActionPreference = 'Stop'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+            [System.IO.File]::WriteAllBytes($Path, [Convert]::FromBase64String($Base64))
+        } -ArgumentList @($b64, $DestinationPath)
+    }
+}
+
 function Install-Dc01ServerBinary {
     $localBinary = Join-Path $RepoRoot 'target/release/dlp-server.exe'
     if (-not (Test-Path -LiteralPath $localBinary)) {
@@ -258,21 +281,13 @@ function Install-Dc01ServerBinary {
     Stop-Dc01Server
 
     $remoteBinary = 'C:\dlp\server\dlp-server.exe'
-    $vm = Get-VM -Name $ExecutionMachine -ErrorAction SilentlyContinue
-    if ($vm -and $vm.State -eq 'Running') {
-        try {
-            Copy-VMFile -Name $ExecutionMachine -SourcePath $localBinary -DestinationPath $remoteBinary -CreateFullPath -Force -FileSource Host
-        } catch {
-            # Fallback: stream via PowerShell Direct.
-            $bytes = [System.IO.File]::ReadAllBytes($localBinary)
-            $b64 = [Convert]::ToBase64String($bytes)
-            Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
-                param($Base64, $Path)
-                [System.IO.File]::WriteAllBytes($Path, [Convert]::FromBase64String($Base64))
-            } -ArgumentList @($b64, $remoteBinary)
-        }
-    } else {
-        Stop-Dc01 'execution_vm_not_running'
+    Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $localBinary -DestinationPath $remoteBinary
+
+    # Deploy the trusted-provisioning helper so it can be invoked from LAB-DC01.
+    $localProvScript = Join-Path $RepoRoot 'scripts/lab/Invoke-TrustedProvisioning.ps1'
+    $remoteProvScript = 'C:\dlp\server\scripts\lab\Invoke-TrustedProvisioning.ps1'
+    if (Test-Path -LiteralPath $localProvScript) {
+        Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $localProvScript -DestinationPath $remoteProvScript
     }
 }
 
