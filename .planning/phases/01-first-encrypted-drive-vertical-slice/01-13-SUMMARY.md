@@ -38,9 +38,9 @@ metrics:
   completed: 2026-08-11
 status: blocked
 actuals:
-  tokens: 32000
+  tokens: 32500
   tasks: 1
-  commits: 4
+  commits: 5
 ---
 
 # Phase 01 Plan 13: Lab Orchestration and PostgreSQL Evidence Summary
@@ -58,7 +58,7 @@ actuals:
    - Updated `deploy/compose.yaml` to a reference-only file documenting that the lab uses native PostgreSQL.
    - Updated `config/server.env.example` with runtime-provider contract notes.
    - Added `tests/e2e/compose.rs` source checks and registered it in `crates/dlp-server/Cargo.toml`.
-   - Commits: `a3d5ceb` (initial implementation), `42e9765` (reconcile fixes), plus the LAB-SERVER01 updates in this continuation.
+   - Commits: `a3d5ceb` (initial implementation), `42e9765` (reconcile fixes), `df329d3` (initial summary), `784dff8` (LAB-SERVER01 native PostgreSQL refresh), and the final summary amendment.
 
 ## Verification
 
