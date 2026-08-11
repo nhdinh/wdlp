@@ -1,44 +1,35 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-10T12:55:15.497Z",
-  "phase": "01",
+  "timestamp": "2026-08-11T15:49:01.084Z",
+  "phase": "01-first-encrypted-drive-vertical-slice",
   "phase_name": "first-encrypted-drive-vertical-slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
   "plan": 13,
-  "task": 1,
+  "task": 3,
   "total_tasks": 3,
   "status": "paused",
-  "completed_tasks": [],
+  "completed_tasks": [
+    {"id": 1, "name": "Reconcile machine roles and serve one LAB-DC01 readiness path", "status": "done", "commits": ["a3d5ceb", "42e9765", "df329d3", "784dff8", "b5f08c9", "2435b27", "277c415", "7744eae", "c54f66f", "135e1a0", "48500f0", "5296e1c", "2abe8bf", "62d7797"]},
+    {"id": 2, "name": "Prove LAB-SERVER01 PostgreSQL migration idempotency, concurrency, and readiness through LAB-DC01", "status": "done", "commits": ["bf3c941", "92974eb", "46cad90"]}
+  ],
   "remaining_tasks": [
-    {"id": 1, "name": "Reconcile four machine roles and serve LAB-DC01 readiness", "status": "blocked"},
-    {"id": 2, "name": "Prove production PostgreSQL migration/listener/readiness path", "status": "not_started"},
-    {"id": 3, "name": "Execute trusted LAB-CLIENT01 provisioning on LAB-DC01", "status": "not_started"}
+    {"id": 3, "name": "Execute trusted LAB-CLIENT01 provisioning on LAB-DC01 before enrollment", "status": "not_started"}
   ],
   "blockers": [
-    {
-      "description": "LAB-DC01, LAB-DC02, and LAB-CLIENT01 are not discoverable or running from hungdinh-lt.",
-      "type": "human_action",
-      "workaround": "Bring the three exact named VMs online and confirm Get-VM discovers them before resuming."
-    },
-    {
-      "description": "No runtime-only secret provider is configured for the lab workflow.",
-      "type": "human_action",
-      "workaround": "Configure the runtime secret provider required by Plan 01-13 without committing secrets."
-    }
+    {"description": "Task 3 requires AD/LDAPS runtime secrets that are not present in the runtime provider.", "type": "human_action", "workaround": "Set DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, and DLP_AD_CA_CERT_PEM in the runtime secret provider (environment/session variables or secure vault)."}
   ],
   "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Bring LAB-DC01, LAB-DC02, and LAB-CLIENT01 online and make them discoverable from hungdinh-lt.", "context": "Plan 01-13 Task 1 fail-closed preflight requires all binding lab machines.", "blocking": true},
-    {"action": "Configure the runtime-only secret provider for lab reconciliation and provisioning.", "context": "Plan 01-13 refuses lab mutation without runtime credential material.", "blocking": true}
+    {"action": "Provide AD/LDAPS runtime secrets for the Phase 1 lab.", "context": "Invoke-Dc01Server.ps1 -Scenario TrustedProvisioning aborts at Assert-RuntimeAdSecretsPresent because DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, and DLP_AD_CA_CERT_PEM are missing. DLP_AD_BIND_PASSWORD is already present.", "blocking": true},
+    {"action": "Confirm LAB-CLIENT01 is domain-joined and reachable by FQDN from LAB-DC01 over Kerberos WinRM-over-HTTPS.", "context": "Task 3 requires dual-DC AD corroboration and Kerberos WinRM HTTPS fingerprint collection from LAB-CLIENT01.", "blocking": true}
   ],
   "decisions": [
-    {"decision": "Approved all eight exact privilege-manifest digests via approve-listed-digests.", "rationale": "Elevated lab mutations are authorized only when bound to reviewed manifest digests.", "phase": "01"},
-    {"decision": "Pause after the current executor checkpoint because of API limits.", "rationale": "Preserve committed progress and avoid spawning additional executors.", "phase": "01"}
+    {"decision": "Management server runs on LAB-DC01; PostgreSQL remains native on LAB-SERVER01.", "rationale": "User clarified the correct topology: LAB-SERVER01 is Ubuntu with native PostgreSQL, LAB-DC01 hosts the management server.", "phase": "01"},
+    {"decision": "Made dlp-server listen address configurable via DLP_LISTEN_ADDRESS.", "rationale": "Default localhost binding blocked remote readiness probes from LAB-CLIENT01; configuration enables LAB-DC01 to expose 0.0.0.0:8443.", "phase": "01"},
+    {"decision": "Added Reset-DlpPostgres.py helper for LAB-SERVER01 database reset via SSH/sudo.", "rationale": "pg_hba.conf blocked remote postgres database access; SSH to dlpadmin account allows sudo -u postgres psql for fresh migration tests.", "phase": "01"},
+    {"decision": "Made server enrollment integration tests self-contained with deterministic PKI fixtures.", "rationale": "Tests previously relied on pre-existing env var paths and fixture directories; now generate target/01-07-pki/ at test time from PEM content without committing secrets.", "phase": "01"}
   ],
-  "uncommitted_files": [
-    ".planning/config.json",
-    ".planning/research/.cache/*.json"
-  ],
-  "next_action": "Bring the three named VMs online, configure the runtime-only secret provider, then run $gsd-resume-work and resume Plan 01-13 Task 1.",
-  "context_notes": "Plans 01-17, 01-22, and 01-23 completed this session. Plan 01-13 made no task-file or planning-state changes before its preflight blocked. Do not spawn Wave 5 until Plan 01-13 completes."
+  "uncommitted_files": [],
+  "next_action": "Provide the missing AD/LDAPS runtime secrets, confirm LAB-CLIENT01 domain join and Kerberos WinRM-over-HTTPS reachability, then run Invoke-Dc01Server.ps1 -Scenario TrustedProvisioning from hungdinh-lt.",
+  "context_notes": "Plan 01-13 Tasks 1 and 2 are complete and verified on the worktree branch worktree-agent-a6c91c34fcca46478. The worktree has not been merged to master. STATE.md and ROADMAP.md were intentionally not updated by the executor. Task 3 is purely blocked by missing AD/LDAPS runtime configuration, not by code defects."
 }
