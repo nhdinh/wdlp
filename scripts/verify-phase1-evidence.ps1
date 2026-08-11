@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-SERVER01', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,6 +10,7 @@ Import-Module (Join-Path $repoRoot 'scripts/evidence/Phase1.Evidence.psm1') -For
 $manifestPath = Join-Path $repoRoot 'evidence/phase1/manifests/tst-01-portable-policy.json'
 $matrixPath = Join-Path $repoRoot 'evidence/phase1/requirement-matrix.yaml'
 $configPath = Join-Path $repoRoot 'config/lab.phase1.example.yaml'
+$evidenceDir = Join-Path $repoRoot 'evidence/phase1/attempts'
 
 function Assert-Phase1 {
     param([Parameter(Mandatory)][bool]$Condition, [Parameter(Mandatory)][string]$Message)
@@ -19,6 +20,25 @@ function Assert-Phase1 {
 function Write-Phase1Fixture {
     param([Parameter(Mandatory)]$Value, [Parameter(Mandatory)][string]$Path)
     [System.IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Get-LatestEvidence {
+    param([Parameter(Mandatory)][string]$Pattern)
+    $items = @(Get-ChildItem -LiteralPath $evidenceDir -Filter $Pattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    if ($items.Count -eq 0) { return $null }
+    return $items[0].FullName
+}
+
+function Publish-LatestEvidence {
+    param(
+        [Parameter(Mandatory)][string]$Pattern,
+        [Parameter(Mandatory)][string]$TargetMachine
+    )
+    $path = Get-LatestEvidence -Pattern $Pattern
+    Assert-Phase1 ($null -ne $path) "evidence not found: $Pattern"
+    $test = Test-Phase1Evidence -EvidencePath $path -ExecutionMachine $TargetMachine
+    Assert-Phase1 $test.Valid "evidence invalid for $Pattern : $($test.Errors -join '; ')"
+    Publish-Phase1Evidence -EvidencePath $path -MatrixPath $matrixPath -ExecutionMachine $TargetMachine | Out-Null
 }
 
 function Invoke-PortableTracer {
@@ -150,6 +170,38 @@ function Invoke-TrustedProvisioningSource {
     Assert-Phase1 ($procedure -notmatch 'Write-Output.*token' -and $procedure -notmatch 'raw_serial') 'procedure leaks sensitive fields'
 }
 
+function Invoke-Dc01Tracer {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'Dc01Tracer verifier must run on hungdinh-lt'
+    Publish-LatestEvidence -Pattern 'dc01-tracer-migrations-*.json' -TargetMachine 'LAB-SERVER01'
+    Publish-LatestEvidence -Pattern 'dc01-tracer-readiness-*.json' -TargetMachine 'LAB-CLIENT01'
+    $matrix = Get-Content -LiteralPath $matrixPath -Raw | ConvertFrom-Json
+    $srv11 = @($matrix.requirements | Where-Object { $_.id -eq 'SRV-11' })
+    $srv12 = @($matrix.requirements | Where-Object { $_.id -eq 'SRV-12' })
+    Assert-Phase1 ($srv11.Count -eq 1 -and $srv11[0].status -eq 'pass') 'SRV-11 matrix row is not pass'
+    Assert-Phase1 ($srv12.Count -eq 1 -and $srv12[0].status -eq 'pass') 'SRV-12 matrix row is not pass'
+}
+
+function Invoke-Dc01Postgres {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'Dc01Postgres verifier must run on hungdinh-lt'
+    Publish-LatestEvidence -Pattern 'postgres-fresh-*.json' -TargetMachine 'LAB-SERVER01'
+    Publish-LatestEvidence -Pattern 'postgres-repeat-*.json' -TargetMachine 'LAB-SERVER01'
+    Publish-LatestEvidence -Pattern 'postgres-concurrent-*.json' -TargetMachine 'LAB-SERVER01'
+    Publish-LatestEvidence -Pattern 'readiness-concurrency-*.json' -TargetMachine 'LAB-CLIENT01'
+    $matrix = Get-Content -LiteralPath $matrixPath -Raw | ConvertFrom-Json
+    $srv11 = @($matrix.requirements | Where-Object { $_.id -eq 'SRV-11' })
+    $srv12 = @($matrix.requirements | Where-Object { $_.id -eq 'SRV-12' })
+    Assert-Phase1 ($srv11.Count -eq 1 -and $srv11[0].status -eq 'pass') 'SRV-11 matrix row is not pass'
+    Assert-Phase1 ($srv12.Count -eq 1 -and $srv12[0].status -eq 'pass') 'SRV-12 matrix row is not pass'
+}
+
+function Invoke-TrustedProvisioningApproved {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'TrustedProvisioningApproved verifier must run on hungdinh-lt'
+    Publish-LatestEvidence -Pattern 'trusted-provisioning-*.json' -TargetMachine 'LAB-DC01'
+    $matrix = Get-Content -LiteralPath $matrixPath -Raw | ConvertFrom-Json
+    $tst05 = @($matrix.requirements | Where-Object { $_.id -eq 'TST-05' })
+    Assert-Phase1 ($tst05.Count -eq 1 -and $tst05[0].status -eq 'pass') 'TST-05 matrix row is not pass'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
@@ -160,6 +212,9 @@ switch ($Scenario) {
     'ServerRouteSource' { Invoke-ServerRouteSource }
     'TrustedProvisioningClientSource' { Invoke-TrustedProvisioningClientSource }
     'TrustedProvisioningSource' { Invoke-TrustedProvisioningSource }
+    'Dc01Tracer' { Invoke-Dc01Tracer }
+    'Dc01Postgres' { Invoke-Dc01Postgres }
+    'TrustedProvisioningApproved' { Invoke-TrustedProvisioningApproved }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json

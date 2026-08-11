@@ -4,7 +4,8 @@
 //! deliberately added by later plans; this seam owns process-only liveness and
 //! migration-before-bind ordering now.
 
-use axum::{Router, extract::Extension, http::StatusCode, routing::get};
+use axum::{Json, Router, extract::Extension, http::StatusCode, routing::get};
+use serde::Serialize;
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
 use std::{
     fmt, fs,
@@ -89,9 +90,14 @@ impl ServerConfig {
     pub fn from_environment() -> Result<Self, ServerError> {
         let database_url =
             std::env::var("DATABASE_URL").map_err(|_| ServerError::MissingDatabaseUrl)?;
-        let listen_address = "127.0.0.1:8080"
-            .parse()
-            .expect("static loopback address is valid");
+        let listen_address = std::env::var("DLP_LISTEN_ADDRESS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| {
+                "0.0.0.0:8080"
+                    .parse()
+                    .expect("static all-interfaces address is valid")
+            });
         Ok(Self {
             listen_address,
             database_url,
@@ -288,6 +294,11 @@ fn validate_providers(providers: &ProductionProviders) -> Result<(), ServerError
     Ok(())
 }
 
+#[derive(Serialize)]
+pub struct HealthResponse {
+    status: &'static str,
+}
+
 /// Builds the library-owned HTTP application. Liveness exposes process state only.
 pub fn build_app(state: ServerState) -> Router {
     let readiness = state.readiness;
@@ -299,14 +310,22 @@ pub fn build_app(state: ServerState) -> Router {
         .layer(Extension(readiness))
 }
 
-pub async fn health_live() -> StatusCode {
-    health::liveness()
+pub async fn health_live() -> (StatusCode, Json<HealthResponse>) {
+    (
+        StatusCode::OK,
+        Json(HealthResponse { status: "ok" }),
+    )
 }
 
 pub async fn health_ready(
     Extension(dependencies): Extension<health::ReadinessDependencies>,
-) -> StatusCode {
-    health::readiness(&dependencies).status
+) -> (StatusCode, Json<HealthResponse>) {
+    let report = health::readiness(&dependencies);
+    let status = if report.status == StatusCode::OK { "ok" } else { "not_ready" };
+    (
+        report.status,
+        Json(HealthResponse { status }),
+    )
 }
 
 /// Confirms that a bound server exposes the final versioned tracer namespace.
@@ -435,7 +454,8 @@ mod tests {
     async fn liveness_is_process_only_and_migrations_gate_listener_startup() {
         let state = ServerState::for_test();
         let app = build_app(state);
-        assert_eq!(health_live().await, axum::http::StatusCode::OK);
+        let (status, _) = health_live().await;
+        assert_eq!(status, axum::http::StatusCode::OK);
         assert!(matches!(
             run_migrations_for_startup(None).await,
             Err(ServerError::MigrationFailed)

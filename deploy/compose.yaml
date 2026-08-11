@@ -1,13 +1,14 @@
 # Reference Docker Compose deployment.
-# The Phase 1 lab now uses NATIVE PostgreSQL on LAB-SERVER01 (Ubuntu, 192.168.50.12)
-# instead of a containerized database. This file is kept as a reference for
-# container-based deployments and is not exercised by the lab orchestration scripts.
+# The Phase 1 lab uses NATIVE PostgreSQL on LAB-SERVER01 (Ubuntu, 192.168.50.12).
+# The management server runs on LAB-DC01 (192.168.50.10).
+# This file is kept as a reference for container-based deployments and is not
+# exercised by the lab orchestration scripts.
 #
 # For the lab, set DATABASE_URL in the runtime provider to point to LAB-SERVER01:
 #   postgres://dlp_server:<password>@192.168.50.12:5432/dlp
 #
 # The migrations service is intentionally omitted because sqlx-cli is run directly
-# from the orchestration host (hungdinh-lt) against the native PostgreSQL instance.
+# on LAB-DC01 against the native PostgreSQL instance before the server binds.
 
 services:
   server:
@@ -31,4 +32,4 @@ services:
         target: /run/dlp-pki
         read_only: true
     ports:
-      - "127.0.0.1:8443:8080"
+      - "8443:8080"
