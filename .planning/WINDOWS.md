@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 8
 waived_count: 0
 fixed_count: 1
-total_count: 8
-last_updated: 2026-08-10T12:53:33.528Z
+total_count: 9
+last_updated: 2026-08-11T11:21:30.848Z
 ---
 
 # Broken Windows Ledger
@@ -23,6 +23,7 @@ last_updated: 2026-08-10T12:53:33.528Z
 | 6 | 01 | unrun-verify | migrations/202608070003_authenticated_routes.sql |  | PostgreSQL migration and readiness runtime evidence remain open under the user-authorized SQLite-only substitute. | open |  | 2026-08-10T06:45:29.791Z |  |
 | 7 | 01 | stub | crates/dlp-server/src/routes.rs |  | Bootstrap and administrator handlers return 503 until PgAuthorityRepository and EnrollmentService route-state wiring is completed. | open |  | 2026-08-10T12:53:32.551Z |  |
 | 8 | 01 | stub | crates/dlp-server/src/lib.rs |  | RuntimeRepository creates PostgreSQL adapters but protected routes still receive the in-memory RouteRepository adapter. | open |  | 2026-08-10T12:53:33.528Z |  |
+| 9 | 01 | stub | scripts/lab/Invoke-Dc01Server.ps1 | 203 | MigrationFailure checksum-drift injection is not implemented in source mode; currently throws checksum_drift_not_injected_in_source_mode. | open |  | 2026-08-11T11:21:30.848Z |  |
 
 ````json
 [
@@ -120,6 +121,18 @@ last_updated: 2026-08-10T12:53:33.528Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-10T12:53:33.528Z",
+    "resolved_at": null
+  },
+  {
+    "id": 9,
+    "kind": "stub",
+    "phase": "01",
+    "file": "scripts/lab/Invoke-Dc01Server.ps1",
+    "line": 203,
+    "description": "MigrationFailure checksum-drift injection is not implemented in source mode; currently throws checksum_drift_not_injected_in_source_mode.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-11T11:21:30.848Z",
     "resolved_at": null
   }
 ]
