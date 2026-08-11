@@ -1,0 +1,34 @@
+{
+  "schema_version": "phase1-lab-roles/v1",
+  "machines": {
+    "hungdinh-lt": {
+      "role": "developer_orchestrator",
+      "description": "Physical developer host limited to source builds, Rust/LLVM tooling, and Hyper-V orchestration.",
+      "allowed_scopes": ["source", "build", "rust", "llvm", "hyperv_orchestration", "evidence_orchestration"],
+      "forbidden_scopes": ["endpoint_service", "dpapi", "trust", "hosts", "domain_network", "winfsp_runtime", "dlp_mount", "postgresql_runtime", "server_runtime"]
+    },
+    "LAB-DC01": {
+      "role": "management_server_database_provisioning",
+      "description": "Primary directory server, management server, PostgreSQL database, and trusted provisioning station.",
+      "allowed_scopes": ["management_server", "postgresql", "trusted_provisioning", "primary_ad", "kerberos_winrm_https", "server_runtime"],
+      "forbidden_scopes": ["endpoint_service", "dpapi", "winfsp_runtime", "dlp_mount"]
+    },
+    "LAB-DC02": {
+      "role": "secondary_ad_authority",
+      "description": "Independent secondary Active Directory authority used for dual-DC corroboration.",
+      "allowed_scopes": ["secondary_ad_corroboration"],
+      "forbidden_scopes": ["management_server", "postgresql", "trusted_provisioning", "endpoint_service", "dpapi", "winfsp_runtime", "dlp_mount", "server_runtime"]
+    },
+    "LAB-CLIENT01": {
+      "role": "endpoint_runtime",
+      "description": "Sole Phase 1 endpoint-runtime target for agent service, DPAPI, enrollment, device mTLS, WinFsp, and user-session behavior.",
+      "allowed_scopes": ["agent_service", "dpapi", "enrollment", "device_mtls", "winfsp", "mount", "restart", "session", "office"],
+      "forbidden_scopes": ["management_server", "postgresql", "trusted_provisioning", "primary_ad", "secondary_ad_corroboration"]
+    }
+  },
+  "role_guard": {
+    "fail_closed": true,
+    "required_match": ["machine_name", "expected_role"],
+    "source_of_truth": "config/lab.phase1.example.yaml"
+  }
+}
