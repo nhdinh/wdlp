@@ -5,7 +5,8 @@ Full coverage is the default. Every detected platform, service, and external bou
 Binding execution roles:
 
 - hungdinh-lt is the developer and Hyper-V orchestration machine only. Source checks and orchestration may run there, but endpoint evidence may not.
-- LAB-DC01 runs the management server, PostgreSQL development database, trusted provisioning, primary AD checks, and trusted WinRM collection.
+- LAB-DC01 runs the management server, trusted provisioning, primary AD checks, and trusted WinRM collection.
+- LAB-SERVER01 (`192.168.50.12`) runs the PostgreSQL development database.
 - LAB-DC02 independently supplies secondary AD corroboration.
 - LAB-CLIENT01 runs every endpoint service, DPAPI, session, WinFsp, file, restart, and reboot verification.
 - Every operation first asserts the actual computer name against the expected role. Sensitive values enter only through a runtime secret provider and never appear in this file, commands, evidence, or commits.
@@ -31,12 +32,12 @@ Binding execution roles:
 | evidence.signed-visual-checklist | INTEGRATE | Only D-26 visible LAB-CLIENT01 rows use authenticated-domain-identity signed checklist records |
 | evidence.independent-phase-exit-review | INTEGRATE | Plan 01-21 requires an independent verifier to sign the complete matrix/provenance/deviation/artifact-integrity digest |
 | evidence.silent-prohibition-check-synthesis | OPT-OUT | SPEC-less prohibitions remain descriptor-less flagged-unverified; no wired check is fabricated |
-| postgres.start-development-database | INTEGRATE | Plan 01-13 starts PostgreSQL inside LAB-DC01 |
-| postgres.apply-versioned-sqlx-migrations | INTEGRATE | Plan 01-22 makes authority migrations PostgreSQL-native; Plan 01-13 applies the checksummed forward ledger inside LAB-DC01 before listener bind |
-| postgres.repeat-migrations-idempotently | INTEGRATE | Plan 01-13 proves repeated migration convergence inside LAB-DC01 |
-| postgres.handle-concurrent-server-start | INTEGRATE | Plan 01-13 proves concurrent starters do not diverge inside LAB-DC01 |
-| postgres.fail-on-migration-checksum-drift | INTEGRATE | Plan 01-13 proves failure before bind while preserving the prior LAB-DC01 database |
-| postgres.persist-across-restart | INTEGRATE | Plan 01-13 proves Compose volume and authoritative state survive LAB-DC01 restart |
+| postgres.start-development-database | INTEGRATE | Plan 01-13 starts PostgreSQL inside LAB-SERVER01 |
+| postgres.apply-versioned-sqlx-migrations | INTEGRATE | Plan 01-22 makes authority migrations PostgreSQL-native; Plan 01-13 applies the checksummed forward ledger inside LAB-SERVER01 before listener bind |
+| postgres.repeat-migrations-idempotently | INTEGRATE | Plan 01-13 proves repeated migration convergence inside LAB-SERVER01 |
+| postgres.handle-concurrent-server-start | INTEGRATE | Plan 01-13 proves concurrent starters do not diverge against LAB-SERVER01 |
+| postgres.fail-on-migration-checksum-drift | INTEGRATE | Plan 01-13 proves failure before bind while preserving the prior LAB-SERVER01 database |
+| postgres.persist-across-restart | INTEGRATE | Plan 01-13 proves LAB-SERVER01 PostgreSQL and authoritative state survive restart |
 | postgres.automatic-production-seeding | OPT-OUT | ADR-003 forbids automatic production seed data |
 | sqlite.isolated-unit-test-backend | INTEGRATE | SQLite remains permitted only in explicitly isolated tests on hungdinh-lt |
 | sqlite.deployment-verification | OPT-OUT | SRV-11 and TST-05 require PostgreSQL evidence from LAB-DC01 |
@@ -48,7 +49,7 @@ Binding execution roles:
 | windows.hardware-fingerprint-api | INTEGRATE | LAB-CLIENT01 service and LAB-DC01 collector use documented Windows APIs |
 | windows.powershell-production-fingerprint | OPT-OUT | Plan 01-19 replaces the partial production PowerShell collector |
 | http.live-readiness | INTEGRATE | LAB-CLIENT01 probes LAB-DC01 health live |
-| http.dependency-readiness | INTEGRATE | LAB-CLIENT01 probes LAB-DC01 health ready after PostgreSQL migrations |
+| http.dependency-readiness | INTEGRATE | LAB-CLIENT01 probes LAB-DC01 health ready after LAB-SERVER01 PostgreSQL migrations |
 | http.admin-create-enrollment-token | INTEGRATE | Plans 01-22/01-23 implement PostgreSQL/admin-mTLS authority; Plan 01-13 executes and evidences it on LAB-DC01 before enrollment |
 | http.admin-register-fingerprint | INTEGRATE | Plan 01-23 supplies dual-DC/Kerberos input and Plan 01-13 proves the exact digest-only PostgreSQL record |
 | http.admin-revoke-device | OPT-OUT | General administrator-driven lifecycle revocation is SRV-04/Phase 3; Phase 1 only proves D-06 atomic prior-credential revocation during replacement |

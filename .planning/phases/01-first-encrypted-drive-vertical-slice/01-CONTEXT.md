@@ -43,7 +43,7 @@ Deliver one complete architectural proof with one management server, one domain-
 ### Build and Verification Environment Roles
 - **D-20:** `hungdinh-lt` is the physical developer host and is limited to source builds, developer tooling such as Rust and LLVM, and Hyper-V orchestration. It must not host the DLP endpoint service, DPAPI endpoint credentials, development PKI trust entries, hosts-file mappings, domain/network changes, WinFsp runtime, DLP mounts, or endpoint-runtime verification.
 - **D-21:** `LAB-CLIENT01` is the only Phase 1 endpoint-runtime target. Agent installation, Windows service execution, DPAPI credential custody, enrollment, device mTLS, WinFsp installation and mounting, restart/recovery, user-session behavior, and user-visible verification run there.
-- **D-22:** `LAB-DC01` hosts the Phase 1 management server and development database and acts as the trusted provisioning station. Provisioning runs in its domain context and queries `LAB-CLIENT01` through Kerberos WinRM-over-HTTPS.
+- **D-22:** `LAB-DC01` hosts the Phase 1 management server and acts as the trusted provisioning station. `LAB-SERVER01` (`192.168.50.12`) hosts the PostgreSQL development database. Provisioning runs in the LAB-DC01 domain context and queries `LAB-CLIENT01` through Kerberos WinRM-over-HTTPS.
 - **D-23:** `LAB-DC02` remains the independent secondary Active Directory authority used for dual-DC corroboration; it does not host the endpoint runtime or provisioning workflow.
 - **D-24:** Build/test plans and verification commands must name their execution machine explicitly. A test run on `hungdinh-lt` cannot be accepted as evidence for Windows endpoint service, DPAPI, enrollment, mount, restart, or user-session requirements.
 
@@ -54,7 +54,7 @@ Deliver one complete architectural proof with one management server, one domain-
 - **D-28:** Only capabilities already assigned to later phases may remain deferred without blocking Phase 1. No Phase 1 success criterion or mapped Phase 1 requirement may be waived as an edge case.
 
 ### Infrastructure Substitutes
-- **D-29:** SQLite, in-memory repositories, mocks, and fakes may support unit or component tests, but they cannot prove PostgreSQL migrations, SQL compatibility, readiness, enrollment integration, or Phase 1 server acceptance. Those checks require real PostgreSQL on `LAB-DC01`.
+- **D-29:** SQLite, in-memory repositories, mocks, and fakes may support unit or component tests, but they cannot prove PostgreSQL migrations, SQL compatibility, readiness, enrollment integration, or Phase 1 server acceptance. Those checks require real PostgreSQL on `LAB-SERVER01`.
 - **D-30:** A lab-scoped development CA may replace production PKI for Phase 1 only when it preserves production-shaped server/device certificate roles, identity binding, EKUs, validation, replacement/renewal, and revocation behavior. Development trust is installed only on designated lab VMs and never on `hungdinh-lt`.
 - **D-31:** `LAB-CLIENT01` may use a deterministic virtual-system-disk identifier as its Phase 1 fingerprint fixture. Verification must prove exact matching and rejection after virtual-disk replacement or identity change. This validates the workflow, not the robustness of production physical-hardware serial sources.
 - **D-32:** Other fixtures are acceptable only when they preserve the contract under test or inject deterministic failures into portable logic. They cannot satisfy criteria intended to prove dual-DC AD corroboration, Kerberos WinRM, Windows service identity, DPAPI, mTLS, WinFsp, PostgreSQL, user sessions, or restart/crash recovery.
@@ -126,7 +126,7 @@ Deliver one complete architectural proof with one management server, one domain-
 - New Cargo workspace crates and their boundaries are defined by `WRK-01` in `.planning/REQUIREMENTS.md`.
 - The server connects to PostgreSQL, both AD domain controllers, and enrolled agents over authenticated HTTP APIs.
 - The Windows service connects enrollment/configuration, DPAPI-protected device credentials, per-user session detection, WinFsp mounting, and encrypted backing storage.
-- Replanned Windows integration and verification must deploy artifacts to `LAB-CLIENT01`; server/database and trusted provisioning commands execute on `LAB-DC01`; dual-directory checks use both `LAB-DC01` and `LAB-DC02`.
+- Replanned Windows integration and verification must deploy artifacts to `LAB-CLIENT01`; server and trusted provisioning commands execute on `LAB-DC01`; the PostgreSQL database runs on `LAB-SERVER01`; dual-directory checks use both `LAB-DC01` and `LAB-DC02`.
 - Phase verification connects plan-level checks to a versioned evidence-manifest schema, a requirement-indexed matrix, controlled raw-artifact storage, and an independent phase-exit review.
 
 </code_context>

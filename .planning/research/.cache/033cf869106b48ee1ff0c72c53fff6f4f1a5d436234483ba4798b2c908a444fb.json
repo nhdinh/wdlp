@@ -1,0 +1,1 @@
+{"content":"Microsoft DPAPI documents that machine scope permits any local user to decrypt, so a machine-protected credential file still requires a service-only ACL. DPAPI-NG is required for cross-machine or multi-user protection.","source":"web","provider":"websearch","confidence":"MEDIUM","fetched_at":"2026-08-07T09:02:30.165Z","ttl":86400000,"kind":"web"}
