@@ -612,13 +612,15 @@ function Invoke-TrustedProvisioningScenario {
     # Ensure server is running so dlpctl can POST the provisioning request.
     Start-Dc01Server -WaitForReady
 
-    $result = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+    $resultJson = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         param($Digest, $Target, $PreferredLetter)
         $ErrorActionPreference = 'Stop'
         Set-Location C:\dlp\server
         $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST = $Digest
         & scripts/lab/Invoke-TrustedProvisioning.ps1 -ExecutionMachine LAB-DC01 -TargetComputer $Target -PrivilegeManifestDigest $Digest -PreferredDriveLetter $PreferredLetter
     } -ArgumentList @($digest, 'LAB-CLIENT01.lab.local', 'P')
+
+    $result = $resultJson | ConvertFrom-Json
 
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine $ExecutionMachine
     New-Dc01Evidence -RequirementId 'TST-05' -CheckId 'trusted-provisioning' -Status 'pass' `
