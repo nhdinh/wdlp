@@ -27,3 +27,7 @@ x509-parser = "=0.18.1"
 [[test]]
 name = "server_enrollment"
 path = "../../tests/e2e/server_enrollment.rs"
+
+[[test]]
+name = "compose"
+path = "../../tests/e2e/compose.rs"

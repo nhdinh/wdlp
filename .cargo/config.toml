@@ -1,0 +1,7 @@
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[profile.release]
+# Static C runtime makes the release binary self-contained on Windows endpoints
+# that do not have the Visual C++ Redistributable installed.
+lto = true

@@ -1,39 +1,16 @@
+# Reference Docker Compose deployment.
+# The Phase 1 lab uses NATIVE PostgreSQL on LAB-SERVER01 (Ubuntu, 192.168.50.12).
+# The management server runs on LAB-DC01 (192.168.50.10).
+# This file is kept as a reference for container-based deployments and is not
+# exercised by the lab orchestration scripts.
+#
+# For the lab, set DATABASE_URL in the runtime provider to point to LAB-SERVER01:
+#   postgres://dlp_server:<password>@192.168.50.12:5432/dlp
+#
+# The migrations service is intentionally omitted because sqlx-cli is run directly
+# on LAB-DC01 against the native PostgreSQL instance before the server binds.
+
 services:
-  postgres:
-    image: postgres:18-alpine
-    restart: unless-stopped
-    env_file:
-      - ../config/server.env.example
-    environment:
-      POSTGRES_DB: dlp
-      POSTGRES_USER:
-      POSTGRES_PASSWORD:
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  migrations:
-    build:
-      context: ..
-    command: ["dlp-server", "--migrate-only"]
-    env_file:
-      - ../config/server.env.example
-    environment:
-      DATABASE_URL:
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - type: bind
-        source: ${DLP_PKI_DIR:-./pki}
-        target: /run/dlp-pki
-        read_only: true
-    restart: "no"
-
   server:
     build:
       context: ..
@@ -49,18 +26,10 @@ services:
       DLP_DEVICE_ISSUING_CA_CERT_PEM: /run/dlp-pki/device-issuer.cert.pem
       DLP_DEVICE_ISSUING_CA_KEY_PEM: /run/dlp-pki/device-issuer.key.pem
       DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX:
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrations:
-        condition: service_completed_successfully
     volumes:
       - type: bind
         source: ${DLP_PKI_DIR:-./pki}
         target: /run/dlp-pki
         read_only: true
     ports:
-      - "127.0.0.1:8443:8080"
-
-volumes:
-  postgres-data:
+      - "8443:8080"

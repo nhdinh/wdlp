@@ -1,35 +1,35 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-11T11:27:05.137Z",
+  "timestamp": "2026-08-11T15:49:01.084Z",
   "phase": "01-first-encrypted-drive-vertical-slice",
   "phase_name": "first-encrypted-drive-vertical-slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
   "plan": 13,
-  "task": 1,
+  "task": 3,
   "total_tasks": 3,
   "status": "paused",
   "completed_tasks": [
-    {"id": 1, "name": "Reconcile machine roles and serve one LAB-DC01 readiness path", "status": "source_complete", "commits": ["a3d5ceb", "42e9765", "df329d3", "784dff8", "b5f08c9", "2435b27"]}
+    {"id": 1, "name": "Reconcile machine roles and serve one LAB-DC01 readiness path", "status": "done", "commits": ["a3d5ceb", "42e9765", "df329d3", "784dff8", "b5f08c9", "2435b27", "277c415", "7744eae", "c54f66f", "135e1a0", "48500f0", "5296e1c", "2abe8bf", "62d7797"]},
+    {"id": 2, "name": "Prove LAB-SERVER01 PostgreSQL migration idempotency, concurrency, and readiness through LAB-DC01", "status": "done", "commits": ["bf3c941", "92974eb", "46cad90"]}
   ],
   "remaining_tasks": [
-    {"id": 1, "name": "Reconcile machine roles and serve one LAB-DC01 readiness path", "status": "verification_pending", "note": "Source implementation complete; Hyper-V PowerShell Direct verification blocked pending VM admin credentials and privilege-manifest re-approval."},
-    {"id": 2, "name": "Prove LAB-SERVER01 PostgreSQL migration idempotency, concurrency, and readiness through LAB-DC01", "status": "not_started"},
     {"id": 3, "name": "Execute trusted LAB-CLIENT01 provisioning on LAB-DC01 before enrollment", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "Guest-OS VM administrator credentials for PowerShell Direct into LAB-DC01 and LAB-CLIENT01 are not yet in the runtime secret provider.", "type": "human_action", "workaround": "Set DLP_VM_ADMIN_USER and DLP_VM_ADMIN_PASSWORD in the same elevated PowerShell session, or pass an explicit -Credential parameter."},
-    {"description": "The 01-13 privilege manifest was updated by the executor to describe native PostgreSQL on LAB-SERVER01; the new approval_digest c5b6820546e0cc31eb37c075acf67cdd58e9a257f5779cf19488feb4db7807ba is not yet reflected in privilege_approvals[01-13].manifest_digest.", "type": "human_action", "workaround": "Re-approve the manifest digest or update privilege_approvals[01-13].manifest_digest to match."}
+    {"description": "Task 3 requires AD/LDAPS runtime secrets that are not present in the runtime provider.", "type": "human_action", "workaround": "Set DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, and DLP_AD_CA_CERT_PEM in the runtime secret provider (environment/session variables or secure vault)."}
   ],
   "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Add DLP_VM_ADMIN_USER and DLP_VM_ADMIN_PASSWORD to the runtime secret provider / PowerShell session.", "context": "Invoke-Dc01Server.ps1 requires these for PowerShell Direct or WinRM into LAB-DC01/LAB-CLIENT01.", "blocking": true},
-    {"action": "Re-approve the updated 01-13 privilege manifest digest c5b6820546e0cc31eb37c075acf67cdd58e9a257f5779cf19488feb4db7807ba.", "context": "The executor changed the plan scope from Docker Compose on LAB-DC01 to native PostgreSQL on LAB-SERVER01, which changed the manifest digest.", "blocking": true}
+    {"action": "Provide AD/LDAPS runtime secrets for the Phase 1 lab.", "context": "Invoke-Dc01Server.ps1 -Scenario TrustedProvisioning aborts at Assert-RuntimeAdSecretsPresent because DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, and DLP_AD_CA_CERT_PEM are missing. DLP_AD_BIND_PASSWORD is already present.", "blocking": true},
+    {"action": "Confirm LAB-CLIENT01 is domain-joined and reachable by FQDN from LAB-DC01 over Kerberos WinRM-over-HTTPS.", "context": "Task 3 requires dual-DC AD corroboration and Kerberos WinRM HTTPS fingerprint collection from LAB-CLIENT01.", "blocking": true}
   ],
   "decisions": [
-    {"decision": "Adopt native PostgreSQL on LAB-SERVER01 (192.168.50.12) instead of Docker Compose on LAB-DC01.", "rationale": "User-directed topology change; LAB-SERVER01 is a dedicated Ubuntu VM per .planning/docs/LAB-SERVER01-SETUP.md.", "phase": "01"},
-    {"decision": "Keep DLP_VM_ADMIN_USER and DLP_VM_ADMIN_PASSWORD out of repository files and command-line examples.", "rationale": "Runtime-only secret provider contract from 01-13 PLAN.md.", "phase": "01"}
+    {"decision": "Management server runs on LAB-DC01; PostgreSQL remains native on LAB-SERVER01.", "rationale": "User clarified the correct topology: LAB-SERVER01 is Ubuntu with native PostgreSQL, LAB-DC01 hosts the management server.", "phase": "01"},
+    {"decision": "Made dlp-server listen address configurable via DLP_LISTEN_ADDRESS.", "rationale": "Default localhost binding blocked remote readiness probes from LAB-CLIENT01; configuration enables LAB-DC01 to expose 0.0.0.0:8443.", "phase": "01"},
+    {"decision": "Added Reset-DlpPostgres.py helper for LAB-SERVER01 database reset via SSH/sudo.", "rationale": "pg_hba.conf blocked remote postgres database access; SSH to dlpadmin account allows sudo -u postgres psql for fresh migration tests.", "phase": "01"},
+    {"decision": "Made server enrollment integration tests self-contained with deterministic PKI fixtures.", "rationale": "Tests previously relied on pre-existing env var paths and fixture directories; now generate target/01-07-pki/ at test time from PEM content without committing secrets.", "phase": "01"}
   ],
   "uncommitted_files": [],
-  "next_action": "Add VM admin credentials to the runtime provider, re-approve the 01-13 privilege manifest digest, then resume the executor from the checkpoint to run the Tracer scenario in Invoke-Dc01Server.ps1.",
-  "context_notes": "Plan 01-13 executor created the source-complete implementation for Task 1 and paused at a blocking human-action checkpoint. The worktree branch worktree-agent-a6c91c34fcca46478 contains the implementation and has not been merged to master. The orchestrator must not merge until verification passes."
+  "next_action": "Provide the missing AD/LDAPS runtime secrets, confirm LAB-CLIENT01 domain join and Kerberos WinRM-over-HTTPS reachability, then run Invoke-Dc01Server.ps1 -Scenario TrustedProvisioning from hungdinh-lt.",
+  "context_notes": "Plan 01-13 Tasks 1 and 2 are complete and verified on the worktree branch worktree-agent-a6c91c34fcca46478. The worktree has not been merged to master. STATE.md and ROADMAP.md were intentionally not updated by the executor. Task 3 is purely blocked by missing AD/LDAPS runtime configuration, not by code defects."
 }

@@ -1,0 +1,26 @@
+{
+    "dlp_hosts_entries":  [
+
+                          ],
+    "dlp_network_changes":  [
+
+                            ],
+    "dlp_services":  [
+
+                     ],
+    "dlp_mounts":  [
+
+                   ],
+    "dlp_directories":  [
+
+                        ],
+    "dlp_cert_thumbprints":  [
+
+                             ],
+    "dlp_processes":  [
+
+                      ],
+    "winfsp_products":  [
+
+                        ]
+}
