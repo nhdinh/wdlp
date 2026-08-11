@@ -68,7 +68,7 @@
                                             "postgresql-migration"
                                         ],
                              "substitute_policy":  "SQLite component fixture only; never acceptance",
-                             "current_evidence_id":  "21567558-ed71-4e21-a901-efc359b5b3b2",
+                             "current_evidence_id":  "452cdf54-0dcb-4b83-b29a-979de8c70d05",
                              "status":  "pass"
                          },
                          {
@@ -78,7 +78,7 @@
                                             "server-readiness"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "6f8d1687-887e-4ee9-bdd7-ca2133dcb350",
+                             "current_evidence_id":  "e79f05a4-8daa-4cf0-bf7c-04bbd5aa77d4",
                              "status":  "pass"
                          },
                          {
