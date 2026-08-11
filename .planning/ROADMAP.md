@@ -46,9 +46,9 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-13-PLAN.md (Wave 4) — Reconcile roles, deploy LAB-SERVER01 PostgreSQL and LAB-DC01 management server, and execute approved trusted LAB-CLIENT01 provisioning before enrollment
+- [x] 01-13-PLAN.md (Wave 4) — Reconcile roles, deploy LAB-SERVER01 PostgreSQL and LAB-DC01 management server, and execute approved trusted LAB-CLIENT01 provisioning before enrollment
 
-**Wave 5** *(blocked on Wave 4 completion)*
+**Wave 5** *(current)*
 
 - [ ] 01-14-PLAN.md (Wave 5) — Complete LAB-CLIENT01 initial/replacement enrollment, DPAPI credential custody, device mTLS, revocation proof, and redacted health
 
