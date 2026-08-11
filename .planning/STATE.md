@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: "Paused 01-13-PLAN.md at Task 1 precondition: runtime secret provider unavailable"
-last_updated: "2026-08-11T07:29:17.898Z"
+stopped_at: context exhaustion at 75% (2026-08-11)
+last_updated: "2026-08-11T15:49:01.084Z"
 progress:
   total_phases: 1
   completed_phases: 0
@@ -23,11 +23,12 @@ progress:
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 3 of 11
-- **Status**: In progress
+- **Plan**: 13 of 11
+- **Task**: 3 of 3
+- **Status**: Paused at Task 3 precondition
 - **Progress**: 27%
 - **Next plan**: 01-13 (Wave 4)
-- **Topology update**: PostgreSQL database moved from LAB-DC01 to LAB-SERVER01 (192.168.50.12); LAB-DC01 retains management server and trusted provisioning.
+- **Topology update**: PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning.
 
 ## Performance Metrics
 
@@ -70,10 +71,13 @@ progress:
 
 **Resume file:** 01-13-PLAN.md
 
-**Last session:** 2026-08-11T07:29:16.544Z
-**Stopped at:** Paused 01-13-PLAN.md at Task 1 precondition: runtime secret provider unavailable
+**Last session:** 2026-08-11T15:49:01.084Z
+**Stopped at:** paused at Plan 01-13 Task 3 precondition — missing AD/LDAPS runtime secrets
 
-- Last action: Split previously implicit server authority and trusted provisioning into source-complete Plans 01-22/01-23, made 01-13 execute dual-DC plus Kerberos WinRM-over-HTTPS provisioning before 01-14 enrollment, narrowed 01-14 to client-owned files, and made every automated verification fail closed. Eleven replacement plans now form eleven acyclic waves while all D-01 through D-50, 30 Phase 1 requirements, privilege/evidence controls, and nine historical summaries remain preserved.
+**Current session:** 2026-08-11
+**Resumed at:** /gsd-resume-work — VM admin credentials present; 01-13 privilege manifest digest aligned; Plan 01-13 Tasks 1 and 2 completed and verified on worktree `worktree-agent-a6c91c34fcca46478`; Task 3 paused pending AD/LDAPS runtime secrets.
+
+- Last action: Dispatched executor to correct topology (management server on LAB-DC01, PostgreSQL on LAB-SERVER01), deploy dlp-server on LAB-DC01, and complete Tasks 1–2 verification. Created handoff in worktree and paused at Task 3 precondition.
 
 ## Decisions
 
@@ -102,5 +106,6 @@ progress:
 
 ### Blockers
 
-- Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 and LAB-SERVER01 without command-line disclosure. Hyper-V VMs LAB-DC01, LAB-DC02, LAB-CLIENT01, and the newly designated LAB-SERVER01 are required; required `DLP_*` environment variables or an equivalent runtime secret provider are absent.
-- Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 and LAB-SERVER01 without command-line disclosure. Required DLP_* environment variables or equivalent runtime secret provider are absent.
+- Plan 01-13 Task 3 precondition unmet: the runtime secret provider does not supply the AD/LDAPS configuration required for trusted provisioning. Required variables are `DLP_AD_PRIMARY_LDAPS_URL`, `DLP_AD_SECONDARY_LDAPS_URL`, `DLP_AD_BASE_DN`, `DLP_AD_BIND_DN`, and `DLP_AD_CA_CERT_PEM`. Only `DLP_AD_BIND_PASSWORD` is present.
+- Plan 01-13 Task 3 precondition unmet: LAB-CLIENT01 domain-join status and Kerberos WinRM-over-HTTPS reachability from LAB-DC01 remain unconfirmed.
+- Plan 01-13 worktree `worktree-agent-a6c91c34fcca46478` contains completed Tasks 1 and 2 and must not merge to master until Task 3 verification passes.
