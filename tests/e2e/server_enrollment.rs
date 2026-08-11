@@ -5,6 +5,75 @@ use dlp_server::tls::{
     AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus, PeerIdentity, TlsPaths,
 };
 
+/// Writes environment PEM values to deterministic fixture files so the
+/// focused-Hyper-V source tests can run without committing secret material.
+/// A fresh device leaf with the required URI SAN is generated from the
+/// device-issuing CA when the env var contains PEM content rather than a path.
+#[cfg(test)]
+fn ensure_phase1_pki_fixtures() -> std::path::PathBuf {
+    use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair, SanType};
+    use std::fs;
+
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    let fixture_dir = repo_root.join("target").join("01-07-pki");
+    fs::create_dir_all(&fixture_dir).expect("fixture directory");
+
+    let pem_vars = [
+        ("DLP_SERVER_CERT_PEM", "server-cert.pem"),
+        ("DLP_SERVER_KEY_PEM", "server-key.pem"),
+        ("DLP_ADMIN_CA_CERT_PEM", "admin-ca.pem"),
+        ("DLP_PHASE1_ROOT_CA_CERT_PEM", "root-ca.pem"),
+        ("DLP_DEVICE_ISSUING_CA_CERT_PEM", "device-issuing-ca.pem"),
+        ("DLP_DEVICE_ISSUING_CA_KEY_PEM", "device-issuing-ca.key"),
+    ];
+
+    for (var, filename) in pem_vars {
+        let value = std::env::var(var).unwrap_or_default();
+        let path = fixture_dir.join(filename);
+        if value.trim_start().starts_with("-----BEGIN") {
+            fs::write(&path, value).expect("write fixture");
+        } else if !value.is_empty() && std::path::Path::new(&value).exists() {
+            let content = fs::read(&value).expect("read existing fixture");
+            fs::write(&path, content).expect("copy fixture");
+        }
+    }
+
+    // Generate a device leaf cert signed by the device-issuing CA.
+    let device_cert_path = fixture_dir.join("device.cert.pem");
+    if !device_cert_path.exists() {
+        let ca_cert_pem = fs::read_to_string(fixture_dir.join("device-issuing-ca.pem"))
+            .expect("device issuing CA cert");
+        let ca_key_pem = fs::read_to_string(fixture_dir.join("device-issuing-ca.key"))
+            .expect("device issuing CA key");
+        let ca_key = KeyPair::from_pem(&ca_key_pem).expect("parse device CA key");
+        let issuer = rcgen::Issuer::from_ca_cert_pem(&ca_cert_pem, ca_key)
+            .expect("parse device CA issuer");
+
+        let device_key = KeyPair::generate().expect("generate device key");
+        let mut params = CertificateParams::new(vec!["device-01.lab.local".into()])
+            .expect("device cert params");
+        params.distinguished_name = DistinguishedName::new();
+        params.distinguished_name.push(DnType::CommonName, "device-01");
+        params.subject_alt_names.push(SanType::URI(
+            rcgen::string::Ia5String::try_from("urn:dlp:device:device-01").expect("valid URI SAN"),
+        ));
+        params.key_usages.push(rcgen::KeyUsagePurpose::DigitalSignature);
+        params.extended_key_usages.push(rcgen::ExtendedKeyUsagePurpose::ClientAuth);
+        let device_cert = params
+            .signed_by(&device_key, &issuer)
+            .expect("sign device cert");
+        fs::write(
+            &device_cert_path,
+            device_cert.pem() + &device_key.serialize_pem(),
+        )
+        .expect("write device cert");
+    }
+
+    fixture_dir
+}
+
 #[test]
 fn repository_postgresql_authority_contract_is_digest_only_and_locking() {
     use dlp_protocol::ProvisionDeviceRequestV1;
@@ -86,8 +155,16 @@ fn mtls_server_config_requires_the_mounted_phase1_material() {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("ring crypto provider installs for test");
-    let configuration = TlsPaths::from_environment()
-        .and_then(|paths| paths.server_config())
+    let fixture_dir = ensure_phase1_pki_fixtures();
+    let paths = TlsPaths {
+        server_certificate: fixture_dir.join("server-cert.pem"),
+        server_private_key: fixture_dir.join("server-key.pem"),
+        administrator_ca: fixture_dir.join("admin-ca.pem"),
+        phase1_root_ca: fixture_dir.join("root-ca.pem"),
+        device_issuing_ca: fixture_dir.join("device-issuing-ca.pem"),
+    };
+    let configuration = paths
+        .server_config()
         .expect("test fixture paths must build a required-client-auth server config");
     assert_eq!(
         configuration.alpn_protocols,
@@ -97,8 +174,8 @@ fn mtls_server_config_requires_the_mounted_phase1_material() {
 
 #[test]
 fn device_leaf_requires_uri_san_serial_and_client_profile() {
-    let issuer = std::env::var("DLP_DEVICE_ISSUING_CA_CERT_PEM").expect("fixture path");
-    let leaf = std::path::Path::new(&issuer).with_file_name("device.cert.pem");
+    let fixture_dir = ensure_phase1_pki_fixtures();
+    let leaf = fixture_dir.join("device.cert.pem");
     let pem = std::fs::read(leaf).expect("fixture leaf");
     let leaf = rustls::pki_types::CertificateDer::pem_slice_iter(&pem)
         .next()
