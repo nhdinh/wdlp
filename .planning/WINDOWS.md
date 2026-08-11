@@ -1,15 +1,15 @@
 ---
 schema_version: 1
-open_count: 8
+open_count: 11
 waived_count: 0
 fixed_count: 1
-total_count: 9
-last_updated: 2026-08-11T11:21:30.848Z
+total_count: 12
+last_updated: 2026-08-11T12:02:52.338Z
 ---
 
 # Broken Windows Ledger
 
-> Cross-phase defect register. `/gsd-ship` blocks while `open_count > 0`.
+> Cross-phase defect register. With `workflow.windows_enforce` enabled, `/gsd-ship` blocks while `open_count > 0`.
 > Waive with `gsd-tools windows waive <id> "<reason>"` (reason required).
 > Mark fixed with `gsd-tools windows fixed <id>`.
 
@@ -24,6 +24,9 @@ last_updated: 2026-08-11T11:21:30.848Z
 | 7 | 01 | stub | crates/dlp-server/src/routes.rs |  | Bootstrap and administrator handlers return 503 until PgAuthorityRepository and EnrollmentService route-state wiring is completed. | open |  | 2026-08-10T12:53:32.551Z |  |
 | 8 | 01 | stub | crates/dlp-server/src/lib.rs |  | RuntimeRepository creates PostgreSQL adapters but protected routes still receive the in-memory RouteRepository adapter. | open |  | 2026-08-10T12:53:33.528Z |  |
 | 9 | 01 | stub | scripts/lab/Invoke-Dc01Server.ps1 | 203 | MigrationFailure checksum-drift injection is not implemented in source mode; currently throws checksum_drift_not_injected_in_source_mode. | open |  | 2026-08-11T11:21:30.848Z |  |
+| 10 | 01 | stub | scripts/lab/Invoke-Dc01Server.ps1 | 258 | TrustedProvisioning scenario only invokes Plan 01-23 preflight; it does not call dlpctl provision-device, create the PostgreSQL allowlist record, or perform runtime token handoff. | open |  | 2026-08-11T12:02:34.490Z |  |
+| 11 | 01 | stub | crates/dlp-server/src/lib.rs | 92 | Server listen address is hardcoded to 127.0.0.1:8080; no reachable TLS listener exists for LAB-CLIENT01 probes. | open |  | 2026-08-11T12:02:50.143Z |  |
+| 12 | 01 | unrun-verify | scripts/verify-phase1-evidence.ps1 | 4 | verify-phase1-evidence.ps1 does not support Dc01Tracer, Dc01Postgres, or TrustedProvisioningApproved scenarios referenced by the plan. | open |  | 2026-08-11T12:02:52.338Z |  |
 
 ````json
 [
@@ -133,6 +136,42 @@ last_updated: 2026-08-11T11:21:30.848Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-11T11:21:30.848Z",
+    "resolved_at": null
+  },
+  {
+    "id": 10,
+    "kind": "stub",
+    "phase": "01",
+    "file": "scripts/lab/Invoke-Dc01Server.ps1",
+    "line": 258,
+    "description": "TrustedProvisioning scenario only invokes Plan 01-23 preflight; it does not call dlpctl provision-device, create the PostgreSQL allowlist record, or perform runtime token handoff.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-11T12:02:34.490Z",
+    "resolved_at": null
+  },
+  {
+    "id": 11,
+    "kind": "stub",
+    "phase": "01",
+    "file": "crates/dlp-server/src/lib.rs",
+    "line": 92,
+    "description": "Server listen address is hardcoded to 127.0.0.1:8080; no reachable TLS listener exists for LAB-CLIENT01 probes.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-11T12:02:50.143Z",
+    "resolved_at": null
+  },
+  {
+    "id": 12,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": "scripts/verify-phase1-evidence.ps1",
+    "line": 4,
+    "description": "verify-phase1-evidence.ps1 does not support Dc01Tracer, Dc01Postgres, or TrustedProvisioningApproved scenarios referenced by the plan.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-11T12:02:52.338Z",
     "resolved_at": null
   }
 ]
