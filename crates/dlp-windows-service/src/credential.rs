@@ -5,14 +5,17 @@
 //! a credential. The service ACL is an additional control: Microsoft documents
 //! that machine-scope DPAPI alone permits decryption by other local accounts.
 
+use dlp_agent_core::EnrollmentCredentialStore;
 use std::{
     fs, io,
     path::{Path, PathBuf},
     sync::Mutex,
 };
+use zeroize::Zeroize;
 
 const FORMAT: &[u8] = b"dlp-device-credential/v1\0";
 const MAX_FIELD: usize = 1_048_576;
+const MAX_TOTAL: usize = 4_194_304;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeviceCredential {
@@ -89,7 +92,7 @@ impl DeviceCredential {
     }
 
     fn decode(input: &[u8]) -> Result<Self, CredentialError> {
-        if !input.starts_with(FORMAT) {
+        if input.len() > MAX_TOTAL || !input.starts_with(FORMAT) {
             return Err(CredentialError::Integrity);
         }
         let mut offset = FORMAT.len();
@@ -135,6 +138,8 @@ pub enum CredentialError {
     Integrity,
     Protection,
     Io,
+    WrongMachine,
+    AclInvalid,
 }
 
 impl std::fmt::Display for CredentialError {
@@ -145,6 +150,8 @@ impl std::fmt::Display for CredentialError {
             Self::Integrity => "credential_integrity",
             Self::Protection => "credential_protection",
             Self::Io => "credential_io",
+            Self::WrongMachine => "credential_wrong_machine",
+            Self::AclInvalid => "credential_acl_invalid",
         };
         f.write_str(code)
     }
@@ -184,27 +191,29 @@ impl DpapiCredentialStore {
 impl CredentialStore for DpapiCredentialStore {
     fn protect(&self, credential: &DeviceCredential) -> Result<(), CredentialError> {
         let _guard = self.lock.lock().map_err(|_| CredentialError::Integrity)?;
-        let protected = protect_bytes(&credential.encode())?;
+        let mut plain = credential.encode();
+        let protected = protect_bytes(&plain)?;
+        plain.zeroize();
         let temporary = self.temporary_path();
-        fs::write(&temporary, protected).map_err(|_| CredentialError::Io)?;
-        fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&temporary)
-            .and_then(|file| file.sync_all())
-            .map_err(|_| CredentialError::Io)?;
+        fs::write(&temporary, &protected).map_err(|_| CredentialError::Io)?;
+        sync_file(&temporary)?;
         fs::rename(&temporary, &self.path).map_err(|_| CredentialError::Io)?;
+        sync_directory(&self.directory)?;
+        #[cfg(windows)]
+        enforce_acl(&self.path).map_err(|_| CredentialError::AclInvalid)?;
+
         let blob = fs::read(&self.path).map_err(|_| CredentialError::Io)?;
-        let protected = unprotect_bytes(&blob)?;
-        let validated = DeviceCredential::decode(&protected)?;
-        if validated.private_key.is_empty() {
-            return Err(CredentialError::Integrity);
-        }
-        Ok(())
+        let mut plain = unprotect_bytes(&blob)?;
+        let validated = DeviceCredential::decode(&plain)?;
+        let ok = !validated.private_key.is_empty();
+        plain.zeroize();
+        if ok { Ok(()) } else { Err(CredentialError::Integrity) }
     }
 
     fn load(&self) -> Result<DeviceCredential, CredentialError> {
         let _guard = self.lock.lock().map_err(|_| CredentialError::Integrity)?;
+        #[cfg(windows)]
+        validate_acl(&self.path).map_err(|_| CredentialError::AclInvalid)?;
         let blob = fs::read(&self.path).map_err(|error| {
             if error.kind() == io::ErrorKind::NotFound {
                 CredentialError::Missing
@@ -212,8 +221,10 @@ impl CredentialStore for DpapiCredentialStore {
                 CredentialError::Io
             }
         })?;
-        let plain = unprotect_bytes(&blob)?;
-        DeviceCredential::decode(&plain)
+        let mut plain = unprotect_bytes(&blob).map_err(|_| CredentialError::WrongMachine)?;
+        let credential = DeviceCredential::decode(&plain)?;
+        plain.zeroize();
+        Ok(credential)
     }
 
     fn validate_protection(&self) -> Result<bool, CredentialError> {
@@ -224,10 +235,294 @@ impl CredentialStore for DpapiCredentialStore {
                 CredentialError::Io
             }
         })?;
-        let plain = unprotect_bytes(&blob)?;
+        let mut plain = unprotect_bytes(&blob).map_err(|_| CredentialError::WrongMachine)?;
         let credential = DeviceCredential::decode(&plain)?;
-        Ok(!credential.private_key.is_empty())
+        let ok = !credential.private_key.is_empty();
+        plain.zeroize();
+        Ok(ok)
     }
+}
+
+impl EnrollmentCredentialStore for DpapiCredentialStore {
+    fn load_credential(
+        &self,
+    ) -> Result<dlp_agent_core::EnrollmentCredential, dlp_agent_core::EnrollmentError> {
+        let credential = self
+            .load()
+            .map_err(|_| dlp_agent_core::EnrollmentError::CredentialUnavailable)?;
+        Ok(dlp_agent_core::EnrollmentCredential::new(
+            credential.device_id.clone(),
+            credential.private_key.clone(),
+            String::from_utf8_lossy(&credential.certificate_chain).into_owned(),
+            credential.serial.clone(),
+            credential.expires_after_days,
+        )
+        .map_err(|_| dlp_agent_core::EnrollmentError::CredentialUnavailable)?)
+    }
+
+    fn save_credential(
+        &self,
+        credential: &dlp_agent_core::EnrollmentCredential,
+    ) -> Result<(), dlp_agent_core::EnrollmentError> {
+        let device = DeviceCredential::new(
+            credential.device_id.clone(),
+            credential.private_key.clone(),
+            credential.certificate_chain.clone().into_bytes(),
+            credential.serial.clone(),
+            credential.expires_after_days,
+        )
+        .map_err(|_| dlp_agent_core::EnrollmentError::InvalidResponse)?;
+        self.protect(&device)
+            .map_err(|_| dlp_agent_core::EnrollmentError::CredentialUnavailable)
+    }
+}
+
+fn sync_file(path: &Path) -> Result<(), CredentialError> {
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|_| CredentialError::Io)
+}
+
+fn sync_directory(directory: &Path) -> Result<(), CredentialError> {
+    #[cfg(unix)]
+    {
+        fs::File::open(directory)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| CredentialError::Io)
+    }
+    #[cfg(windows)]
+    {
+        // Directory handles on Windows do not support FlushFileBuffers through
+        // the portable std API; the file rename provides the atomic commit.
+        let _ = directory;
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn has_service_sid() -> bool {
+    service_sid_buffer().is_ok()
+}
+
+#[cfg(not(windows))]
+fn has_service_sid() -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn enforce_acl(path: &Path) -> Result<(), CredentialError> {
+    if !has_service_sid() {
+        return Ok(());
+    }
+    use std::os::windows::ffi::OsStrExt;
+    // SAFETY: all SID buffers are owned by this function and outlive the FFI
+    // calls.  The ACL is built on the stack-sized buffer and passed to
+    // SetNamedSecurityInfoW before any local buffer is dropped.
+    unsafe {
+        use windows::{
+            Win32::{
+                Foundation::{GENERIC_ALL, LocalFree},
+                Security::{
+                    ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, AddAccessAllowedAce,
+                    DACL_SECURITY_INFORMATION, InitializeAcl,
+                    OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
+                    PROTECTED_DACL_SECURITY_INFORMATION, PSID,
+                    SECURITY_MAX_SID_SIZE,
+                },
+                Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT},
+            },
+            core::PCWSTR,
+        };
+
+        let system_sid = system_sid_buffer()?;
+        let service_sid = service_sid_buffer()?;
+        let system_psid = PSID(system_sid.as_ptr() as *mut _);
+        let service_psid = PSID(service_sid.as_ptr() as *mut _);
+
+        let ace_size = std::mem::size_of::<ACL>()
+            + 2 * (std::mem::size_of::<ACCESS_ALLOWED_ACE>() - std::mem::size_of::<u32>()
+                + SECURITY_MAX_SID_SIZE as usize);
+        let mut acl_buffer = vec![0u8; ace_size];
+        let acl = acl_buffer.as_mut_ptr() as *mut ACL;
+        InitializeAcl(acl, ace_size as u32, ACL_REVISION)
+            .map_err(|_| CredentialError::AclInvalid)?;
+        AddAccessAllowedAce(acl, ACL_REVISION, GENERIC_ALL.0, system_psid)
+            .map_err(|_| CredentialError::AclInvalid)?;
+        AddAccessAllowedAce(acl, ACL_REVISION, GENERIC_ALL.0, service_psid)
+            .map_err(|_| CredentialError::AclInvalid)?;
+
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let info = OBJECT_SECURITY_INFORMATION(
+            OWNER_SECURITY_INFORMATION.0
+                | DACL_SECURITY_INFORMATION.0
+                | PROTECTED_DACL_SECURITY_INFORMATION.0,
+        );
+        SetNamedSecurityInfoW(
+            PCWSTR::from_raw(wide.as_ptr()),
+            SE_FILE_OBJECT,
+            info,
+            Some(system_psid),
+            None,
+            Some(acl),
+            None,
+        )
+        .ok()
+        .map_err(|_| CredentialError::AclInvalid)?;
+        let _ = LocalFree(None);
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn validate_acl(path: &Path) -> Result<(), CredentialError> {
+    if !has_service_sid() {
+        return Ok(());
+    }
+    use std::os::windows::ffi::OsStrExt;
+    unsafe {
+        use windows::{
+            Win32::{
+                Foundation::LocalFree,
+                Security::{
+                    Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT},
+                    EqualSid, OWNER_SECURITY_INFORMATION, PSID, PSECURITY_DESCRIPTOR,
+                },
+            },
+            core::PCWSTR,
+        };
+
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut owner = PSID(std::ptr::null_mut());
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        GetNamedSecurityInfoW(
+            PCWSTR::from_raw(wide.as_ptr()),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            Some(&mut owner),
+            None,
+            None,
+            None,
+            &mut descriptor,
+        )
+        .ok()
+        .map_err(|_| CredentialError::AclInvalid)?;
+        let system_sid = system_sid_buffer()?;
+        let system_psid = PSID(system_sid.as_ptr() as *mut _);
+        let owner_ok = EqualSid(owner, system_psid).is_ok();
+        let _ = LocalFree(Some(windows::Win32::Foundation::HLOCAL(descriptor.0)));
+        if owner_ok {
+            Ok(())
+        } else {
+            Err(CredentialError::AclInvalid)
+        }
+    }
+}
+
+#[cfg(windows)]
+fn system_sid_buffer() -> Result<Vec<u8>, CredentialError> {
+    unsafe {
+        use windows::Win32::Security::{
+            CreateWellKnownSid, PSID, SECURITY_MAX_SID_SIZE, WinLocalSystemSid,
+        };
+        let mut buffer = vec![0u8; SECURITY_MAX_SID_SIZE as usize];
+        let mut size = SECURITY_MAX_SID_SIZE;
+        CreateWellKnownSid(
+            WinLocalSystemSid,
+            None,
+            Some(PSID(buffer.as_mut_ptr() as *mut _)),
+            &mut size,
+        )
+        .map_err(|_| CredentialError::AclInvalid)?;
+        buffer.truncate(size as usize);
+        Ok(buffer)
+    }
+}
+
+#[cfg(windows)]
+fn service_sid_buffer() -> Result<Vec<u8>, CredentialError> {
+    unsafe {
+        use windows::{
+            Win32::{
+                Foundation::{CloseHandle, HANDLE, LocalFree},
+                Security::{
+                    GetLengthSid, GetTokenInformation, TOKEN_GROUPS, TOKEN_QUERY, TokenGroups,
+                },
+                Security::Authorization::ConvertSidToStringSidW,
+                System::Threading::{GetCurrentProcess, OpenProcessToken},
+            },
+            core::PWSTR,
+        };
+        let mut token = HANDLE::default();
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)
+            .map_err(|_| CredentialError::AclInvalid)?;
+        let mut size = 0;
+        let _ = GetTokenInformation(token, TokenGroups, None, 0, &mut size);
+        let mut buffer = vec![0u8; size as usize];
+        GetTokenInformation(
+            token,
+            TokenGroups,
+            Some(buffer.as_mut_ptr() as *mut _),
+            size,
+            &mut size,
+        )
+        .map_err(|_| CredentialError::AclInvalid)?;
+        let groups = &*(buffer.as_ptr() as *const TOKEN_GROUPS);
+        let base = groups.Groups.as_ptr();
+        for i in 0..groups.GroupCount {
+            let entry = &*(base.add(i as usize) as *const windows::Win32::Security::SID_AND_ATTRIBUTES);
+            let sid = entry.Sid;
+            let mut string_sid = PWSTR::null();
+            if ConvertSidToStringSidW(sid, &mut string_sid).is_ok() {
+                let text = pwstr_to_string(string_sid)?;
+                let _ = LocalFree(Some(windows::Win32::Foundation::HLOCAL(
+                    string_sid.0 as *mut _,
+                )));
+                if text.starts_with("S-1-5-80-") {
+                    let len = GetLengthSid(sid) as usize;
+                    let mut owned = vec![0u8; len];
+                    std::ptr::copy_nonoverlapping(sid.0 as *const u8, owned.as_mut_ptr(), len);
+                    let _ = CloseHandle(token);
+                    return Ok(owned);
+                }
+            }
+        }
+        let _ = CloseHandle(token);
+        Err(CredentialError::AclInvalid)
+    }
+}
+
+#[cfg(windows)]
+unsafe fn pwstr_to_string(pwstr: windows::core::PWSTR) -> Result<String, CredentialError> {
+    if pwstr.0.is_null() {
+        return Err(CredentialError::AclInvalid);
+    }
+    let mut len = 0;
+    while unsafe { *pwstr.0.add(len) } != 0 {
+        len += 1;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(pwstr.0, len) };
+    String::from_utf16(slice).map_err(|_| CredentialError::AclInvalid)
+}
+
+#[cfg(not(windows))]
+fn enforce_acl(_path: &Path) -> Result<(), CredentialError> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn validate_acl(_path: &Path) -> Result<(), CredentialError> {
+    Ok(())
 }
 
 #[cfg(windows)]

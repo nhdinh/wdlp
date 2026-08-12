@@ -81,6 +81,10 @@ impl EnrollmentRequestV1 {
     pub fn device_id(&self) -> &DeviceId {
         &self.device_id
     }
+
+    pub fn enrollment_token(&self) -> &str {
+        &self.enrollment_token
+    }
 }
 
 impl fmt::Debug for EnrollmentRequestV1 {

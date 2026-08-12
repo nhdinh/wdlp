@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-SERVER01', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -202,6 +202,23 @@ function Invoke-TrustedProvisioningApproved {
     Assert-Phase1 ($tst05.Count -eq 1 -and $tst05[0].status -eq 'pass') 'TST-05 matrix row is not pass'
 }
 
+function Invoke-InitialEnrollmentCredential {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'InitialEnrollmentCredential verifier must run on hungdinh-lt'
+    $client = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-agent-core/src/client.rs') -Raw
+    $enrollment = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-agent-core/src/enrollment.rs') -Raw
+    $credential = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/credential.rs') -Raw
+    Assert-Phase1 ($client -match 'post_enrollment' -and $client -match 'post_health' -and $client -match 'validate_device_chain' -and $client -match 'client_auth') 'device mTLS client is incomplete'
+    Assert-Phase1 ($enrollment -match 'prior_serial' -and $enrollment -match 'EnrollmentMode::Replacement') 'replacement enrollment state machine is incomplete'
+    Assert-Phase1 ($credential -match 'WrongMachine' -and $credential -match 'AclInvalid' -and $credential -match 'enforce_acl' -and $credential -match 'validate_acl') 'DPAPI ACL fail-closed custody is incomplete'
+}
+
+function Invoke-ReplacementRevocation {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'ReplacementRevocation verifier must run on hungdinh-lt'
+    Invoke-InitialEnrollmentCredential
+    $server = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-server/src/enrollment.rs') -Raw
+    Assert-Phase1 ($server -match 'consume_and_activate' -and $server -match 'prior_serial') 'server replacement transaction contract is incomplete'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
@@ -215,6 +232,8 @@ switch ($Scenario) {
     'Dc01Tracer' { Invoke-Dc01Tracer }
     'Dc01Postgres' { Invoke-Dc01Postgres }
     'TrustedProvisioningApproved' { Invoke-TrustedProvisioningApproved }
+    'InitialEnrollmentCredential' { Invoke-InitialEnrollmentCredential }
+    'ReplacementRevocation' { Invoke-ReplacementRevocation }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json

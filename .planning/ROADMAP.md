@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 3/11 plans executed
+**Plans**: 5/11 plans executed
 
 Plans:
 **Wave 1**
@@ -50,7 +50,7 @@ Plans:
 
 **Wave 5** *(current)*
 
-- [ ] 01-14-PLAN.md (Wave 5) — Complete LAB-CLIENT01 initial/replacement enrollment, DPAPI credential custody, device mTLS, revocation proof, and redacted health
+- [x] 01-14-PLAN.md (Wave 5) — Complete LAB-CLIENT01 initial/replacement enrollment, DPAPI credential custody, device mTLS, revocation proof, and redacted health
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -135,7 +135,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 3/11 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 5/11 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |
