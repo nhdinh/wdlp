@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 11
+open_count: 16
 waived_count: 0
 fixed_count: 1
-total_count: 12
-last_updated: 2026-08-12T03:55:38.004Z
+total_count: 17
+last_updated: 2026-08-12T04:56:49.047Z
 ---
 
 # Broken Windows Ledger
@@ -27,6 +27,11 @@ last_updated: 2026-08-12T03:55:38.004Z
 | 10 | 01 | unrun-verify | scripts/verify-phase1-evidence.ps1 |  | ConfigurationCache evidence scenario is not implemented in verify-phase1-evidence.ps1 ValidateSet | open |  | 2026-08-12T01:50:17.760Z |  |
 | 11 | 01 | stub | crates/dlp-server/src/routes.rs |  | Returns a real provisioning response, but the underlying AdminProvisioningService still delegates to the stub PgAuthorityRepository::provision until Plan 01-13 runtime evidence validates the full PostgreSQL transaction. | open |  | 2026-08-12T03:55:21.976Z |  |
 | 12 | 01 | stub | scripts/lab/Invoke-TrustedProvisioning.ps1 |  | The script invokes dlpctl provision-device, but real DC/WinRM/database mutation is reserved for Plan 01-13. | open |  | 2026-08-12T03:55:38.004Z |  |
+| 13 | 01 | stub | tests/windows/Invoke-AgentServiceSmoke.ps1 | 162 | ConfigurationCache smoke scenario stops at runtime gate configuration_cache_runtime_blocked pending LAB-CLIENT01 runtime token and VM reachability | open |  | 2026-08-12T04:56:43.644Z |  |
+| 14 | 01 | stub | tests/windows/Invoke-AgentServiceSmoke.ps1 | 150 | InitialEnrollmentCredential smoke scenario stops at enrollment_endpoint_stub_503 pending LAB-CLIENT01 enrollment endpoint runtime | open |  | 2026-08-12T04:56:44.989Z |  |
+| 15 | 01 | stub | tests/windows/Invoke-AgentServiceSmoke.ps1 | 155 | ReplacementRevocation smoke scenario stops at enrollment_endpoint_stub_503 pending LAB-CLIENT01 enrollment endpoint runtime | open |  | 2026-08-12T04:56:46.375Z |  |
+| 16 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ServiceRestart runtime smoke not executed due to missing runtime token and VM reachability | open |  | 2026-08-12T04:56:47.762Z |  |
+| 17 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ConfigurationCache runtime smoke not executed due to missing runtime token and VM reachability | open |  | 2026-08-12T04:56:49.047Z |  |
 
 ````json
 [
@@ -172,6 +177,66 @@ last_updated: 2026-08-12T03:55:38.004Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T03:55:38.004Z",
+    "resolved_at": null
+  },
+  {
+    "id": 13,
+    "kind": "stub",
+    "phase": "01",
+    "file": "tests/windows/Invoke-AgentServiceSmoke.ps1",
+    "line": 162,
+    "description": "ConfigurationCache smoke scenario stops at runtime gate configuration_cache_runtime_blocked pending LAB-CLIENT01 runtime token and VM reachability",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T04:56:43.644Z",
+    "resolved_at": null
+  },
+  {
+    "id": 14,
+    "kind": "stub",
+    "phase": "01",
+    "file": "tests/windows/Invoke-AgentServiceSmoke.ps1",
+    "line": 150,
+    "description": "InitialEnrollmentCredential smoke scenario stops at enrollment_endpoint_stub_503 pending LAB-CLIENT01 enrollment endpoint runtime",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T04:56:44.989Z",
+    "resolved_at": null
+  },
+  {
+    "id": 15,
+    "kind": "stub",
+    "phase": "01",
+    "file": "tests/windows/Invoke-AgentServiceSmoke.ps1",
+    "line": 155,
+    "description": "ReplacementRevocation smoke scenario stops at enrollment_endpoint_stub_503 pending LAB-CLIENT01 enrollment endpoint runtime",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T04:56:46.375Z",
+    "resolved_at": null
+  },
+  {
+    "id": 16,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": "tests/windows/Invoke-AgentServiceSmoke.ps1",
+    "line": null,
+    "description": "LAB-CLIENT01 ServiceRestart runtime smoke not executed due to missing runtime token and VM reachability",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T04:56:47.762Z",
+    "resolved_at": null
+  },
+  {
+    "id": 17,
+    "kind": "unrun-verify",
+    "phase": "01",
+    "file": "tests/windows/Invoke-AgentServiceSmoke.ps1",
+    "line": null,
+    "description": "LAB-CLIENT01 ConfigurationCache runtime smoke not executed due to missing runtime token and VM reachability",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T04:56:49.047Z",
     "resolved_at": null
   }
 ]
