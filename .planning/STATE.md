@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: "Paused 01-13-PLAN.md at Task 1 precondition: runtime secret provider unavailable"
-last_updated: "2026-08-11T07:29:17.898Z"
+stopped_at: "Halted 01-18-PLAN.md at runtime verification: missing smoke-test script and evidence scenario"
+last_updated: "2026-08-12T01:52:03.185Z"
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 11
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -49,6 +49,7 @@ progress:
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 20m | 3 tasks | 9 files |
 | Phase 01-first-encrypted-drive-vertical-slice P22 | 40m | 2 tasks | 9 files |
 | Phase 01-first-encrypted-drive-vertical-slice P23 | 55m | 3 tasks | 12 files |
+| Phase 01-first-encrypted-drive-vertical-slice P18 | 65 | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -68,10 +69,10 @@ progress:
 
 ## Session Continuity
 
-**Resume file:** 01-13-PLAN.md
+**Resume file:** 01-18-PLAN.md
 
-**Last session:** 2026-08-11T07:29:16.544Z
-**Stopped at:** Paused 01-13-PLAN.md at Task 1 precondition: runtime secret provider unavailable
+**Last session:** 2026-08-12T01:52:03.152Z
+**Stopped at:** Halted 01-18-PLAN.md at runtime verification: missing smoke-test script and evidence scenario
 
 - Last action: Split previously implicit server authority and trusted provisioning into source-complete Plans 01-22/01-23, made 01-13 execute dual-DC plus Kerberos WinRM-over-HTTPS provisioning before 01-14 enrollment, narrowed 01-14 to client-owned files, and made every automated verification fail closed. Eleven replacement plans now form eleven acyclic waves while all D-01 through D-50, 30 Phase 1 requirements, privilege/evidence controls, and nine historical summaries remain preserved.
 
@@ -99,8 +100,12 @@ progress:
 - [Phase 01]: Plan 01-22 source tests do not substitute for LAB-DC01 PostgreSQL transaction evidence required by Plan 01-13.
 - [Phase 01]: Bootstrap peer identity may be absent only at the TLS boundary; administrator and device route middleware require verified certificate roles.
 - [Phase 01]: Trusted provisioning uses the approved reqwest@0.13.4 boundary and hands tokens only to a runtime secret provider.
+- [Phase ?]: 01-18: Use explicit binary wire format for cached bundles to avoid adding new dependencies and preserve the approved Cargo.lock
+- [Phase ?]: 01-18: Perform schema-version rejection during wire deserialization before signature verification
+- [Phase ?]: 01-18: Keep directory sync best-effort in portable dlp-agent-core; Windows-specific directory flush injected by service crate
 
 ### Blockers
 
 - Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 and LAB-SERVER01 without command-line disclosure. Hyper-V VMs LAB-DC01, LAB-DC02, LAB-CLIENT01, and the newly designated LAB-SERVER01 are required; required `DLP_*` environment variables or an equivalent runtime secret provider are absent.
 - Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 and LAB-SERVER01 without command-line disclosure. Required DLP_* environment variables or equivalent runtime secret provider are absent.
+- 01-18 runtime verification blocked: tests/windows/Invoke-AgentServiceSmoke.ps1 does not exist and scripts/verify-phase1-evidence.ps1 lacks ConfigurationCache scenario
