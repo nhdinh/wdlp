@@ -7,13 +7,11 @@
 
 use dlp_domain::DeviceId;
 use dlp_protocol::HealthReportV1;
-use x509_parser::{
-    extensions::GeneralName,
-    parse_x509_certificate,
-};
+use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 const ENROLLMENT_URL_PATH: &str = "/api/v1/enrollment";
 const HEALTH_URL_PATH: &str = "/api/v1/device/health";
+const CONFIGURATION_URL_PATH: &str = "/api/v1/device/configuration";
 const MAX_BODY_BYTES: usize = 256 * 1024;
 const EXPECTED_DAYS: u64 = 30;
 const EXPECTED_SECONDS: u64 = EXPECTED_DAYS * 24 * 60 * 60;
@@ -64,6 +62,7 @@ pub struct ValidatedDeviceIdentity {
     pub expires_after_epoch_seconds: u64,
 }
 
+#[derive(Clone)]
 pub struct AgentHttpClient {
     server_url: String,
     root_pem: String,
@@ -171,7 +170,8 @@ impl AgentHttpClient {
                     .collect::<String>()
             }),
         };
-        let body = serde_json::to_string(&request_body).map_err(|_| ClientError::InvalidResponse)?;
+        let body =
+            serde_json::to_string(&request_body).map_err(|_| ClientError::InvalidResponse)?;
 
         let response = client
             .post(&url)
@@ -182,14 +182,12 @@ impl AgentHttpClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestDenied);
         }
-        let text = response
-            .text()
-            .map_err(|_| ClientError::InvalidResponse)?;
+        let text = response.text().map_err(|_| ClientError::InvalidResponse)?;
         if text.len() > MAX_BODY_BYTES {
             return Err(ClientError::InvalidResponse);
         }
-        let enrollment: EnrollmentResponseBody = serde_json::from_str(&text)
-            .map_err(|_| ClientError::InvalidResponse)?;
+        let enrollment: EnrollmentResponseBody =
+            serde_json::from_str(&text).map_err(|_| ClientError::InvalidResponse)?;
         validate_device_chain(device_id, &enrollment.credential_chain, &self.root_pem)
     }
 
@@ -219,7 +217,10 @@ impl AgentHttpClient {
         Ok(())
     }
 
-    fn build_client(&self, require_device_identity: bool) -> Result<reqwest::blocking::Client, ClientError> {
+    pub(crate) fn build_client(
+        &self,
+        require_device_identity: bool,
+    ) -> Result<reqwest::blocking::Client, ClientError> {
         let mut builder = reqwest::blocking::Client::builder()
             .https_only(true)
             .add_root_certificate(
@@ -362,6 +363,43 @@ fn validate_device_chain(
     })
 }
 
+/// Device-mTLS transport for fetching signed configuration bytes.
+///
+/// This is the production implementation of `ConfigurationTransport` used by the
+/// Windows service. It reuses the pinned bootstrap root and device identity from
+/// `AgentHttpClient` so the trust boundary stays in one place.
+pub struct AgentConfigurationTransport {
+    client: reqwest::blocking::Client,
+    url: String,
+}
+
+impl AgentConfigurationTransport {
+    /// Builds a transport only when `client` has a loaded device identity.
+    pub fn new(client: &AgentHttpClient) -> Result<Self, ClientError> {
+        let url = format!("{}{}", client.server_url, CONFIGURATION_URL_PATH);
+        let client = client.build_client(true)?;
+        Ok(Self { client, url })
+    }
+}
+
+impl ConfigurationTransport for AgentConfigurationTransport {
+    fn fetch_configuration(&mut self) -> Result<Vec<u8>, ClientError> {
+        let response = self
+            .client
+            .get(&self.url)
+            .send()
+            .map_err(|_| ClientError::NetworkUnavailable)?;
+        if !response.status().is_success() {
+            return Err(ClientError::ConfigurationFetchFailed);
+        }
+        let bytes = response.bytes().map_err(|_| ClientError::InvalidResponse)?;
+        if bytes.len() > MAX_BODY_BYTES {
+            return Err(ClientError::InvalidResponse);
+        }
+        Ok(bytes.to_vec())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,7 +419,11 @@ mod tests {
 
     #[test]
     fn device_mtls_requires_material() {
-        let client = AgentHttpClient::bootstrap("https://server", "-----BEGIN CERTIFICATE-----\nMIIBkA==\n-----END CERTIFICATE-----").unwrap();
+        let client = AgentHttpClient::bootstrap(
+            "https://server",
+            "-----BEGIN CERTIFICATE-----\nMIIBkA==\n-----END CERTIFICATE-----",
+        )
+        .unwrap();
         assert_eq!(
             client.with_device_identity("", "").unwrap_err(),
             ClientError::MissingDeviceCredential

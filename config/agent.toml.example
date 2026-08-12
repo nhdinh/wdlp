@@ -1,0 +1,52 @@
+# Example agent configuration for the DLP Windows service.
+# This file is secret-free. Runtime-sensitive values (enrollment token, device
+# identity, DPAPI-protected credentials, signing keys) are supplied by the
+# endpoint runtime provider and never committed to source control.
+
+[server]
+# HTTPS endpoint of the management server. Must match the DNS SAN in the server certificate.
+hostname = "dlp.lab.local"
+# Port exposed by the server (8443 in the reference Docker Compose file).
+port = 8443
+# Path to the pinned Phase 1 public root CA certificate (PEM). The private root key
+# must never be present on the endpoint.
+public_root_path = "C:/ProgramData/DLP/root-ca.pem"
+
+[service]
+# Human-readable service display name.
+name = "DLP Agent"
+# Windows service identity. The service runs as NT AUTHORITY/SYSTEM and is granted
+# a service SID so the DPAPI blob ACL can restrict access.
+account = "NT AUTHORITY\\SYSTEM"
+# Automatic startup so the drive can mount without an interactive sign-in.
+start_type = "auto"
+
+[paths]
+# Directory for DPAPI-protected machine credentials and other durable service state.
+data = "C:/ProgramData/DLP/agent"
+# Directory for the content-addressed signed-configuration cache (current/LKG).
+cache = "C:/ProgramData/DLP/cache"
+# Optional staging area for downloads before atomic activation.
+staging = "C:/ProgramData/DLP/staging"
+
+[polling]
+# Seconds between configuration polls when healthy.
+interval = 300
+# Seconds between health posts.
+health_interval = 60
+# Minimum seconds to wait before retrying after a transient failure.
+min_backoff = 30
+# Maximum seconds to wait between retries.
+max_backoff = 3600
+
+[mount]
+# Preferred drive letter for the protected volume. The service selects the next
+# available letter if this one is occupied.
+preferred_drive_letter = "P"
+# Grace period in seconds for existing handles after a user signs out before unmount.
+sign_out_grace_seconds = 30
+
+[diagnostics]
+# All diagnostic output uses stable redacted codes; no secrets, tokens, private
+# keys, certificate material, or raw fingerprint sources are logged.
+redacted_codes = true

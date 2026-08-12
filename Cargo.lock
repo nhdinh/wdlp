@@ -740,7 +740,10 @@ name = "dlp-windows-service"
 version = "0.1.0"
 dependencies = [
  "dlp-agent-core",
+ "dlp-crypto",
+ "dlp-domain",
  "sha2 0.11.0",
+ "tokio",
  "windows 0.62.2",
  "windows-service",
  "zeroize",

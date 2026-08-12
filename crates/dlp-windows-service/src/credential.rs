@@ -9,7 +9,7 @@ use dlp_agent_core::EnrollmentCredentialStore;
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 use zeroize::Zeroize;
 
@@ -164,10 +164,11 @@ pub trait CredentialStore: Send + Sync {
     fn validate_protection(&self) -> Result<bool, CredentialError>;
 }
 
+#[derive(Clone)]
 pub struct DpapiCredentialStore {
     directory: PathBuf,
     path: PathBuf,
-    lock: Mutex<()>,
+    lock: Arc<Mutex<()>>,
 }
 
 impl DpapiCredentialStore {
@@ -177,7 +178,7 @@ impl DpapiCredentialStore {
         Ok(Self {
             path: directory.join("device.dpapi"),
             directory,
-            lock: Mutex::new(()),
+            lock: Arc::new(Mutex::new(())),
         })
     }
     pub fn path(&self) -> &Path {
@@ -207,7 +208,11 @@ impl CredentialStore for DpapiCredentialStore {
         let validated = DeviceCredential::decode(&plain)?;
         let ok = !validated.private_key.is_empty();
         plain.zeroize();
-        if ok { Ok(()) } else { Err(CredentialError::Integrity) }
+        if ok {
+            Ok(())
+        } else {
+            Err(CredentialError::Integrity)
+        }
     }
 
     fn load(&self) -> Result<DeviceCredential, CredentialError> {
@@ -250,14 +255,14 @@ impl EnrollmentCredentialStore for DpapiCredentialStore {
         let credential = self
             .load()
             .map_err(|_| dlp_agent_core::EnrollmentError::CredentialUnavailable)?;
-        Ok(dlp_agent_core::EnrollmentCredential::new(
+        dlp_agent_core::EnrollmentCredential::new(
             credential.device_id.clone(),
             credential.private_key.clone(),
             String::from_utf8_lossy(&credential.certificate_chain).into_owned(),
             credential.serial.clone(),
             credential.expires_after_days,
         )
-        .map_err(|_| dlp_agent_core::EnrollmentError::CredentialUnavailable)?)
+        .map_err(|_| dlp_agent_core::EnrollmentError::CredentialUnavailable)
     }
 
     fn save_credential(
@@ -325,14 +330,13 @@ fn enforce_acl(path: &Path) -> Result<(), CredentialError> {
         use windows::{
             Win32::{
                 Foundation::{GENERIC_ALL, LocalFree},
+                Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW},
                 Security::{
                     ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, AddAccessAllowedAce,
-                    DACL_SECURITY_INFORMATION, InitializeAcl,
-                    OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
-                    PROTECTED_DACL_SECURITY_INFORMATION, PSID,
+                    DACL_SECURITY_INFORMATION, InitializeAcl, OBJECT_SECURITY_INFORMATION,
+                    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSID,
                     SECURITY_MAX_SID_SIZE,
                 },
-                Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT},
             },
             core::PCWSTR,
         };
@@ -392,7 +396,7 @@ fn validate_acl(path: &Path) -> Result<(), CredentialError> {
                 Foundation::LocalFree,
                 Security::{
                     Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT},
-                    EqualSid, OWNER_SECURITY_INFORMATION, PSID, PSECURITY_DESCRIPTOR,
+                    EqualSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
                 },
             },
             core::PCWSTR,
@@ -455,10 +459,10 @@ fn service_sid_buffer() -> Result<Vec<u8>, CredentialError> {
         use windows::{
             Win32::{
                 Foundation::{CloseHandle, HANDLE, LocalFree},
+                Security::Authorization::ConvertSidToStringSidW,
                 Security::{
                     GetLengthSid, GetTokenInformation, TOKEN_GROUPS, TOKEN_QUERY, TokenGroups,
                 },
-                Security::Authorization::ConvertSidToStringSidW,
                 System::Threading::{GetCurrentProcess, OpenProcessToken},
             },
             core::PWSTR,
@@ -480,7 +484,7 @@ fn service_sid_buffer() -> Result<Vec<u8>, CredentialError> {
         let groups = &*(buffer.as_ptr() as *const TOKEN_GROUPS);
         let base = groups.Groups.as_ptr();
         for i in 0..groups.GroupCount {
-            let entry = &*(base.add(i as usize) as *const windows::Win32::Security::SID_AND_ATTRIBUTES);
+            let entry = &*base.add(i as usize);
             let sid = entry.Sid;
             let mut string_sid = PWSTR::null();
             if ConvertSidToStringSidW(sid, &mut string_sid).is_ok() {

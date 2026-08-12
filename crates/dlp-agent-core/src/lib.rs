@@ -15,7 +15,9 @@ pub mod config_cache;
 pub mod enrollment;
 pub mod health;
 
-pub use client::{AgentHttpClient, ClientError, ConfigurationTransport};
+pub use client::{
+    AgentConfigurationTransport, AgentHttpClient, ClientError, ConfigurationTransport,
+};
 pub use config_cache::{
     ActivationOutcome, CacheError, CachePointers, ConfigurationCache,
     deserialize_signed_configuration, serialize_signed_configuration,

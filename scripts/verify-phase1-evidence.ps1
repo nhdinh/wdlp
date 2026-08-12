@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-SERVER01', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -219,6 +219,36 @@ function Invoke-ReplacementRevocation {
     Assert-Phase1 ($server -match 'consume_and_activate' -and $server -match 'prior_serial') 'server replacement transaction contract is incomplete'
 }
 
+function Invoke-ConfigurationCache {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'ConfigurationCache verifier must run on hungdinh-lt'
+    $service = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/service.rs') -Raw
+    $cache = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-agent-core/src/config_cache.rs') -Raw
+    $client = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-agent-core/src/client.rs') -Raw
+    Assert-Phase1 ($service -match 'ConfigurationCache' -and $service -match 'load_pointers' -and $service -match 'stage_verify_activate') 'service does not load and activate the signed configuration cache'
+    Assert-Phase1 ($cache -match 'current_digest' -and $cache -match 'lkg_digest' -and $cache -match 'monotonic') 'configuration cache lacks current/LKG pointer semantics'
+    Assert-Phase1 ($client -match 'AgentConfigurationTransport' -and $client -match 'ConfigurationTransport') 'device-mTLS configuration transport is incomplete'
+    $smoke = Get-Content -LiteralPath (Join-Path $repoRoot 'tests/windows/Invoke-AgentServiceSmoke.ps1') -Raw
+    Assert-Phase1 ($smoke -match "'ConfigurationCache'") 'smoke test lacks ConfigurationCache scenario'
+}
+
+function Invoke-ServiceRestart {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'ServiceRestart verifier must run on hungdinh-lt'
+    $service = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/service.rs') -Raw
+    $main = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/main.rs') -Raw
+    $fingerprint = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/fingerprint.rs') -Raw
+    $toml = Get-Content -LiteralPath (Join-Path $repoRoot 'config/agent.toml.example') -Raw
+    $smoke = Get-Content -LiteralPath (Join-Path $repoRoot 'tests/windows/Invoke-AgentServiceSmoke.ps1') -Raw
+    Assert-Phase1 ($service -match 'ServiceControlAccept::STOP' -and $service -match 'ServiceControlAccept::SHUTDOWN' -and $service -match 'SESSION_CHANGE') 'service does not register Stop, Shutdown, and session-change controls'
+    Assert-Phase1 ($service -match 'StartPending' -and $service -match 'Running' -and $service -match 'Stopped' -and $service -match 'checkpoint' -and $service -match 'wait_hint') 'service does not report accurate pending/running/stopped states'
+    Assert-Phase1 ($service -match 'tokio::runtime::Runtime::new' -and $service -match 'shutdown_timeout') 'service does not create and stop a Tokio runtime'
+    Assert-Phase1 ($service -match 'DpapiCredentialStore' -and $service -match 'ConfigurationCache' -and $service -match 'AgentHttpClient' -and $service -match 'EnrollmentCoordinator' -and $service -match 'HealthSnapshot') 'service does not compose enrollment, client, cache, and health components'
+    Assert-Phase1 ($main -match 'run_scm_service') 'main.rs does not preserve the SCM dispatcher'
+    Assert-Phase1 ($fingerprint -match 'GetSystemFirmwareTable' -and $fingerprint -match 'DeviceIoControl' -and $fingerprint -match 'smbios_system_uuid' -and $fingerprint -match 'system_disk_serial') 'fingerprint collector is not Windows-native'
+    Assert-Phase1 ($fingerprint -notmatch 'MAC' -and $fingerprint -notmatch 'network adapter' -and $fingerprint -notmatch 'Get-WmiObject') 'fingerprint collector accepts MAC addresses or uses PowerShell'
+    Assert-Phase1 ($toml -match 'hostname' -and $toml -match 'public_root_path' -and $toml -match 'cache' -and $toml -match 'polling' -and $toml -match 'service') 'agent.toml.example is incomplete'
+    Assert-Phase1 ($smoke -match "'ServiceRestart'") 'smoke test lacks ServiceRestart scenario'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
@@ -234,6 +264,8 @@ switch ($Scenario) {
     'TrustedProvisioningApproved' { Invoke-TrustedProvisioningApproved }
     'InitialEnrollmentCredential' { Invoke-InitialEnrollmentCredential }
     'ReplacementRevocation' { Invoke-ReplacementRevocation }
+    'ConfigurationCache' { Invoke-ConfigurationCache }
+    'ServiceRestart' { Invoke-ServiceRestart }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
