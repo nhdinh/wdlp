@@ -1,5 +1,10 @@
 //! Pinned-bootstrap and device-mTLS client configuration guard.
 
+/// Transport port for fetching signed configuration bytes through device mTLS.
+pub trait ConfigurationTransport {
+    fn fetch_configuration(&mut self) -> Result<Vec<u8>, ClientError>;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AgentHttpClient {
     server_url: String,
@@ -12,6 +17,7 @@ pub enum ClientError {
     InvalidServerUrl,
     InvalidTrustAnchor,
     MissingDeviceCredential,
+    ConfigurationFetchFailed,
 }
 impl AgentHttpClient {
     pub fn bootstrap(
@@ -49,5 +55,20 @@ impl AgentHttpClient {
     }
     pub fn timeout_seconds(&self) -> u64 {
         self.timeout_seconds
+    }
+
+    /// Polls a signed configuration only when a device-mTLS identity is present.
+    ///
+    /// The transport implementation is responsible for TLS identity, server
+    /// authentication, and exact-byte retrieval; this method is the guard that
+    /// refuses to fetch without device credentials.
+    pub fn poll_configuration<T: ConfigurationTransport>(
+        &self,
+        transport: &mut T,
+    ) -> Result<Vec<u8>, ClientError> {
+        if !self.device_mtls {
+            return Err(ClientError::MissingDeviceCredential);
+        }
+        transport.fetch_configuration()
     }
 }
