@@ -43,7 +43,7 @@ metrics:
 actuals:
   tokens: 12802
   tasks: 2
-  commits: 2
+  commits: 4
 ---
 
 # Phase 1 Plan 14: LAB-CLIENT01 Enrollment, DPAPI Custody, and Device mTLS Summary
@@ -104,5 +104,5 @@ None.
 ## Self-Check: PASSED
 
 - `01-14-SUMMARY.md` created.
-- Commits `cb63d57` and `73fbfd6` exist on branch `worktree-agent-a86e1ff249002bbcd`.
+- Commits `cb63d57`, `73fbfd6`, `3aa7ac0`, and `8efca79` exist on branch `worktree-agent-a86e1ff249002bbcd`.
 - Modified source files exist and compile.
