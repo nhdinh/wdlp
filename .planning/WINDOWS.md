@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 10
 waived_count: 0
 fixed_count: 4
-total_count: 13
-last_updated: 2026-08-11T15:30:15.707Z
+total_count: 14
+last_updated: 2026-08-12T01:06:57.350Z
 ---
 
 # Broken Windows Ledger
@@ -28,6 +28,7 @@ last_updated: 2026-08-11T15:30:15.707Z
 | 11 | 01 | stub | crates/dlp-server/src/lib.rs | 92 | Server listen address is hardcoded to 127.0.0.1:8080; no reachable TLS listener exists for LAB-CLIENT01 probes. | fixed |  | 2026-08-11T12:02:50.143Z | 2026-08-11T15:30:13.945Z |
 | 12 | 01 | unrun-verify | scripts/verify-phase1-evidence.ps1 | 4 | verify-phase1-evidence.ps1 does not support Dc01Tracer, Dc01Postgres, or TrustedProvisioningApproved scenarios referenced by the plan. | fixed |  | 2026-08-11T12:02:52.338Z | 2026-08-11T15:30:15.707Z |
 | 13 | 1 | unrun-verify | scripts/lab/Invoke-Dc01Server.ps1 | 600 | TrustedProvisioning scenario cannot run because AD/LDAPS runtime secrets (DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, DLP_AD_CA_CERT_PEM) are not present in the runtime provider | open |  | 2026-08-11T15:28:54.988Z |  |
+| 14 | 1 | stub | crates/dlp-server/src/routes.rs |  | Server /api/v1/enrollment route returns 503 until Plans 01-22/01-23 wire the endpoint | open |  | 2026-08-12T01:06:57.350Z |  |
 
 ````json
 [
@@ -185,6 +186,18 @@ last_updated: 2026-08-11T15:30:15.707Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-11T15:28:54.988Z",
+    "resolved_at": null
+  },
+  {
+    "id": 14,
+    "kind": "stub",
+    "phase": "1",
+    "file": "crates/dlp-server/src/routes.rs",
+    "line": null,
+    "description": "Server /api/v1/enrollment route returns 503 until Plans 01-22/01-23 wire the endpoint",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T01:06:57.350Z",
     "resolved_at": null
   }
 ]
