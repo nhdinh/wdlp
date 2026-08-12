@@ -1,35 +1,33 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-11T15:49:01.084Z",
+  "timestamp": "2026-08-12T04:07:01.019Z",
   "phase": "01-first-encrypted-drive-vertical-slice",
   "phase_name": "first-encrypted-drive-vertical-slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
-  "plan": 13,
+  "plan": 23,
   "task": 3,
   "total_tasks": 3,
   "status": "paused",
   "completed_tasks": [
-    {"id": 1, "name": "Reconcile machine roles and serve one LAB-DC01 readiness path", "status": "done", "commits": ["a3d5ceb", "42e9765", "df329d3", "784dff8", "b5f08c9", "2435b27", "277c415", "7744eae", "c54f66f", "135e1a0", "48500f0", "5296e1c", "2abe8bf", "62d7797"]},
-    {"id": 2, "name": "Prove LAB-SERVER01 PostgreSQL migration idempotency, concurrency, and readiness through LAB-DC01", "status": "done", "commits": ["bf3c941", "92974eb", "46cad90"]}
+    {"id": 1, "name": "Wire production route/TLS/provider composition", "status": "done", "commits": ["26e4d04"]},
+    {"id": 2, "name": "Complete typed administrator-mTLS provisioning client", "status": "done", "commits": ["e3358ca"]},
+    {"id": 3, "name": "Complete LAB-DC01 dual-DC Kerberos provisioning preflight", "status": "done", "commits": ["2d80f27", "b43521f"]}
   ],
   "remaining_tasks": [
-    {"id": 3, "name": "Execute trusted LAB-CLIENT01 provisioning on LAB-DC01 before enrollment", "status": "not_started"}
+    {"id": 1, "name": "Resolve Plan 01-18 halt so Wave 7 can execute", "status": "not_started"},
+    {"id": 2, "name": "Execute Plan 01-19 (Wave 7): service installation, fingerprint, restart evidence", "status": "not_started"},
+    {"id": 3, "name": "Execute Plans 01-15, 01-20, 01-16, 01-21 (Waves 8-11)", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "Task 3 requires AD/LDAPS runtime secrets that are not present in the runtime provider.", "type": "human_action", "workaround": "Set DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, and DLP_AD_CA_CERT_PEM in the runtime secret provider (environment/session variables or secure vault)."}
+    {"description": "Plan 01-18 is halted with runtime verification blocked by missing tests/windows/Invoke-AgentServiceSmoke.ps1 ConfigurationCache scenario and missing scripts/verify-phase1-evidence.ps1 ConfigurationCache ValidateSet entry. This blocks 01-19 and all later plans in GSD wave ordering.", "type": "technical", "workaround": "Either run /gsd-execute-plan 01-19 directly (it creates the missing artifacts) or create a gap-closure plan (01-24) to add the missing smoke-test/evidence artifacts so 01-18 can be marked complete, then re-run /gsd-execute-phase 1."}
   ],
   "async_jobs": [],
-  "human_actions_pending": [
-    {"action": "Provide AD/LDAPS runtime secrets for the Phase 1 lab.", "context": "Invoke-Dc01Server.ps1 -Scenario TrustedProvisioning aborts at Assert-RuntimeAdSecretsPresent because DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, and DLP_AD_CA_CERT_PEM are missing. DLP_AD_BIND_PASSWORD is already present.", "blocking": true},
-    {"action": "Confirm LAB-CLIENT01 is domain-joined and reachable by FQDN from LAB-DC01 over Kerberos WinRM-over-HTTPS.", "context": "Task 3 requires dual-DC AD corroboration and Kerberos WinRM HTTPS fingerprint collection from LAB-CLIENT01.", "blocking": true}
-  ],
+  "human_actions_pending": [],
   "decisions": [
-    {"decision": "Management server runs on LAB-DC01; PostgreSQL remains native on LAB-SERVER01.", "rationale": "User clarified the correct topology: LAB-SERVER01 is Ubuntu with native PostgreSQL, LAB-DC01 hosts the management server.", "phase": "01"},
-    {"decision": "Made dlp-server listen address configurable via DLP_LISTEN_ADDRESS.", "rationale": "Default localhost binding blocked remote readiness probes from LAB-CLIENT01; configuration enables LAB-DC01 to expose 0.0.0.0:8443.", "phase": "01"},
-    {"decision": "Added Reset-DlpPostgres.py helper for LAB-SERVER01 database reset via SSH/sudo.", "rationale": "pg_hba.conf blocked remote postgres database access; SSH to dlpadmin account allows sudo -u postgres psql for fresh migration tests.", "phase": "01"},
-    {"decision": "Made server enrollment integration tests self-contained with deterministic PKI fixtures.", "rationale": "Tests previously relied on pre-existing env var paths and fixture directories; now generate target/01-07-pki/ at test time from PEM content without committing secrets.", "phase": "01"}
+    {"decision": "Re-opened Plan 01-23 to complete production server route wiring.", "rationale": "Plan 01-18 was halted and all remaining plans were blocked because /api/v1/enrollment and /api/v1/admin/provisioning returned 503 stubs. 01-23 was the plan that owned production route/provider composition.", "phase": "01"},
+    {"decision": "Merged 01-23 worktree to master and removed the temporary worktree.", "rationale": "Source tests, clippy, and evidence checks passed; the merge conflict in STATE.md and the modify/delete conflict for 01-23-SUMMARY.md were resolved by taking the worktree versions.", "phase": "01"}
   ],
   "uncommitted_files": [],
-  "next_action": "Provide the missing AD/LDAPS runtime secrets, confirm LAB-CLIENT01 domain join and Kerberos WinRM-over-HTTPS reachability, then run Invoke-Dc01Server.ps1 -Scenario TrustedProvisioning from hungdinh-lt.",
-  "context_notes": "Plan 01-13 Tasks 1 and 2 are complete and verified on the worktree branch worktree-agent-a6c91c34fcca46478. The worktree has not been merged to master. STATE.md and ROADMAP.md were intentionally not updated by the executor. Task 3 is purely blocked by missing AD/LDAPS runtime configuration, not by code defects."
+  "next_action": "Resolve the 01-18 halt. Recommended path: create a small gap-closure plan (01-24) that adds the ConfigurationCache scenario to tests/windows/Invoke-AgentServiceSmoke.ps1 and scripts/verify-phase1-evidence.ps1, then mark 01-18 runtime verification complete and re-run /gsd-execute-phase 1. Alternative: run /gsd-execute-plan 01-19 directly if you accept bypassing the wave-level blocked_by gate.",
+  "context_notes": "The 01-23 subagent completed all three tasks and produced four commits. The merge to master is clean. The only remaining obstacle before Wave 7 execution is the 01-18 halted state in GSD's plan index. Once that is resolved, 01-19 and the rest of the phase should be dispatchable."
 }
