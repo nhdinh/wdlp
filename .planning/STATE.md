@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: "Halted 01-18-PLAN.md at runtime verification: missing smoke-test script and evidence scenario"
-last_updated: "2026-08-12T02:05:00.000Z"
+stopped_at: Completed 01-23-PLAN.md
+last_updated: "2026-08-12T03:58:53.201Z"
 progress:
   total_phases: 1
   completed_phases: 0
@@ -23,9 +23,9 @@ progress:
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 18 of 11 — source complete; runtime verification blocked
-- **Task**: 1 of 1
-- **Status**: In progress
+- **Plan**: 23 of 11 — complete
+- **Task**: 3 of 3
+- **Status**: Complete
 - **Progress**: 55%
 - **Next plan**: 01-19 (Wave 7)
 - **Topology update**: PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning.
@@ -49,10 +49,10 @@ progress:
 | Phase 01-first-encrypted-drive-vertical-slice P10 | 48min | 2 tasks | 14 files |
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 20m | 3 tasks | 9 files |
 | Phase 01-first-encrypted-drive-vertical-slice P22 | 40m | 2 tasks | 9 files |
-| Phase 01-first-encrypted-drive-vertical-slice P23 | 55m | 2 tasks | 12 files |
 | Phase 01-first-encrypted-drive-vertical-slice P13 | 4h | 3 tasks | 14 files |
 | Phase 01-first-encrypted-drive-vertical-slice P14 | 2h | 2 tasks | 9 files |
 | Phase 01-first-encrypted-drive-vertical-slice P18 | 65min | 1 tasks | 6 files |
+| Phase 01-first-encrypted-drive-vertical-slice P23 | 45m | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -75,21 +75,23 @@ progress:
 
 ## Session Continuity
 
-**Resume file:** 01-18-PLAN.md
+**Resume file:** 01-23-PLAN.md
 
-**Last session:** 2026-08-12T02:05:00Z
-**Stopped at:** Halted 01-18-PLAN.md at runtime verification: missing smoke-test script and evidence scenario.
+**Last session:** 2026-08-12T04:00:00Z
+**Stopped at:** Completed 01-23-PLAN.md.
 
 **Current session:** 2026-08-12
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
 
-- Last action: Merged source-complete 01-14 enrollment/DPAPI/mTLS work and reconciled 01-18 configuration-cache worktree with 01-14 client enrollment code. Source tests pass; runtime smoke tests blocked by missing lab artifacts.
+- Last action: Committed Tasks 1-3 of Plan 01-23 (production route/TLS/provider wiring, typed mTLS provisioning client, and LAB-DC01 dual-DC Kerberos preflight). Source tests, clippy, and evidence checks passed.
 
-### Completed Plan 01-18 Evidence
+### Completed Plan 01-23 Evidence
 
-- `cargo test --locked -p dlp-agent-core --test enrollment_activation` (15 passed).
-- `cargo clippy --locked -p dlp-agent-core --all-targets -- -D warnings`.
-- `cargo test --locked -p dlp-agent-core -p dlp-windows-service`.
+- `cargo test --locked -p dlp-server --test server_enrollment` (20 passed).
+- `cargo clippy --locked -p dlp-server --all-targets -- -D warnings`.
+- `cargo test --locked -p dlpctl provisioning_` (6 passed).
+- `cargo tree --locked -p dlpctl -i reqwest@0.13.4`.
+- `ServerRouteSource`, `TrustedProvisioningClientSource`, and `TrustedProvisioningSource` evidence checks passed.
 
 ## Decisions
 
@@ -118,8 +120,10 @@ progress:
 - [Phase 01]: 01-18: Use explicit binary wire format for cached bundles to avoid adding new dependencies and preserve the approved Cargo.lock.
 - [Phase 01]: 01-18: Perform schema-version rejection during wire deserialization before signature verification.
 - [Phase 01]: 01-18: Keep directory sync best-effort in portable dlp-agent-core; Windows-specific directory flush injected by service crate.
+- [Phase 01]: 01-23: Return a versioned JSON provisioning response from the administrator route so the client validates device identity before token handoff.
+- [Phase 01]: 01-23: Remove the obsolete bearer-style `DLP_ADMIN_PROVISIONING_KEY` and document mTLS provisioning runtime-provider paths.
 
 ### Blockers
 
-- 01-14 LAB-CLIENT01 runtime scenarios blocked: runtime token missing and LAB-CLIENT01 unreachable from hungdinh-lt; server /api/v1/enrollment remains a 503 stub owned by Plans 01-22/01-23.
+- 01-14 LAB-CLIENT01 runtime scenarios blocked: runtime token missing and LAB-CLIENT01 unreachable from hungdinh-lt; server /api/v1/enrollment route source contract is now wired by Plan 01-23 but PostgreSQL transaction evidence remains for Plan 01-13.
 - 01-18 runtime verification blocked: `tests/windows/Invoke-AgentServiceSmoke.ps1` does not include a `ConfigurationCache` scenario and `scripts/verify-phase1-evidence.ps1` lacks the scenario in its `ValidateSet`.
