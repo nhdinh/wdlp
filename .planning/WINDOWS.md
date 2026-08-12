@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 10
+open_count: 9
 waived_count: 0
-fixed_count: 4
-total_count: 14
-last_updated: 2026-08-12T01:06:57.350Z
+fixed_count: 1
+total_count: 10
+last_updated: 2026-08-12T01:50:17.760Z
 ---
 
 # Broken Windows Ledger
@@ -23,12 +23,8 @@ last_updated: 2026-08-12T01:06:57.350Z
 | 6 | 01 | unrun-verify | migrations/202608070003_authenticated_routes.sql |  | PostgreSQL migration and readiness runtime evidence remain open under the user-authorized SQLite-only substitute. | open |  | 2026-08-10T06:45:29.791Z |  |
 | 7 | 01 | stub | crates/dlp-server/src/routes.rs |  | Bootstrap and administrator handlers return 503 until PgAuthorityRepository and EnrollmentService route-state wiring is completed. | open |  | 2026-08-10T12:53:32.551Z |  |
 | 8 | 01 | stub | crates/dlp-server/src/lib.rs |  | RuntimeRepository creates PostgreSQL adapters but protected routes still receive the in-memory RouteRepository adapter. | open |  | 2026-08-10T12:53:33.528Z |  |
-| 9 | 01 | stub | scripts/lab/Invoke-Dc01Server.ps1 | 203 | MigrationFailure checksum-drift injection is not implemented in source mode; currently throws checksum_drift_not_injected_in_source_mode. | fixed |  | 2026-08-11T11:21:30.848Z | 2026-08-11T15:29:58.995Z |
-| 10 | 01 | stub | scripts/lab/Invoke-Dc01Server.ps1 | 258 | TrustedProvisioning scenario only invokes Plan 01-23 preflight; it does not call dlpctl provision-device, create the PostgreSQL allowlist record, or perform runtime token handoff. | open |  | 2026-08-11T12:02:34.490Z |  |
-| 11 | 01 | stub | crates/dlp-server/src/lib.rs | 92 | Server listen address is hardcoded to 127.0.0.1:8080; no reachable TLS listener exists for LAB-CLIENT01 probes. | fixed |  | 2026-08-11T12:02:50.143Z | 2026-08-11T15:30:13.945Z |
-| 12 | 01 | unrun-verify | scripts/verify-phase1-evidence.ps1 | 4 | verify-phase1-evidence.ps1 does not support Dc01Tracer, Dc01Postgres, or TrustedProvisioningApproved scenarios referenced by the plan. | fixed |  | 2026-08-11T12:02:52.338Z | 2026-08-11T15:30:15.707Z |
-| 13 | 1 | unrun-verify | scripts/lab/Invoke-Dc01Server.ps1 | 600 | TrustedProvisioning scenario cannot run because AD/LDAPS runtime secrets (DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, DLP_AD_CA_CERT_PEM) are not present in the runtime provider | open |  | 2026-08-11T15:28:54.988Z |  |
-| 14 | 1 | stub | crates/dlp-server/src/routes.rs |  | Server /api/v1/enrollment route returns 503 until Plans 01-22/01-23 wire the endpoint | open |  | 2026-08-12T01:06:57.350Z |  |
+| 9 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ConfigurationCache smoke test script does not exist; runtime activation verification could not run | open |  | 2026-08-12T01:49:58.830Z |  |
+| 10 | 01 | unrun-verify | scripts/verify-phase1-evidence.ps1 |  | ConfigurationCache evidence scenario is not implemented in verify-phase1-evidence.ps1 ValidateSet | open |  | 2026-08-12T01:50:17.760Z |  |
 
 ````json
 [
@@ -130,74 +126,26 @@ last_updated: 2026-08-12T01:06:57.350Z
   },
   {
     "id": 9,
-    "kind": "stub",
+    "kind": "unrun-verify",
     "phase": "01",
-    "file": "scripts/lab/Invoke-Dc01Server.ps1",
-    "line": 203,
-    "description": "MigrationFailure checksum-drift injection is not implemented in source mode; currently throws checksum_drift_not_injected_in_source_mode.",
-    "status": "fixed",
+    "file": "tests/windows/Invoke-AgentServiceSmoke.ps1",
+    "line": null,
+    "description": "LAB-CLIENT01 ConfigurationCache smoke test script does not exist; runtime activation verification could not run",
+    "status": "open",
     "reason": "",
-    "recorded_at": "2026-08-11T11:21:30.848Z",
-    "resolved_at": "2026-08-11T15:29:58.995Z"
+    "recorded_at": "2026-08-12T01:49:58.830Z",
+    "resolved_at": null
   },
   {
     "id": 10,
-    "kind": "stub",
-    "phase": "01",
-    "file": "scripts/lab/Invoke-Dc01Server.ps1",
-    "line": 258,
-    "description": "TrustedProvisioning scenario only invokes Plan 01-23 preflight; it does not call dlpctl provision-device, create the PostgreSQL allowlist record, or perform runtime token handoff.",
-    "status": "open",
-    "reason": "",
-    "recorded_at": "2026-08-11T12:02:34.490Z",
-    "resolved_at": null
-  },
-  {
-    "id": 11,
-    "kind": "stub",
-    "phase": "01",
-    "file": "crates/dlp-server/src/lib.rs",
-    "line": 92,
-    "description": "Server listen address is hardcoded to 127.0.0.1:8080; no reachable TLS listener exists for LAB-CLIENT01 probes.",
-    "status": "fixed",
-    "reason": "",
-    "recorded_at": "2026-08-11T12:02:50.143Z",
-    "resolved_at": "2026-08-11T15:30:13.945Z"
-  },
-  {
-    "id": 12,
     "kind": "unrun-verify",
     "phase": "01",
     "file": "scripts/verify-phase1-evidence.ps1",
-    "line": 4,
-    "description": "verify-phase1-evidence.ps1 does not support Dc01Tracer, Dc01Postgres, or TrustedProvisioningApproved scenarios referenced by the plan.",
-    "status": "fixed",
-    "reason": "",
-    "recorded_at": "2026-08-11T12:02:52.338Z",
-    "resolved_at": "2026-08-11T15:30:15.707Z"
-  },
-  {
-    "id": 13,
-    "kind": "unrun-verify",
-    "phase": "1",
-    "file": "scripts/lab/Invoke-Dc01Server.ps1",
-    "line": 600,
-    "description": "TrustedProvisioning scenario cannot run because AD/LDAPS runtime secrets (DLP_AD_PRIMARY_LDAPS_URL, DLP_AD_SECONDARY_LDAPS_URL, DLP_AD_BASE_DN, DLP_AD_BIND_DN, DLP_AD_CA_CERT_PEM) are not present in the runtime provider",
-    "status": "open",
-    "reason": "",
-    "recorded_at": "2026-08-11T15:28:54.988Z",
-    "resolved_at": null
-  },
-  {
-    "id": 14,
-    "kind": "stub",
-    "phase": "1",
-    "file": "crates/dlp-server/src/routes.rs",
     "line": null,
-    "description": "Server /api/v1/enrollment route returns 503 until Plans 01-22/01-23 wire the endpoint",
+    "description": "ConfigurationCache evidence scenario is not implemented in verify-phase1-evidence.ps1 ValidateSet",
     "status": "open",
     "reason": "",
-    "recorded_at": "2026-08-12T01:06:57.350Z",
+    "recorded_at": "2026-08-12T01:50:17.760Z",
     "resolved_at": null
   }
 ]

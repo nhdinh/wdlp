@@ -82,6 +82,7 @@ impl EnrollmentRequestV1 {
         &self.device_id
     }
 
+    /// Returns the redacted enrollment token for transport use only.
     pub fn enrollment_token(&self) -> &str {
         &self.enrollment_token
     }
@@ -296,6 +297,14 @@ impl ConfigurationEnvelopeV1 {
 
     pub fn device_id(&self) -> &DeviceId {
         &self.device_id
+    }
+
+    pub const fn issued_at_epoch_seconds(&self) -> u64 {
+        self.issued_at_epoch_seconds
+    }
+
+    pub fn payload(&self) -> &str {
+        &self.payload
     }
 
     /// Encodes the only signature input as a length-delimited fixed field sequence.

@@ -18,6 +18,11 @@ const MAX_BODY_BYTES: usize = 256 * 1024;
 const EXPECTED_DAYS: u64 = 30;
 const EXPECTED_SECONDS: u64 = EXPECTED_DAYS * 24 * 60 * 60;
 
+/// Transport port for fetching signed configuration bytes through device mTLS.
+pub trait ConfigurationTransport {
+    fn fetch_configuration(&mut self) -> Result<Vec<u8>, ClientError>;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClientError {
     InvalidServerUrl,
@@ -28,6 +33,7 @@ pub enum ClientError {
     InvalidResponse,
     ProfileRejected,
     NetworkUnavailable,
+    ConfigurationFetchFailed,
 }
 
 impl std::fmt::Display for ClientError {
@@ -41,6 +47,7 @@ impl std::fmt::Display for ClientError {
             Self::InvalidResponse => "client_invalid_response",
             Self::ProfileRejected => "client_profile_rejected",
             Self::NetworkUnavailable => "client_network_unavailable",
+            Self::ConfigurationFetchFailed => "client_configuration_fetch_failed",
         };
         formatter.write_str(code)
     }
@@ -125,6 +132,21 @@ impl AgentHttpClient {
 
     pub fn timeout_seconds(&self) -> u64 {
         self.timeout_seconds
+    }
+
+    /// Polls a signed configuration only when a device-mTLS identity is present.
+    ///
+    /// The transport implementation is responsible for TLS identity, server
+    /// authentication, and exact-byte retrieval; this method is the guard that
+    /// refuses to fetch without device credentials.
+    pub fn poll_configuration<T: ConfigurationTransport>(
+        &self,
+        transport: &mut T,
+    ) -> Result<Vec<u8>, ClientError> {
+        if !self.uses_device_mtls() {
+            return Err(ClientError::MissingDeviceCredential);
+        }
+        transport.fetch_configuration()
     }
 
     /// POSTs a version-1 enrollment request and validates the returned chain.

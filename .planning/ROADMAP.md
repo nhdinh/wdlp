@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 5/11 plans executed
+**Plans**: 6/11 plans source-complete
 
 Plans:
 **Wave 1**
@@ -48,13 +48,13 @@ Plans:
 
 - [x] 01-13-PLAN.md (Wave 4) — Reconcile roles, deploy LAB-SERVER01 PostgreSQL and LAB-DC01 management server, and execute approved trusted LAB-CLIENT01 provisioning before enrollment
 
-**Wave 5** *(current)*
+**Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 01-14-PLAN.md (Wave 5) — Complete LAB-CLIENT01 initial/replacement enrollment, DPAPI credential custody, device mTLS, revocation proof, and redacted health
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 01-18-PLAN.md (Wave 6) — Activate signed configuration into a durable concurrency-safe current/LKG cache on LAB-CLIENT01
+- [x] 01-18-PLAN.md (Wave 6) — Activate signed configuration into a durable concurrency-safe current/LKG cache on LAB-CLIENT01
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
@@ -135,7 +135,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 5/11 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 6/11 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |
@@ -161,3 +161,4 @@ Plans:
 - The central principle: Phase 1 ends with a real encrypted virtual drive working on Windows, not merely with server scaffolding.
 - Toast notifications require authenticated service-to-companion IPC (UI-02) as a success criterion in Phase 2.
 - Offline revocation behavior is documented: it takes effect only after the agent receives the revocation or its credentials are rejected.
+- Waves 5 and 6 are source-complete and merged; their LAB-CLIENT01 runtime smoke tests are blocked by missing lab orchestration artifacts and will be retried when those artifacts are available.
