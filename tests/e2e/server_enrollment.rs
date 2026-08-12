@@ -309,6 +309,27 @@ fn trusted_provisioning_preflight_requires_named_lab_roles_and_kerberos_tls() {
     assert!(!procedure.contains("Write-Output $token"));
 }
 
+#[test]
+fn trusted_provisioning_invokes_dlpctl_without_serial_or_token_arguments() {
+    let procedure = include_str!("../../scripts/lab/Invoke-TrustedProvisioning.ps1");
+    assert!(procedure.contains("provision-device --computer"));
+    assert!(procedure.contains("DLP_PROVISIONING_AD_OBJECT_GUID"));
+    assert!(procedure.contains("DLP_PROVISIONING_AD_OBJECT_SID"));
+    assert!(procedure.contains("DLP_PROVISIONING_PREFERRED_DRIVE_LETTER"));
+    assert!(!procedure.contains("--serial"));
+    assert!(!procedure.contains("--token"));
+    assert!(!procedure.contains("Write-Output.*token"));
+}
+
+#[test]
+fn trusted_provisioning_preflight_compares_both_domain_controllers() {
+    let procedure = include_str!("../../scripts/lab/Invoke-TrustedProvisioning.ps1");
+    assert!(procedure.contains("LAB-DC01.lab.local"));
+    assert!(procedure.contains("LAB-DC02.lab.local"));
+    assert!(procedure.contains("directory_corroboration_denied"));
+    assert!(procedure.contains("$primaryIdentity -eq $secondaryIdentity"));
+}
+
 #[tokio::test]
 async fn bootstrap_enrollment_route_returns_ok_for_bounded_valid_request() {
     use axum::body::Body;

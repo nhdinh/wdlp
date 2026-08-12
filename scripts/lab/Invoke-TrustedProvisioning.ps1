@@ -72,6 +72,13 @@ $primaryIdentity = "$($primary.ObjectGUID)|$($primary.ObjectSID.Value)|$($primar
 $secondaryIdentity = "$($secondary.ObjectGUID)|$($secondary.ObjectSID.Value)|$($secondary.DNSHostName)|$($secondary.Enabled)"
 Assert-TrustedProvisioning ($primary.Enabled -and $secondary.Enabled -and $primaryIdentity -eq $secondaryIdentity -and $primary.DNSHostName -eq $TargetComputer) 'directory_corroboration_denied'
 
+$guidBytes = New-Object byte[] 16
+$primary.ObjectGUID.ToByteArray().CopyTo($guidBytes, 0)
+$guidHex = [System.BitConverter]::ToString($guidBytes).Replace('-', '').ToLowerInvariant()
+$sidBytes = New-Object byte[] $primary.ObjectSID.BinaryLength
+$primary.ObjectSID.GetBinaryForm($sidBytes, 0)
+$sidHex = [System.BitConverter]::ToString($sidBytes).Replace('-', '').ToLowerInvariant()
+
 $cimOption = New-CimSessionOption -UseSSL
 $session = New-CimSession -ComputerName $TargetComputer -Authentication Kerberos -SessionOption $cimOption
 try {
@@ -87,6 +94,14 @@ try {
         (Normalize-Observation $bios[0].SerialNumber),
         (Normalize-Observation $diskIdentity.value)
     )
+
+    $env:DLP_PROVISIONING_AD_OBJECT_GUID = $guidHex
+    $env:DLP_PROVISIONING_AD_OBJECT_SID = $sidHex
+    $env:DLP_PROVISIONING_PREFERRED_DRIVE_LETTER = $PreferredDriveLetter
+    $dlpctl = if ($env:DLP_PROVISIONING_DLPCTL_PATH) { $env:DLP_PROVISIONING_DLPCTL_PATH } else { 'dlpctl' }
+    & $dlpctl provision-device --computer $TargetComputer
+    if ($LASTEXITCODE -ne 0) { Stop-TrustedProvisioning 'provisioning_client_failed' }
+
     # Plan 01-13 performs the actual runtime-provider handoff and lab mutation.
     # This source-complete preflight emits only non-secret provenance and digest.
     [pscustomobject]@{ procedure_version = 1; target = $TargetComputer; fingerprint_digest = $digest; preferred_drive_letter = $PreferredDriveLetter; transport = 'Kerberos WinRM HTTPS'; disk_identity_source = $diskIdentity.source; evidence = 'sanitized' } | ConvertTo-Json -Compress

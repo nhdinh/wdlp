@@ -358,7 +358,7 @@ async fn main() -> Result<(), CliError> {
 
 fn hex_decode(value: &str) -> Option<Vec<u8>> {
     let value: String = value.chars().filter(|c| !c.is_whitespace()).collect();
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return None;
     }
     (0..value.len())
