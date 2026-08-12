@@ -82,6 +82,7 @@ impl EnrollmentRequestV1 {
         &self.device_id
     }
 
+    /// Returns the redacted enrollment token for transport use only.
     pub fn enrollment_token(&self) -> &str {
         &self.enrollment_token
     }

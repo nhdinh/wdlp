@@ -48,7 +48,7 @@ impl From<ClientError> for EnrollmentError {
             | ClientError::InvalidTrustAnchor
             | ClientError::TlsConfiguration
             | ClientError::NetworkUnavailable => Self::TransportDenied,
-            ClientError::RequestDenied => Self::TransportDenied,
+            ClientError::RequestDenied | ClientError::ConfigurationFetchFailed => Self::TransportDenied,
             ClientError::InvalidResponse => Self::InvalidResponse,
             ClientError::ProfileRejected => Self::ProfileRejected,
             ClientError::MissingDeviceCredential => Self::CredentialUnavailable,

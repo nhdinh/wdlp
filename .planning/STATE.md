@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 status: in_progress
 stopped_at: "Halted 01-18-PLAN.md at runtime verification: missing smoke-test script and evidence scenario"
-last_updated: "2026-08-12T01:52:03.185Z"
+last_updated: "2026-08-12T02:05:00.000Z"
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 11
-  completed_plans: 4
+  completed_plans: 6
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -23,11 +23,11 @@ progress:
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 14 of 11
-- **Task**: 2 of 2
-- **Status**: blocked — source/unit tests pass; LAB-CLIENT01 runtime blocked by missing runtime token and unreachable target VM
-- **Progress**: 45%
-- **Next plan**: 01-15 (Wave 5) once LAB-CLIENT01 runtime preconditions are satisfied
+- **Plan**: 18 of 11 — source complete; runtime verification blocked
+- **Task**: 1 of 1
+- **Status**: In progress
+- **Progress**: 55%
+- **Next plan**: 01-19 (Wave 7)
 - **Topology update**: PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning.
 
 ## Performance Metrics
@@ -49,8 +49,10 @@ progress:
 | Phase 01-first-encrypted-drive-vertical-slice P10 | 48min | 2 tasks | 14 files |
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 20m | 3 tasks | 9 files |
 | Phase 01-first-encrypted-drive-vertical-slice P22 | 40m | 2 tasks | 9 files |
-| Phase 01-first-encrypted-drive-vertical-slice P23 | 55m | 3 tasks | 12 files |
-| Phase 01-first-encrypted-drive-vertical-slice P18 | 65 | 1 tasks | 6 files |
+| Phase 01-first-encrypted-drive-vertical-slice P23 | 55m | 2 tasks | 12 files |
+| Phase 01-first-encrypted-drive-vertical-slice P13 | 4h | 3 tasks | 14 files |
+| Phase 01-first-encrypted-drive-vertical-slice P14 | 2h | 2 tasks | 9 files |
+| Phase 01-first-encrypted-drive-vertical-slice P18 | 65min | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -62,6 +64,9 @@ progress:
   - A small per-user companion process shows toast notifications; no tray UI for MVP.
   - `require_justification` is rejected until the post-MVP workflow is implemented.
   - Ed25519 is the policy-bundle signing algorithm (see ADR-005).
+  - Device-mTLS client uses pinned public root, ordinary hostname validation, and no bearer fallback.
+  - Machine-DPAPI credential blob is UI-forbidden, owner/DACL restricted, and atomically written.
+  - Signed-configuration cache uses content-addressed staging, atomic pointer swap, and monotonic version checks.
 - **Open questions**:
   - Exact WinFsp NTFS conformance and Office/Explorer validation scenarios.
   - DPAPI vs TPM key-wrapping decision for per-user store keys.
@@ -72,22 +77,19 @@ progress:
 
 **Resume file:** 01-18-PLAN.md
 
-**Last session:** 2026-08-12T01:52:03.152Z
-**Stopped at:** Halted 01-18-PLAN.md at runtime verification: missing smoke-test script and evidence scenario
+**Last session:** 2026-08-12T02:05:00Z
+**Stopped at:** Halted 01-18-PLAN.md at runtime verification: missing smoke-test script and evidence scenario.
 
 **Current session:** 2026-08-12
-**Resumed at:** /gsd-resume-work — Plan 01-13 Tasks 1 and 2 already verified; Task 3 completed after providing AD/LDAPS runtime secrets and confirming LAB-CLIENT01 domain/WinRM HTTPS reachability.
+**Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
 
-- Last action: Fixed Invoke-Dc01Server.ps1 to deploy Invoke-TrustedProvisioning.ps1, accepted Hyper-V PNPDeviceID virtual disk fallback, and published TST-05 evidence. Merged worktree to master and updated STATE.md.
+- Last action: Merged source-complete 01-14 enrollment/DPAPI/mTLS work and reconciled 01-18 configuration-cache worktree with 01-14 client enrollment code. Source tests pass; runtime smoke tests blocked by missing lab artifacts.
 
-### Completed Plan 01-13 Evidence
+### Completed Plan 01-18 Evidence
 
-- `Invoke-Phase1EnvironmentReconcile.ps1 -Apply` on hungdinh-lt.
-- `Invoke-Dc01Server.ps1 -Scenario Tracer` (LAB-DC01 server + LAB-CLIENT01 probe).
-- `Invoke-Dc01Server.ps1 -Scenario All` (PostgresFresh, PostgresRepeat, MigrationFailure, ConcurrentStart, ReadinessConcurrency).
-- `Invoke-Dc01Server.ps1 -Scenario TrustedProvisioning` (dual-DC/Kerberos fingerprint + TST-05 evidence).
-- `verify-phase1-evidence.ps1` scenarios Dc01Tracer, Dc01Postgres, TrustedProvisioningApproved.
-- `cargo test --locked -p dlp-server -p dlpctl`.
+- `cargo test --locked -p dlp-agent-core --test enrollment_activation` (15 passed).
+- `cargo clippy --locked -p dlp-agent-core --all-targets -- -D warnings`.
+- `cargo test --locked -p dlp-agent-core -p dlp-windows-service`.
 
 ## Decisions
 
@@ -113,12 +115,11 @@ progress:
 - [Phase 01]: Plan 01-22 source tests do not substitute for LAB-DC01 PostgreSQL transaction evidence required by Plan 01-13.
 - [Phase 01]: Bootstrap peer identity may be absent only at the TLS boundary; administrator and device route middleware require verified certificate roles.
 - [Phase 01]: Trusted provisioning uses the approved reqwest@0.13.4 boundary and hands tokens only to a runtime secret provider.
-- [Phase ?]: 01-18: Use explicit binary wire format for cached bundles to avoid adding new dependencies and preserve the approved Cargo.lock
-- [Phase ?]: 01-18: Perform schema-version rejection during wire deserialization before signature verification
-- [Phase ?]: 01-18: Keep directory sync best-effort in portable dlp-agent-core; Windows-specific directory flush injected by service crate
+- [Phase 01]: 01-18: Use explicit binary wire format for cached bundles to avoid adding new dependencies and preserve the approved Cargo.lock.
+- [Phase 01]: 01-18: Perform schema-version rejection during wire deserialization before signature verification.
+- [Phase 01]: 01-18: Keep directory sync best-effort in portable dlp-agent-core; Windows-specific directory flush injected by service crate.
 
 ### Blockers
 
-- Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 and LAB-SERVER01 without command-line disclosure. Hyper-V VMs LAB-DC01, LAB-DC02, LAB-CLIENT01, and the newly designated LAB-SERVER01 are required; required `DLP_*` environment variables or an equivalent runtime secret provider are absent.
-- Plan 01-13 Task 1 precondition unmet: no runtime-only secret provider is configured to supply server/DB/PKI material to LAB-DC01 and LAB-SERVER01 without command-line disclosure. Required DLP_* environment variables or equivalent runtime secret provider are absent.
-- 01-18 runtime verification blocked: tests/windows/Invoke-AgentServiceSmoke.ps1 does not exist and scripts/verify-phase1-evidence.ps1 lacks ConfigurationCache scenario
+- 01-14 LAB-CLIENT01 runtime scenarios blocked: runtime token missing and LAB-CLIENT01 unreachable from hungdinh-lt; server /api/v1/enrollment remains a 503 stub owned by Plans 01-22/01-23.
+- 01-18 runtime verification blocked: `tests/windows/Invoke-AgentServiceSmoke.ps1` does not include a `ConfigurationCache` scenario and `scripts/verify-phase1-evidence.ps1` lacks the scenario in its `ValidateSet`.
