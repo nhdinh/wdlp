@@ -298,6 +298,14 @@ impl ConfigurationEnvelopeV1 {
         &self.device_id
     }
 
+    pub const fn issued_at_epoch_seconds(&self) -> u64 {
+        self.issued_at_epoch_seconds
+    }
+
+    pub fn payload(&self) -> &str {
+        &self.payload
+    }
+
     /// Encodes the only signature input as a length-delimited fixed field sequence.
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut output = b"dlp-configuration-envelope/v1\0".to_vec();

@@ -11,14 +11,16 @@ use dlp_storage::StorageError;
 use std::fmt;
 
 pub mod client;
+pub mod config_cache;
 pub mod enrollment;
 pub mod health;
 
-pub use client::{AgentHttpClient, ClientError};
-pub use enrollment::{
-    EnrollmentCoordinator, EnrollmentCredential, EnrollmentCredentialStore, EnrollmentError,
-    EnrollmentMode, EnrollmentTransport,
+pub use client::{AgentHttpClient, ClientError, ConfigurationTransport};
+pub use config_cache::{
+    ActivationOutcome, CacheError, CachePointers, ConfigurationCache,
+    deserialize_signed_configuration, serialize_signed_configuration,
 };
+pub use enrollment::{EnrollmentCoordinator, EnrollmentError, EnrollmentMode, EnrollmentTransport};
 pub use health::{HealthSnapshot, RedactedDiagnostic};
 
 #[derive(Clone, Debug, Eq, PartialEq)]

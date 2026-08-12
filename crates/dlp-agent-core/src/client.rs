@@ -18,16 +18,17 @@ const MAX_BODY_BYTES: usize = 256 * 1024;
 const EXPECTED_DAYS: u64 = 30;
 const EXPECTED_SECONDS: u64 = EXPECTED_DAYS * 24 * 60 * 60;
 
+/// Transport port for fetching signed configuration bytes through device mTLS.
+pub trait ConfigurationTransport {
+    fn fetch_configuration(&mut self) -> Result<Vec<u8>, ClientError>;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClientError {
     InvalidServerUrl,
     InvalidTrustAnchor,
     MissingDeviceCredential,
-    TlsConfiguration,
-    RequestDenied,
-    InvalidResponse,
-    ProfileRejected,
-    NetworkUnavailable,
+    ConfigurationFetchFailed,
 }
 
 impl std::fmt::Display for ClientError {
@@ -127,251 +128,18 @@ impl AgentHttpClient {
         self.timeout_seconds
     }
 
-    /// POSTs a version-1 enrollment request and validates the returned chain.
-    pub fn post_enrollment(
+    /// Polls a signed configuration only when a device-mTLS identity is present.
+    ///
+    /// The transport implementation is responsible for TLS identity, server
+    /// authentication, and exact-byte retrieval; this method is the guard that
+    /// refuses to fetch without device credentials.
+    pub fn poll_configuration<T: ConfigurationTransport>(
         &self,
-        device_id: &DeviceId,
-        token: &str,
-        csr_pem: &str,
-        prior_serial: Option<&[u8]>,
-    ) -> Result<ValidatedDeviceIdentity, ClientError> {
-        let client = self.build_client(false)?;
-        let url = format!("{}{}", self.server_url, ENROLLMENT_URL_PATH);
-        let request_body = EnrollmentRequestBody {
-            version: 1,
-            device_id: device_id.to_wire().to_owned(),
-            token: token.to_owned(),
-            csr_pem: csr_pem.to_owned(),
-            prior_serial: prior_serial.map(|serial| {
-                serial
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>()
-            }),
-        };
-        let body = serde_json::to_string(&request_body).map_err(|_| ClientError::InvalidResponse)?;
-
-        let response = client
-            .post(&url)
-            .header("content-type", "application/json")
-            .body(body)
-            .send()
-            .map_err(|_| ClientError::NetworkUnavailable)?;
-        if !response.status().is_success() {
-            return Err(ClientError::RequestDenied);
-        }
-        let text = response
-            .text()
-            .map_err(|_| ClientError::InvalidResponse)?;
-        if text.len() > MAX_BODY_BYTES {
-            return Err(ClientError::InvalidResponse);
-        }
-        let enrollment: EnrollmentResponseBody = serde_json::from_str(&text)
-            .map_err(|_| ClientError::InvalidResponse)?;
-        validate_device_chain(device_id, &enrollment.credential_chain, &self.root_pem)
-    }
-
-    /// Posts a redacted health report using the device-mTLS identity.
-    pub fn post_health(&self, device_id: &DeviceId, drive_state: &str) -> Result<(), ClientError> {
-        if !self.uses_device_mtls() {
+        transport: &mut T,
+    ) -> Result<Vec<u8>, ClientError> {
+        if !self.device_mtls {
             return Err(ClientError::MissingDeviceCredential);
         }
-        let client = self.build_client(true)?;
-        let url = format!("{}{}", self.server_url, HEALTH_URL_PATH);
-        let report = HealthReportV1::new(1, device_id.clone(), drive_state)
-            .map_err(|_| ClientError::InvalidResponse)?;
-        let body = serde_json::to_string(&HealthRequest {
-            version: report.version(),
-            drive_state: drive_state.to_owned(),
-        })
-        .map_err(|_| ClientError::InvalidResponse)?;
-        let response = client
-            .post(&url)
-            .header("content-type", "application/json")
-            .body(body)
-            .send()
-            .map_err(|_| ClientError::NetworkUnavailable)?;
-        if !response.status().is_success() {
-            return Err(ClientError::RequestDenied);
-        }
-        Ok(())
-    }
-
-    fn build_client(&self, require_device_identity: bool) -> Result<reqwest::blocking::Client, ClientError> {
-        let mut builder = reqwest::blocking::Client::builder()
-            .https_only(true)
-            .add_root_certificate(
-                reqwest::Certificate::from_pem(self.root_pem.as_bytes())
-                    .map_err(|_| ClientError::InvalidTrustAnchor)?,
-            )
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(self.timeout_seconds));
-
-        if let (Some(chain), Some(key)) = (
-            self.certificate_chain_pem.as_ref(),
-            self.private_key_pem.as_ref(),
-        ) {
-            let identity_pem = format!("{}\n{}", chain, key);
-            let identity = reqwest::Identity::from_pem(identity_pem.as_bytes())
-                .map_err(|_| ClientError::TlsConfiguration)?;
-            builder = builder.identity(identity);
-        } else if require_device_identity {
-            return Err(ClientError::MissingDeviceCredential);
-        }
-
-        builder.build().map_err(|_| ClientError::TlsConfiguration)
-    }
-}
-
-#[derive(serde::Serialize)]
-struct EnrollmentRequestBody {
-    version: u16,
-    device_id: String,
-    token: String,
-    csr_pem: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prior_serial: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct EnrollmentResponseBody {
-    credential_chain: String,
-}
-
-#[derive(serde::Serialize)]
-struct HealthRequest {
-    version: u16,
-    drive_state: String,
-}
-
-fn validate_device_chain(
-    device_id: &DeviceId,
-    chain_pem: &str,
-    trusted_root_pem: &str,
-) -> Result<ValidatedDeviceIdentity, ClientError> {
-    if chain_pem.len() > MAX_BODY_BYTES || !chain_pem.contains("BEGIN CERTIFICATE") {
-        return Err(ClientError::InvalidResponse);
-    }
-
-    let certs = rustls_pemfile::certs(&mut chain_pem.as_bytes())
-        .map_err(|_| ClientError::InvalidResponse)?;
-    if certs.is_empty() {
-        return Err(ClientError::InvalidResponse);
-    }
-
-    let leaf_der = certs.first().expect("non-empty chain");
-    let leaf = parse_x509_certificate(leaf_der)
-        .map_err(|_| ClientError::ProfileRejected)?
-        .1;
-
-    if leaf.is_ca() {
-        return Err(ClientError::ProfileRejected);
-    }
-    if !leaf.validity().is_valid() {
-        return Err(ClientError::ProfileRejected);
-    }
-
-    let key_usage = leaf
-        .key_usage()
-        .map_err(|_| ClientError::ProfileRejected)?
-        .ok_or(ClientError::ProfileRejected)?;
-    if !key_usage.value.digital_signature() {
-        return Err(ClientError::ProfileRejected);
-    }
-    let extended_usage = leaf
-        .extended_key_usage()
-        .map_err(|_| ClientError::ProfileRejected)?
-        .ok_or(ClientError::ProfileRejected)?;
-    if !extended_usage.value.client_auth {
-        return Err(ClientError::ProfileRejected);
-    }
-
-    let san = leaf
-        .subject_alternative_name()
-        .map_err(|_| ClientError::ProfileRejected)?
-        .ok_or(ClientError::ProfileRejected)?;
-    let expected_uri = format!("urn:dlp:device:{}", device_id.to_wire());
-    let has_uri = san.value.general_names.iter().any(|name| {
-        if let GeneralName::URI(uri) = name {
-            *uri == expected_uri.as_str()
-        } else {
-            false
-        }
-    });
-    if !has_uri {
-        return Err(ClientError::ProfileRejected);
-    }
-
-    let serial = leaf.raw_serial().to_vec();
-    if serial.is_empty() {
-        return Err(ClientError::ProfileRejected);
-    }
-
-    let not_after = leaf.validity().not_after;
-    let not_before = leaf.validity().not_before;
-    let expires_after_epoch_seconds = not_after.timestamp() as u64;
-    let issued_after_epoch_seconds = not_before.timestamp() as u64;
-    if expires_after_epoch_seconds.saturating_sub(issued_after_epoch_seconds) > EXPECTED_SECONDS {
-        return Err(ClientError::ProfileRejected);
-    }
-
-    let roots = rustls_pemfile::certs(&mut trusted_root_pem.as_bytes())
-        .map_err(|_| ClientError::InvalidTrustAnchor)?;
-    let root_subject = roots
-        .first()
-        .and_then(|root_der| parse_x509_certificate(root_der.as_slice()).ok())
-        .map(|(_, root)| root.subject().to_string())
-        .ok_or(ClientError::InvalidTrustAnchor)?;
-    let root_in_chain = certs.iter().any(|cert| {
-        parse_x509_certificate(cert.as_slice())
-            .ok()
-            .map(|(_, cert)| cert.subject().to_string())
-            .is_some_and(|subject| subject == root_subject)
-    });
-    if !root_in_chain {
-        return Err(ClientError::ProfileRejected);
-    }
-
-    Ok(ValidatedDeviceIdentity {
-        device_id: device_id.to_wire().to_owned(),
-        certificate_chain_pem: chain_pem.to_owned(),
-        serial,
-        expires_after_epoch_seconds,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use dlp_domain::DeviceId;
-
-    #[test]
-    fn bootstrap_rejects_non_https_and_missing_anchor() {
-        assert_eq!(
-            AgentHttpClient::bootstrap("http://server", "root").unwrap_err(),
-            ClientError::InvalidServerUrl
-        );
-        assert_eq!(
-            AgentHttpClient::bootstrap("https://server", "not-a-cert").unwrap_err(),
-            ClientError::InvalidTrustAnchor
-        );
-    }
-
-    #[test]
-    fn device_mtls_requires_material() {
-        let client = AgentHttpClient::bootstrap("https://server", "-----BEGIN CERTIFICATE-----\nMIIBkA==\n-----END CERTIFICATE-----").unwrap();
-        assert_eq!(
-            client.with_device_identity("", "").unwrap_err(),
-            ClientError::MissingDeviceCredential
-        );
-    }
-
-    #[test]
-    fn profile_validation_rejects_empty_or_invalid_chain() {
-        let device = DeviceId::parse("device-01").unwrap();
-        assert_eq!(
-            validate_device_chain(&device, "", "root").unwrap_err(),
-            ClientError::InvalidResponse
-        );
+        transport.fetch_configuration()
     }
 }
