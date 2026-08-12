@@ -42,7 +42,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [x] 01-23-PLAN.md (Wave 3) — Wire production TLS/routes/providers and build the dual-DC/Kerberos trusted-provisioning procedure
+- [ ] 01-23-PLAN.md (Wave 3) — Wire production TLS/routes/providers and build the dual-DC/Kerberos trusted-provisioning procedure
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
