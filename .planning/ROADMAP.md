@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 6/11 plans source-complete
+**Plans**: 6/11 plans executed source-complete
 
 Plans:
 **Wave 1**

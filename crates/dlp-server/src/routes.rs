@@ -5,7 +5,8 @@
 //! after the active credential repository lookup succeeds.
 
 use crate::{
-    repository::{RouteRepository, RouteRepositoryError},
+    enrollment::{EnrollmentServicePort, EnrollmentSubmission, ProvisioningServicePort},
+    repository::{RouteRepository, RouteRepositoryError, RouteRepositoryPort},
     tls::{AuthenticatedAdmin, AuthenticatedDevice, PeerIdentity, TlsConnectionInfo, TlsError},
 };
 use axum::{
@@ -18,13 +19,15 @@ use axum::{
 };
 use dlp_crypto::ConfigurationSigner;
 use dlp_domain::{BundleVersion, DeviceId};
-use dlp_protocol::{ConfigurationEnvelopeV1, SignedConfigurationV1};
+use dlp_protocol::{ConfigurationEnvelopeV1, ProvisionDeviceRequestV1, ProvisionDeviceResponseV1, SignedConfigurationV1};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct RouteState {
-    repository: Arc<RouteRepository>,
+    repository: Arc<dyn RouteRepositoryPort>,
+    enrollment_service: Arc<dyn EnrollmentServicePort>,
+    provisioning_service: Arc<dyn ProvisioningServicePort>,
     signer: Arc<ConfigurationSigner>,
 }
 
@@ -34,6 +37,8 @@ impl RouteState {
     pub fn for_test() -> Self {
         Self::new(
             Arc::new(RouteRepository::default()),
+            Arc::new(AlwaysOkEnrollmentService),
+            Arc::new(AlwaysOkProvisioningService),
             Arc::new(ConfigurationSigner::from_seed(
                 "phase1-test-key",
                 [0xA5; 32],
@@ -41,37 +46,52 @@ impl RouteState {
         )
     }
 
-    pub fn new(repository: Arc<RouteRepository>, signer: Arc<ConfigurationSigner>) -> Self {
-        Self { repository, signer }
+    pub fn new(
+        repository: Arc<dyn RouteRepositoryPort>,
+        enrollment_service: Arc<dyn EnrollmentServicePort>,
+        provisioning_service: Arc<dyn ProvisioningServicePort>,
+        signer: Arc<ConfigurationSigner>,
+    ) -> Self {
+        Self {
+            repository,
+            enrollment_service,
+            provisioning_service,
+            signer,
+        }
     }
 
-    pub fn activate_device_for_test(&self, device_id: &str, serial: &[u8]) {
-        self.repository.activate_device(device_id, serial);
+    pub async fn activate_device_for_test(&self, device_id: &str, serial: &[u8]) {
+        self.repository.activate_device(device_id, serial).await;
     }
 
-    pub fn revoke_device_for_test(&self, device_id: &str, serial: &[u8]) {
-        self.repository.revoke_device(device_id, serial);
+    pub async fn revoke_device_for_test(&self, device_id: &str, serial: &[u8]) {
+        self.repository.revoke_device(device_id, serial).await;
     }
 
-    pub fn health_report_count_for_test(&self, device_id: &str) -> usize {
-        self.repository.health_report_count(device_id)
+    pub async fn health_report_count_for_test(&self, device_id: &str) -> usize {
+        self.repository.health_report_count(device_id).await
     }
 
-    pub fn signed_configuration_for(
+    pub async fn signed_configuration_for(
         &self,
         device: &AuthenticatedDevice,
     ) -> Result<SignedConfigurationV1, RouteError> {
-        self.repository.authorize_device(device)?;
-        if let Some(configuration) = self.repository.selected_configuration(device.device_id())? {
+        self.repository.authorize_device(device).await?;
+        if let Some(configuration) = self
+            .repository
+            .selected_configuration(device.device_id())
+            .await?
+        {
             return Ok(configuration);
         }
         let configuration = self.make_configuration(device.device_id(), 1)?;
         self.repository
-            .persist_configuration(device.device_id(), configuration.clone())?;
+            .persist_configuration(device.device_id(), configuration.clone())
+            .await?;
         Ok(configuration)
     }
 
-    pub fn stage_configuration_for_test(
+    pub async fn stage_configuration_for_test(
         &self,
         device_id: &str,
         version: u64,
@@ -79,6 +99,7 @@ impl RouteState {
         let configuration = self.make_configuration(device_id, version)?;
         self.repository
             .persist_configuration(device_id, configuration)
+            .await
             .map_err(Into::into)
     }
 
@@ -103,7 +124,7 @@ impl RouteState {
             .map_err(|_| RouteError::Denied)
     }
 
-    pub fn record_health_for(
+    pub async fn record_health_for(
         &self,
         device: &AuthenticatedDevice,
         drive_state: &str,
@@ -111,9 +132,10 @@ impl RouteState {
         if drive_state.is_empty() || drive_state.len() > 64 {
             return Err(RouteError::Denied);
         }
-        self.repository.authorize_device(device)?;
+        self.repository.authorize_device(device).await?;
         self.repository
-            .record_health(device.device_id(), drive_state)?;
+            .record_health(device.device_id(), drive_state)
+            .await?;
         Ok(())
     }
 }
@@ -179,17 +201,16 @@ async fn require_active_device(
     next: Next,
 ) -> Result<Response, StatusCode> {
     let peer = connection.identity().cloned().ok_or(StatusCode::UNAUTHORIZED)?;
-    let device = AuthenticatedDevice::from_peer(
-        peer.clone(),
-        state.repository.credential_status(
-            peer.subject(),
-            peer.serial(),
-        ),
-    )
-    .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let credential_status = state
+        .repository
+        .credential_status(peer.subject(), peer.serial())
+        .await;
+    let device = AuthenticatedDevice::from_peer(peer.clone(), credential_status)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     state
         .repository
         .authorize_device(&device)
+        .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
     request.extensions_mut().insert(device);
     Ok(next.run(request).await)
@@ -198,6 +219,7 @@ async fn require_active_device(
 /// The one bootstrap endpoint intentionally relies on ordinary server TLS only.
 /// It has a fixed body ceiling and never treats an HTTP header as a peer identity.
 async fn bootstrap_enrollment_contract(
+    State(state): State<RouteState>,
     Json(request): Json<BootstrapEnrollmentRequest>,
 ) -> Result<StatusCode, StatusCode> {
     if request.version != 1
@@ -210,15 +232,38 @@ async fn bootstrap_enrollment_contract(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    // Production composition supplies the transactional enrollment service;
-    // this contract keeps bootstrap input bounded and secret-free in diagnostics.
-    Err(StatusCode::SERVICE_UNAVAILABLE)
+    let observation = ProvisionDeviceRequestV1::new(
+        1,
+        request.device_id,
+        1,
+        [0; 32],
+        vec![0; 16],
+        vec![0; 16],
+        "device.lab.local",
+        "LAB",
+        'P',
+    )
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let submission = EnrollmentSubmission::new(
+        observation,
+        request.token,
+        request.csr_pem,
+        None,
+    )
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    state
+        .enrollment_service
+        .enroll(submission)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    Ok(StatusCode::OK)
 }
 
 async fn admin_provisioning_contract(
+    State(state): State<RouteState>,
     Extension(_administrator): Extension<AuthenticatedAdmin>,
     Json(request): Json<AdministratorProvisioningRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<Json<ProvisioningResponse>, StatusCode> {
     if request.version != 1
         || request.device_id.is_empty()
         || request.fingerprint_digest.len() != 32
@@ -228,9 +273,30 @@ async fn admin_provisioning_contract(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    // The repository is deliberately unavailable until a production composition
-    // injects PgAuthorityRepository; no bearer or in-memory fallback exists.
-    Err(StatusCode::SERVICE_UNAVAILABLE)
+    let mut guid = [0_u8; 16];
+    guid.copy_from_slice(&request.ad_object_guid);
+    let provision_request = ProvisionDeviceRequestV1::new(
+        1,
+        request.device_id,
+        1,
+        request.fingerprint_digest.try_into().map_err(|_| StatusCode::BAD_REQUEST)?,
+        guid.to_vec(),
+        request.ad_object_sid,
+        "device.lab.local",
+        "LAB",
+        request.preferred_drive_letter,
+    )
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let response = state
+        .provisioning_service
+        .provision(provision_request)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    Ok(Json(ProvisioningResponse {
+        version: response.version(),
+        device_id: response.device_id().to_owned(),
+        enrollment_token: response.enrollment_token().to_owned(),
+    }))
 }
 
 async fn fetch_configuration(
@@ -239,6 +305,7 @@ async fn fetch_configuration(
 ) -> Result<Json<ConfigurationResponse>, StatusCode> {
     let configuration = state
         .signed_configuration_for(&device)
+        .await
         .map_err(route_error_status)?;
     Ok(Json(ConfigurationResponse::from(configuration)))
 }
@@ -253,6 +320,7 @@ async fn post_health(
     }
     state
         .record_health_for(&device, &report.drive_state)
+        .await
         .map_err(route_error_status)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -291,6 +359,13 @@ impl From<SignedConfigurationV1> for ConfigurationResponse {
     }
 }
 
+#[derive(Serialize)]
+struct ProvisioningResponse {
+    version: u16,
+    device_id: String,
+    enrollment_token: String,
+}
+
 #[derive(Deserialize)]
 struct HealthRequest {
     version: u16,
@@ -315,6 +390,40 @@ struct AdministratorProvisioningRequest {
     preferred_drive_letter: char,
 }
 
+/// Test-only enrollment stub that always returns a deterministic credential so
+/// route wiring can be exercised without a real database or PKI.
+#[derive(Clone)]
+struct AlwaysOkEnrollmentService;
+
+#[async_trait::async_trait]
+impl EnrollmentServicePort for AlwaysOkEnrollmentService {
+    async fn enroll(
+        &self,
+        _submission: EnrollmentSubmission,
+    ) -> Result<crate::pki::IssuedDeviceCredential, crate::enrollment::EnrollmentError> {
+        Ok(crate::pki::IssuedDeviceCredential {
+            certificate_chain_pem: "TEST CERTIFICATE".into(),
+            serial: vec![1, 2, 3],
+            expires_after_days: 30,
+        })
+    }
+}
+
+/// Test-only provisioning stub that always returns a deterministic token so
+/// route wiring can be exercised without a real database.
+#[derive(Clone)]
+struct AlwaysOkProvisioningService;
+
+#[async_trait::async_trait]
+impl ProvisioningServicePort for AlwaysOkProvisioningService {
+    async fn provision(
+        &self,
+        _request: ProvisionDeviceRequestV1,
+    ) -> Result<ProvisionDeviceResponseV1, crate::enrollment::EnrollmentError> {
+        ProvisionDeviceResponseV1::new(1, "device-01", "test-token")
+            .map_err(|_| crate::enrollment::EnrollmentError::IntegrityFailure)
+    }
+}
 
 #[allow(dead_code)]
 fn _identity_is_tls_derived(identity: &PeerIdentity) -> Result<(), TlsError> {
@@ -322,5 +431,132 @@ fn _identity_is_tls_derived(identity: &PeerIdentity) -> Result<(), TlsError> {
         Err(TlsError::Unauthorized)
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::*;
+    use crate::tls::{PeerIdentity, TlsConnectionInfo};
+    use axum::body::Body;
+    use tower::ServiceExt;
+
+    fn json_request(method: &str, uri: &str, body: serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn bootstrap_enrollment_accepts_bounded_valid_input() {
+        let state = RouteState::for_test();
+        let app = api_v1_router(state);
+        let mut request = json_request(
+            "POST",
+            "/api/v1/enrollment",
+            serde_json::json!({
+                "version": 1,
+                "device_id": "device-01",
+                "token": "one-time-token",
+                "csr_pem": "-----BEGIN CERTIFICATE REQUEST-----\nMIIBkTCB+w==\n-----END CERTIFICATE REQUEST-----",
+            }),
+        );
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(TlsConnectionInfo::bootstrap_without_peer()));
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_enrollment_rejects_invalid_version() {
+        let state = RouteState::for_test();
+        let app = api_v1_router(state);
+        let mut request = json_request(
+            "POST",
+            "/api/v1/enrollment",
+            serde_json::json!({
+                "version": 2,
+                "device_id": "device-01",
+                "token": "one-time-token",
+                "csr_pem": "csr",
+            }),
+        );
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(TlsConnectionInfo::bootstrap_without_peer()));
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn admin_provisioning_accepts_bounded_valid_input() {
+        let state = RouteState::for_test();
+        let app = api_v1_router(state);
+        let mut request = json_request(
+            "POST",
+            "/api/v1/admin/provisioning",
+            serde_json::json!({
+                "version": 1,
+                "device_id": "device-01",
+                "fingerprint_digest": vec![0; 32],
+                "ad_object_guid": vec![0; 16],
+                "ad_object_sid": vec![0; 16],
+                "preferred_drive_letter": "P",
+            }),
+        );
+        request.extensions_mut().insert(ConnectInfo(
+            TlsConnectionInfo::from_verified_peer(PeerIdentity::admin_for_test("admin-test")),
+        ));
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn admin_provisioning_rejects_malformed_digest() {
+        let state = RouteState::for_test();
+        let app = api_v1_router(state);
+        let mut request = json_request(
+            "POST",
+            "/api/v1/admin/provisioning",
+            serde_json::json!({
+                "version": 1,
+                "device_id": "device-01",
+                "fingerprint_digest": vec![0; 16],
+                "ad_object_guid": vec![0; 16],
+                "ad_object_sid": vec![0; 16],
+                "preferred_drive_letter": "P",
+            }),
+        );
+        request.extensions_mut().insert(ConnectInfo(
+            TlsConnectionInfo::from_verified_peer(PeerIdentity::admin_for_test("admin-test")),
+        ));
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn device_configuration_requires_active_serial() {
+        let state = RouteState::for_test();
+        state
+            .activate_device_for_test("device-test", &[1, 2, 3])
+            .await;
+        let app = api_v1_router(state);
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("/api/v1/device/configuration")
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            TlsConnectionInfo::from_verified_peer(PeerIdentity::device_for_test(
+                "device-test",
+                vec![1, 2, 3],
+            )),
+        ));
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

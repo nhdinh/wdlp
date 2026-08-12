@@ -5,6 +5,7 @@ use dlp_crypto::{ConfigurationSigner, ConfigurationVerifier};
 use dlp_domain::{BundleVersion, DeviceId, FileId, StoreId, UserSid};
 use dlp_protocol::{ConfigurationEnvelopeV1, SignedConfigurationV1};
 use dlp_storage::{CapturedStoreIdentity, LocalEncryptedStore, StoreKey, VirtualPath};
+use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
 use std::{
     fmt, fs,
@@ -16,9 +17,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Serialize)]
 pub struct ProvisioningRequest {
-    device_dns_name: String,
+    version: u16,
+    device_id: String,
     fingerprint_digest: [u8; 32],
     ad_object_guid: Vec<u8>,
     ad_object_sid: Vec<u8>,
@@ -33,29 +35,33 @@ impl ProvisioningRequest {
         ad_object_sid: Vec<u8>,
         preferred_drive_letter: char,
     ) -> Result<Self, ProvisioningError> {
-        let device_dns_name = device_dns_name.into();
-        if !valid_dns_name(&device_dns_name)
+        let device_id = device_dns_name.into();
+        if !valid_dns_name(&device_id)
             || ad_object_guid.len() != 16
             || !(8..=68).contains(&ad_object_sid.len())
             || !preferred_drive_letter.is_ascii_uppercase()
         {
             return Err(ProvisioningError::InvalidRequest);
         }
-        Ok(Self { device_dns_name, fingerprint_digest, ad_object_guid, ad_object_sid, preferred_drive_letter })
+        Ok(Self {
+            version: 1,
+            device_id,
+            fingerprint_digest,
+            ad_object_guid,
+            ad_object_sid,
+            preferred_drive_letter,
+        })
     }
 
-    fn json_body(&self) -> String {
-        let digest = self.fingerprint_digest.iter().map(|byte| byte.to_string()).collect::<Vec<_>>().join(",");
-        let guid = self.ad_object_guid.iter().map(|byte| byte.to_string()).collect::<Vec<_>>().join(",");
-        let sid = self.ad_object_sid.iter().map(|byte| byte.to_string()).collect::<Vec<_>>().join(",");
-        format!("{{\"version\":1,\"device_id\":\"{}\",\"fingerprint_digest\":[{}],\"ad_object_guid\":[{}],\"ad_object_sid\":[{}],\"preferred_drive_letter\":\"{}\"}}", self.device_dns_name, digest, guid, sid, self.preferred_drive_letter)
+    fn json_body(&self) -> Result<String, ProvisioningError> {
+        serde_json::to_string(self).map_err(|_| ProvisioningError::InvalidRequest)
     }
 }
 
 impl fmt::Debug for ProvisioningRequest {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("ProvisioningRequest")
-            .field("device_dns_name", &self.device_dns_name)
+            .field("device_id", &self.device_id)
             .field("fingerprint_digest", &"[REDACTED]")
             .field("ad_object_guid", &"[REDACTED]")
             .field("ad_object_sid", &"[REDACTED]")
@@ -81,20 +87,71 @@ pub fn handoff_token_to_runtime(
     runtime.handoff_enrollment_token(token.to_owned())
 }
 
-pub struct ProvisioningClient { client: reqwest::Client, endpoint: String }
+/// mTLS-backed client for the administrator provisioning route. The endpoint
+/// must be an HTTPS hostname, the root CA and administrator identity are loaded
+/// from runtime-provider paths, and the plaintext token is handed only to the
+/// injected secret provider.
+pub struct ProvisioningClient {
+    client: reqwest::Client,
+    endpoint: String,
+}
 
 impl ProvisioningClient {
-    pub fn new(endpoint: impl Into<String>) -> Result<Self, ProvisioningError> {
+    pub fn new(
+        endpoint: impl Into<String>,
+        root_ca_pem_path: &Path,
+        admin_cert_pem_path: &Path,
+        admin_key_pem_path: &Path,
+    ) -> Result<Self, ProvisioningError> {
         let endpoint = endpoint.into();
         let url = reqwest::Url::parse(&endpoint).map_err(|_| ProvisioningError::InvalidRequest)?;
-        if url.scheme() != "https" || url.host_str().is_none_or(|host| host.parse::<std::net::IpAddr>().is_ok()) {
+        if url.scheme() != "https" {
+            return Err(ProvisioningError::InvalidRequest);
+        }
+        let host = url.host_str().ok_or(ProvisioningError::InvalidRequest)?;
+        if host.parse::<std::net::IpAddr>().is_ok() || !valid_dns_name(host) {
+            return Err(ProvisioningError::InvalidRequest);
+        }
+
+        let root_pem = fs::read_to_string(root_ca_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
+        let root_certificate = reqwest::Certificate::from_pem(root_pem.as_bytes())
+            .map_err(|_| ProvisioningError::InvalidRequest)?;
+
+        let cert = fs::read_to_string(admin_cert_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
+        let key = fs::read_to_string(admin_key_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
+        let identity = reqwest::Identity::from_pem((cert + &key).as_bytes())
+            .map_err(|_| ProvisioningError::InvalidRequest)?;
+
+        let client = reqwest::Client::builder()
+            .https_only(true)
+            .add_root_certificate(root_certificate)
+            .identity(identity)
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|_| ProvisioningError::Transport)?;
+        Ok(Self { client, endpoint })
+    }
+
+    /// Test-only constructor that skips mTLS material so JSON response parsing
+    /// and handoff can be exercised without real certificates.
+    #[cfg(test)]
+    pub fn for_test(endpoint: impl Into<String>) -> Result<Self, ProvisioningError> {
+        let endpoint = endpoint.into();
+        let url = reqwest::Url::parse(&endpoint).map_err(|_| ProvisioningError::InvalidRequest)?;
+        if url.scheme() != "https" {
+            return Err(ProvisioningError::InvalidRequest);
+        }
+        let host = url.host_str().ok_or(ProvisioningError::InvalidRequest)?;
+        if host.parse::<std::net::IpAddr>().is_ok() || !valid_dns_name(host) {
             return Err(ProvisioningError::InvalidRequest);
         }
         let client = reqwest::Client::builder()
             .https_only(true)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(20))
-            .build().map_err(|_| ProvisioningError::Transport)?;
+            .build()
+            .map_err(|_| ProvisioningError::Transport)?;
         Ok(Self { client, endpoint })
     }
 
@@ -103,16 +160,44 @@ impl ProvisioningClient {
         request: &ProvisioningRequest,
         runtime: &mut dyn RuntimeSecretProvider,
     ) -> Result<(), ProvisioningError> {
-        let response = self.client.post(&self.endpoint)
+        let body = request.json_body()?;
+        let response = self
+            .client
+            .post(&self.endpoint)
             .header("content-type", "application/json")
-            .body(request.json_body())
-            .send().await.map_err(|_| ProvisioningError::Transport)?;
-        if !response.status().is_success() { return Err(ProvisioningError::Transport); }
-        let body = response.text().await.map_err(|_| ProvisioningError::InvalidResponse)?;
-        let token = body.split("\"enrollment_token\":\"").nth(1)
-            .and_then(|tail| tail.split('"').next()).ok_or(ProvisioningError::InvalidResponse)?;
-        handoff_token_to_runtime(token, runtime)
+            .body(body)
+            .send()
+            .await
+            .map_err(|_| ProvisioningError::Transport)?;
+        if !response.status().is_success() {
+            return Err(ProvisioningError::Transport);
+        }
+        let payload = response
+            .json::<ProvisioningResponseJson>()
+            .await
+            .map_err(|_| ProvisioningError::InvalidResponse)?;
+        validate_provisioning_response(&payload,&request.device_id,
+        )
+        .map(|_| payload.enrollment_token)
+        .and_then(|token| handoff_token_to_runtime(&token, runtime))
     }
+}
+
+fn validate_provisioning_response(
+    payload: &ProvisioningResponseJson,
+    expected_device_id: &str,
+) -> Result<(), ProvisioningError> {
+    if payload.version != 1 || payload.device_id != expected_device_id {
+        return Err(ProvisioningError::InvalidResponse);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+struct ProvisioningResponseJson {
+    version: u16,
+    device_id: String,
+    enrollment_token: String,
 }
 
 fn valid_dns_name(value: &str) -> bool {
@@ -124,6 +209,14 @@ pub const MIGRATION_VERSION: i64 = 202608070001;
 #[cfg(test)]
 mod provisioning_tests {
     use super::*;
+
+    struct Sink(Option<String>);
+    impl RuntimeSecretProvider for Sink {
+        fn handoff_enrollment_token(&mut self, token: String) -> Result<(), ProvisioningError> {
+            self.0 = Some(token);
+            Ok(())
+        }
+    }
 
     #[test]
     fn provisioning_request_rejects_raw_machine_observations_and_redacts_token() {
@@ -141,16 +234,67 @@ mod provisioning_tests {
 
     #[test]
     fn provisioning_client_hands_plaintext_token_only_to_runtime_secret_provider() {
-        struct Sink(Option<String>);
-        impl RuntimeSecretProvider for Sink {
-            fn handoff_enrollment_token(&mut self, token: String) -> Result<(), ProvisioningError> {
-                self.0 = Some(token);
-                Ok(())
-            }
-        }
         let mut sink = Sink(None);
         handoff_token_to_runtime("opaquetoken", &mut sink).unwrap();
         assert_eq!(sink.0.as_deref(), Some("opaquetoken"));
+    }
+
+    #[test]
+    fn provisioning_client_rejects_non_https_and_ip_endpoints() {
+        assert!(
+            ProvisioningClient::for_test("http://server.lab.local/api/v1/admin/provisioning").is_err()
+        );
+        assert!(
+            ProvisioningClient::for_test("https://192.168.1.1/api/v1/admin/provisioning").is_err()
+        );
+        assert!(
+            ProvisioningClient::for_test("https://localhost/api/v1/admin/provisioning").is_err()
+        );
+    }
+
+    #[test]
+    fn provisioning_response_requires_version_and_matching_device() {
+        assert!(validate_provisioning_response(
+            &ProvisioningResponseJson {
+                version: 1,
+                device_id: "LAB-CLIENT01.lab.local".into(),
+                enrollment_token: "opaquetoken123".into(),
+            },
+            "LAB-CLIENT01.lab.local",
+        )
+        .is_ok());
+        assert!(validate_provisioning_response(
+            &ProvisioningResponseJson {
+                version: 2,
+                device_id: "LAB-CLIENT01.lab.local".into(),
+                enrollment_token: "opaquetoken123".into(),
+            },
+            "LAB-CLIENT01.lab.local",
+        )
+        .is_err());
+        assert!(validate_provisioning_response(
+            &ProvisioningResponseJson {
+                version: 1,
+                device_id: "OTHER.lab.local".into(),
+                enrollment_token: "opaquetoken123".into(),
+            },
+            "LAB-CLIENT01.lab.local",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn provisioning_client_requires_existing_pem_material() {
+        let missing = std::path::Path::new("/nonexistent/ca.pem");
+        assert!(
+            ProvisioningClient::new(
+                "https://server.lab.local/api/v1/admin/provisioning",
+                missing,
+                missing,
+                missing,
+            )
+            .is_err()
+        );
     }
 }
 const SQLITE_MIGRATION: &str =

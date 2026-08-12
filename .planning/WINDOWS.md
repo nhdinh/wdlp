@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 11
 waived_count: 0
 fixed_count: 1
-total_count: 10
-last_updated: 2026-08-12T01:50:17.760Z
+total_count: 12
+last_updated: 2026-08-12T03:55:38.004Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,8 @@ last_updated: 2026-08-12T01:50:17.760Z
 | 8 | 01 | stub | crates/dlp-server/src/lib.rs |  | RuntimeRepository creates PostgreSQL adapters but protected routes still receive the in-memory RouteRepository adapter. | open |  | 2026-08-10T12:53:33.528Z |  |
 | 9 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ConfigurationCache smoke test script does not exist; runtime activation verification could not run | open |  | 2026-08-12T01:49:58.830Z |  |
 | 10 | 01 | unrun-verify | scripts/verify-phase1-evidence.ps1 |  | ConfigurationCache evidence scenario is not implemented in verify-phase1-evidence.ps1 ValidateSet | open |  | 2026-08-12T01:50:17.760Z |  |
+| 11 | 01 | stub | crates/dlp-server/src/routes.rs |  | Returns a real provisioning response, but the underlying AdminProvisioningService still delegates to the stub PgAuthorityRepository::provision until Plan 01-13 runtime evidence validates the full PostgreSQL transaction. | open |  | 2026-08-12T03:55:21.976Z |  |
+| 12 | 01 | stub | scripts/lab/Invoke-TrustedProvisioning.ps1 |  | The script invokes dlpctl provision-device, but real DC/WinRM/database mutation is reserved for Plan 01-13. | open |  | 2026-08-12T03:55:38.004Z |  |
 
 ````json
 [
@@ -146,6 +148,30 @@ last_updated: 2026-08-12T01:50:17.760Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T01:50:17.760Z",
+    "resolved_at": null
+  },
+  {
+    "id": 11,
+    "kind": "stub",
+    "phase": "01",
+    "file": "crates/dlp-server/src/routes.rs",
+    "line": null,
+    "description": "Returns a real provisioning response, but the underlying AdminProvisioningService still delegates to the stub PgAuthorityRepository::provision until Plan 01-13 runtime evidence validates the full PostgreSQL transaction.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T03:55:21.976Z",
+    "resolved_at": null
+  },
+  {
+    "id": 12,
+    "kind": "stub",
+    "phase": "01",
+    "file": "scripts/lab/Invoke-TrustedProvisioning.ps1",
+    "line": null,
+    "description": "The script invokes dlpctl provision-device, but real DC/WinRM/database mutation is reserved for Plan 01-13.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-12T03:55:38.004Z",
     "resolved_at": null
   }
 ]

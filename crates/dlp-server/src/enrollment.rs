@@ -5,7 +5,8 @@ use crate::{
     pki::{IssuedDeviceCredential, RcgenDeviceCertificateIssuer},
     repository::{PgAuthorityRepository, RepositoryError, TestAuthorityRepository},
 };
-use dlp_protocol::ProvisionDeviceRequestV1;
+use async_trait::async_trait;
+use dlp_protocol::{ProvisionDeviceRequestV1, ProvisionDeviceResponseV1};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -125,6 +126,17 @@ impl std::fmt::Debug for EnrollmentSubmission {
     }
 }
 
+/// Object-safe port for the transactional enrollment orchestration used by the
+/// bootstrap route. Production and test implementations share the same fail-closed
+/// contract.
+#[async_trait]
+pub trait EnrollmentServicePort: Send + Sync {
+    async fn enroll(
+        &self,
+        submission: EnrollmentSubmission,
+    ) -> Result<IssuedDeviceCredential, EnrollmentError>;
+}
+
 /// Production enrollment orchestration. The PostgreSQL repository holds the
 /// authority row lock while the issuer creates only a public device leaf; it
 /// commits token consumption, serial revocation, and serial activation together.
@@ -138,8 +150,11 @@ impl EnrollmentService {
     pub fn new(repository: PgAuthorityRepository, issuer: RcgenDeviceCertificateIssuer) -> Self {
         Self { repository, issuer }
     }
+}
 
-    pub async fn enroll(
+#[async_trait]
+impl EnrollmentServicePort for EnrollmentService {
+    async fn enroll(
         &self,
         submission: EnrollmentSubmission,
     ) -> Result<IssuedDeviceCredential, EnrollmentError> {
@@ -170,14 +185,56 @@ impl EnrollmentService {
     }
 }
 
-/// Narrow administrator provisioning seam. The caller must have already corroborated
-/// the named computer at both trusted DCs; only the digest crosses this boundary.
+/// Object-safe port for the administrator provisioning route. The caller has
+/// already been verified by mTLS administrator issuer/profile; only the digest
+/// and normalized identity cross this boundary.
+#[async_trait]
+pub trait ProvisioningServicePort: Send + Sync {
+    async fn provision(
+        &self,
+        request: ProvisionDeviceRequestV1,
+    ) -> Result<ProvisionDeviceResponseV1, EnrollmentError>;
+}
+
+/// Production administrator provisioning backed by the PostgreSQL authority.
+/// The administrator identity is established by the TLS layer, not a shared key.
 #[derive(Clone)]
 pub struct AdminProvisioningService {
+    repository: PgAuthorityRepository,
+}
+
+impl AdminProvisioningService {
+    pub fn new(repository: PgAuthorityRepository) -> Self {
+        Self { repository }
+    }
+}
+
+#[async_trait]
+impl ProvisioningServicePort for AdminProvisioningService {
+    async fn provision(
+        &self,
+        request: ProvisionDeviceRequestV1,
+    ) -> Result<ProvisionDeviceResponseV1, EnrollmentError> {
+        let device_id = request.device_id().to_owned();
+        self.repository
+            .provision(&request)
+            .await
+            .map(|token| {
+                ProvisionDeviceResponseV1::new(1, device_id.clone(), token)
+                    .map_err(|_| EnrollmentError::IntegrityFailure)
+            })
+            .map_err(|_| EnrollmentError::IntegrityFailure)?
+    }
+}
+
+/// Deterministic test provisioning fixture with a shared admin key. It must
+/// never be supplied to production server composition.
+#[derive(Clone)]
+pub struct TestAdminProvisioningService {
     repository: Arc<TestAuthorityRepository>,
     admin_key_digest: [u8; 32],
 }
-impl AdminProvisioningService {
+impl TestAdminProvisioningService {
     pub fn new(
         repository: Arc<TestAuthorityRepository>,
         admin_key: &str,
@@ -216,7 +273,7 @@ mod provisioning_tests {
     #[test]
     fn administrator_token_is_returned_once_and_only_its_digest_is_retained() {
         let repository = Arc::new(TestAuthorityRepository::default());
-        let service = AdminProvisioningService::new(Arc::clone(&repository), "secret").unwrap();
+        let service = TestAdminProvisioningService::new(Arc::clone(&repository), "secret").unwrap();
         let token = service.provision("secret", "device-01", [9; 32]).unwrap();
         assert!(!token.is_empty());
         assert!(service.provision("wrong", "device-02", [8; 32]).is_err());
