@@ -19,7 +19,7 @@ use axum::{
 };
 use dlp_crypto::ConfigurationSigner;
 use dlp_domain::{BundleVersion, DeviceId};
-use dlp_protocol::{ConfigurationEnvelopeV1, ProvisionDeviceRequestV1, SignedConfigurationV1};
+use dlp_protocol::{ConfigurationEnvelopeV1, ProvisionDeviceRequestV1, ProvisionDeviceResponseV1, SignedConfigurationV1};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -263,7 +263,7 @@ async fn admin_provisioning_contract(
     State(state): State<RouteState>,
     Extension(_administrator): Extension<AuthenticatedAdmin>,
     Json(request): Json<AdministratorProvisioningRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<Json<ProvisioningResponse>, StatusCode> {
     if request.version != 1
         || request.device_id.is_empty()
         || request.fingerprint_digest.len() != 32
@@ -287,12 +287,16 @@ async fn admin_provisioning_contract(
         request.preferred_drive_letter,
     )
     .map_err(|_| StatusCode::BAD_REQUEST)?;
-    state
+    let response = state
         .provisioning_service
         .provision(provision_request)
         .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Ok(StatusCode::OK)
+    Ok(Json(ProvisioningResponse {
+        version: response.version(),
+        device_id: response.device_id().to_owned(),
+        enrollment_token: response.enrollment_token().to_owned(),
+    }))
 }
 
 async fn fetch_configuration(
@@ -355,6 +359,13 @@ impl From<SignedConfigurationV1> for ConfigurationResponse {
     }
 }
 
+#[derive(Serialize)]
+struct ProvisioningResponse {
+    version: u16,
+    device_id: String,
+    enrollment_token: String,
+}
+
 #[derive(Deserialize)]
 struct HealthRequest {
     version: u16,
@@ -408,8 +419,9 @@ impl ProvisioningServicePort for AlwaysOkProvisioningService {
     async fn provision(
         &self,
         _request: ProvisionDeviceRequestV1,
-    ) -> Result<String, crate::enrollment::EnrollmentError> {
-        Ok("test-token".into())
+    ) -> Result<ProvisionDeviceResponseV1, crate::enrollment::EnrollmentError> {
+        ProvisionDeviceResponseV1::new(1, "device-01", "test-token")
+            .map_err(|_| crate::enrollment::EnrollmentError::IntegrityFailure)
     }
 }
 

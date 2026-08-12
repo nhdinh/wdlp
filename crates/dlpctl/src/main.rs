@@ -111,6 +111,29 @@ mod provisioning {
     }
 }
 
+struct FileSecretProvider {
+    path: std::path::PathBuf,
+}
+
+impl FileSecretProvider {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl dlpctl::RuntimeSecretProvider for FileSecretProvider {
+    fn handoff_enrollment_token(
+        &mut self,
+        token: String,
+    ) -> Result<(), dlpctl::ProvisioningError> {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&self.path).map_err(|_| dlpctl::ProvisioningError::SecretHandoff)?;
+        file.write_all(token.as_bytes())
+            .map_err(|_| dlpctl::ProvisioningError::SecretHandoff)?;
+        Ok(())
+    }
+}
+
 pub const MIGRATION_VERSION: i64 = 202608070001;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -280,16 +303,68 @@ async fn main() -> Result<(), CliError> {
                 == Some("true");
             let sources = provisioning::collect_from_trusted_station(&computer, lab_mode)
                 .map_err(|_| CliError::TrustedStationRequired)?;
-            let _digest = provisioning::fingerprint_v1(&sources);
-            // Persistence requires the authenticated administrator server API from 01-07;
-            // the CLI deliberately emits neither raw CIM values nor a token here.
-            Err(CliError::ProvisioningApiUnavailable)
+            let fingerprint_digest = provisioning::fingerprint_v1(&sources);
+
+            let guid = env::var("DLP_PROVISIONING_AD_OBJECT_GUID")
+                .map_err(|_| CliError::TrustedStationRequired)
+                .and_then(|value| hex_decode(&value).ok_or(CliError::TrustedStationRequired))?;
+            let sid = env::var("DLP_PROVISIONING_AD_OBJECT_SID")
+                .map_err(|_| CliError::TrustedStationRequired)
+                .and_then(|value| hex_decode(&value).ok_or(CliError::TrustedStationRequired))?;
+            let preferred_drive_letter = env::var("DLP_PROVISIONING_PREFERRED_DRIVE_LETTER")
+                .ok()
+                .and_then(|value| value.chars().next())
+                .unwrap_or('P');
+            let request = dlpctl::ProvisioningRequest::new(
+                &computer,
+                fingerprint_digest,
+                guid,
+                sid,
+                preferred_drive_letter,
+            )
+            .map_err(|_| CliError::Usage)?;
+
+            let endpoint = env::var("DLP_PROVISIONING_ENDPOINT")
+                .map_err(|_| CliError::TrustedStationRequired)?;
+            let root_ca = env::var("DLP_PROVISIONING_ROOT_CA_PATH")
+                .map_err(|_| CliError::TrustedStationRequired)?;
+            let admin_cert = env::var("DLP_PROVISIONING_ADMIN_CERT_PATH")
+                .map_err(|_| CliError::TrustedStationRequired)?;
+            let admin_key = env::var("DLP_PROVISIONING_ADMIN_KEY_PATH")
+                .map_err(|_| CliError::TrustedStationRequired)?;
+            let handoff_path = env::var("DLP_PROVISIONING_TOKEN_HANDOFF_PATH")
+                .map_err(|_| CliError::TrustedStationRequired)?;
+
+            let client = dlpctl::ProvisioningClient::new(
+                endpoint,
+                std::path::Path::new(&root_ca),
+                std::path::Path::new(&admin_cert),
+                std::path::Path::new(&admin_key),
+            )
+            .map_err(|_| CliError::ProvisioningApiUnavailable)?;
+            let mut provider = FileSecretProvider::new(std::path::PathBuf::from(handoff_path));
+            client
+                .provision(&request, &mut provider)
+                .await
+                .map_err(|_| CliError::ProvisioningApiUnavailable)?;
+            Ok(())
         }
         Command::EnrollmentTokenCreate { ttl_minutes: _ } => {
             // Token display is deliberately an authenticated provisioning-station operation.
             Err(CliError::TrustedStationRequired)
         }
     }
+}
+
+fn hex_decode(value: &str) -> Option<Vec<u8>> {
+    let value: String = value.chars().filter(|c| !c.is_whitespace()).collect();
+    if value.len() % 2 != 0 {
+        return None;
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&value[index..index + 2], 16).ok())
+        .collect()
 }
 
 #[cfg(test)]

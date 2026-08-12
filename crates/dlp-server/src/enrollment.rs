@@ -6,7 +6,7 @@ use crate::{
     repository::{PgAuthorityRepository, RepositoryError, TestAuthorityRepository},
 };
 use async_trait::async_trait;
-use dlp_protocol::ProvisionDeviceRequestV1;
+use dlp_protocol::{ProvisionDeviceRequestV1, ProvisionDeviceResponseV1};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -193,7 +193,7 @@ pub trait ProvisioningServicePort: Send + Sync {
     async fn provision(
         &self,
         request: ProvisionDeviceRequestV1,
-    ) -> Result<String, EnrollmentError>;
+    ) -> Result<ProvisionDeviceResponseV1, EnrollmentError>;
 }
 
 /// Production administrator provisioning backed by the PostgreSQL authority.
@@ -214,11 +214,16 @@ impl ProvisioningServicePort for AdminProvisioningService {
     async fn provision(
         &self,
         request: ProvisionDeviceRequestV1,
-    ) -> Result<String, EnrollmentError> {
+    ) -> Result<ProvisionDeviceResponseV1, EnrollmentError> {
+        let device_id = request.device_id().to_owned();
         self.repository
             .provision(&request)
             .await
-            .map_err(|_| EnrollmentError::IntegrityFailure)
+            .map(|token| {
+                ProvisionDeviceResponseV1::new(1, device_id.clone(), token)
+                    .map_err(|_| EnrollmentError::IntegrityFailure)
+            })
+            .map_err(|_| EnrollmentError::IntegrityFailure)?
     }
 }
 

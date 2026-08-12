@@ -211,6 +211,58 @@ impl fmt::Debug for ProvisionDeviceRequestV1 {
     }
 }
 
+/// The `/api/v1/admin/provisioning` response. The enrollment token is redacted
+/// in diagnostics; the transport byte representation is the only exposure path.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProvisionDeviceResponseV1 {
+    version: u16,
+    device_id: String,
+    enrollment_token: String,
+}
+
+impl ProvisionDeviceResponseV1 {
+    pub fn new(
+        version: u16,
+        device_id: impl Into<String>,
+        enrollment_token: impl Into<String>,
+    ) -> Result<Self, ProtocolError> {
+        require_v1("ProvisionDeviceResponseV1", version)?;
+        let device_id = device_id.into();
+        let enrollment_token = enrollment_token.into();
+        require_nonempty("device identity", &device_id)?;
+        require_nonempty("enrollment token", &enrollment_token)?;
+        Ok(Self {
+            version,
+            device_id,
+            enrollment_token,
+        })
+    }
+
+    pub const fn version(&self) -> u16 {
+        self.version
+    }
+
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    /// Returns the redacted enrollment token for transport use only.
+    pub fn enrollment_token(&self) -> &str {
+        &self.enrollment_token
+    }
+}
+
+impl fmt::Debug for ProvisionDeviceResponseV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProvisionDeviceResponseV1")
+            .field("version", &self.version)
+            .field("device_id", &self.device_id)
+            .field("enrollment_token", &"[REDACTED]")
+            .finish()
+    }
+}
+
 /// The `/api/v1/enrollment` response. Credential material is opaque to this crate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnrollmentResponseV1 {

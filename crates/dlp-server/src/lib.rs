@@ -513,9 +513,10 @@ mod tests {
         impl crate::enrollment::ProvisioningServicePort for TestProvisioningService {
             async fn provision(
                 &self,
-                _request: dlp_protocol::ProvisionDeviceRequestV1,
-            ) -> Result<String, crate::enrollment::EnrollmentError> {
-                Ok("token".into())
+                request: dlp_protocol::ProvisionDeviceRequestV1,
+            ) -> Result<dlp_protocol::ProvisionDeviceResponseV1, crate::enrollment::EnrollmentError> {
+                dlp_protocol::ProvisionDeviceResponseV1::new(1, request.device_id(), "token")
+                    .map_err(|_| crate::enrollment::EnrollmentError::IntegrityFailure)
             }
         }
         struct TestClock;
