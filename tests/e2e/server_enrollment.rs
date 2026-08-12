@@ -1,3 +1,4 @@
+use axum::http::StatusCode;
 use dlp_server::enrollment::{EnrollmentAttempt, EnrollmentError, TestEnrollmentService};
 use dlp_server::health::{ReadinessDependencies, liveness, readiness};
 use dlp_server::routes::RouteState;
@@ -185,8 +186,8 @@ fn device_leaf_requires_uri_san_serial_and_client_profile() {
     assert!(AuthenticatedDevice::from_peer(peer, CredentialStatus::Active).is_ok());
 }
 
-#[test]
-fn mtls_routes_bind_signed_configuration_and_health_to_the_active_device() {
+#[tokio::test]
+async fn mtls_routes_bind_signed_configuration_and_health_to_the_active_device() {
     let state = RouteState::for_test();
     let device = AuthenticatedDevice::from_peer(
         PeerIdentity::device_for_test("device-test", vec![1, 2, 3]),
@@ -194,31 +195,33 @@ fn mtls_routes_bind_signed_configuration_and_health_to_the_active_device() {
     )
     .expect("active test device");
 
-    state.activate_device_for_test(device.device_id(), device.credential_serial());
+    state.activate_device_for_test(device.device_id(), device.credential_serial()).await;
     let configuration = state
         .signed_configuration_for(&device)
+        .await
         .expect("active device receives a signed configuration");
     assert_eq!(configuration.envelope().bundle_version().to_wire(), "1");
-    assert!(state.record_health_for(&device, "mounted").is_ok());
-    assert_eq!(state.health_report_count_for_test(device.device_id()), 1);
+    assert!(state.record_health_for(&device, "mounted").await.is_ok());
+    assert_eq!(state.health_report_count_for_test(device.device_id()).await, 1);
 
-    state.revoke_device_for_test(device.device_id(), device.credential_serial());
-    assert!(state.signed_configuration_for(&device).is_err());
-    assert!(state.record_health_for(&device, "mounted").is_err());
+    state.revoke_device_for_test(device.device_id(), device.credential_serial()).await;
+    assert!(state.signed_configuration_for(&device).await.is_err());
+    assert!(state.record_health_for(&device, "mounted").await.is_err());
 }
 
-#[test]
-fn signed_configuration_is_audience_bound_hashed_and_replay_safe() {
+#[tokio::test]
+async fn signed_configuration_is_audience_bound_hashed_and_replay_safe() {
     let state = RouteState::for_test();
     let device = AuthenticatedDevice::from_peer(
         PeerIdentity::device_for_test("device-test", vec![1, 2, 3]),
         CredentialStatus::Active,
     )
     .expect("active test device");
-    state.activate_device_for_test(device.device_id(), device.credential_serial());
+    state.activate_device_for_test(device.device_id(), device.credential_serial()).await;
 
     let first = state
         .signed_configuration_for(&device)
+        .await
         .expect("first signed configuration");
     assert_eq!(first.audience().to_wire(), device.device_id());
     assert_eq!(first.content_digest().len(), 32);
@@ -226,14 +229,17 @@ fn signed_configuration_is_audience_bound_hashed_and_replay_safe() {
     assert!(
         state
             .stage_configuration_for_test(device.device_id(), 1)
+            .await
             .is_err()
     );
     state
         .stage_configuration_for_test(device.device_id(), 2)
+        .await
         .expect("higher version is staged");
     assert_eq!(
         state
             .signed_configuration_for(&device)
+            .await
             .expect("select greatest version")
             .envelope()
             .bundle_version()
@@ -301,4 +307,124 @@ fn trusted_provisioning_preflight_requires_named_lab_roles_and_kerberos_tls() {
     assert!(procedure.contains("Kerberos"));
     assert!(procedure.contains("UseSSL"));
     assert!(!procedure.contains("Write-Output $token"));
+}
+
+#[tokio::test]
+async fn bootstrap_enrollment_route_returns_ok_for_bounded_valid_request() {
+    use axum::body::Body;
+    use axum::extract::connect_info::ConnectInfo;
+    use dlp_server::routes::api_v1_router;
+    use dlp_server::tls::TlsConnectionInfo;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = RouteState::for_test();
+    let app = api_v1_router(state);
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/enrollment")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::json!({
+            "version": 1,
+            "device_id": "device-01",
+            "token": "one-time-token",
+            "csr_pem": "-----BEGIN CERTIFICATE REQUEST-----\nMIIBkTCB+w==\n-----END CERTIFICATE REQUEST-----",
+        }).to_string()))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(TlsConnectionInfo::bootstrap_without_peer()));
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn bootstrap_enrollment_route_returns_bad_request_for_invalid_version() {
+    use axum::body::Body;
+    use axum::extract::connect_info::ConnectInfo;
+    use dlp_server::routes::api_v1_router;
+    use dlp_server::tls::TlsConnectionInfo;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = RouteState::for_test();
+    let app = api_v1_router(state);
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/enrollment")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::json!({
+            "version": 2,
+            "device_id": "device-01",
+            "token": "one-time-token",
+            "csr_pem": "csr",
+        }).to_string()))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(TlsConnectionInfo::bootstrap_without_peer()));
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn admin_provisioning_route_returns_ok_for_bounded_valid_request() {
+    use axum::body::Body;
+    use axum::extract::connect_info::ConnectInfo;
+    use dlp_server::routes::api_v1_router;
+    use dlp_server::tls::{PeerIdentity, TlsConnectionInfo};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = RouteState::for_test();
+    let app = api_v1_router(state);
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/admin/provisioning")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::json!({
+            "version": 1,
+            "device_id": "device-01",
+            "fingerprint_digest": vec![0; 32],
+            "ad_object_guid": vec![0; 16],
+            "ad_object_sid": vec![0; 16],
+            "preferred_drive_letter": "P",
+        }).to_string()))
+        .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        TlsConnectionInfo::from_verified_peer(PeerIdentity::admin_for_test("admin-test")),
+    ));
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn admin_provisioning_route_returns_bad_request_for_short_digest() {
+    use axum::body::Body;
+    use axum::extract::connect_info::ConnectInfo;
+    use dlp_server::routes::api_v1_router;
+    use dlp_server::tls::{PeerIdentity, TlsConnectionInfo};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = RouteState::for_test();
+    let app = api_v1_router(state);
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/admin/provisioning")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::json!({
+            "version": 1,
+            "device_id": "device-01",
+            "fingerprint_digest": vec![0; 16],
+            "ad_object_guid": vec![0; 16],
+            "ad_object_sid": vec![0; 16],
+            "preferred_drive_letter": "P",
+        }).to_string()))
+        .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        TlsConnectionInfo::from_verified_peer(PeerIdentity::admin_for_test("admin-test")),
+    ));
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

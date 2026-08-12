@@ -159,13 +159,21 @@ impl ProductionProviders {
         .map_err(|_| ServerError::MissingProvider {
             provider: "certificate_issuer",
         })?;
-        let seed = decode_signing_seed(&required_environment(
-            "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX",
-        )?)?;
+        let seed = decode_signing_seed(&required_environment("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX")?,
+        )?;
         // Validate TLS paths before a migration can mutate the authority ledger.
         tls::TlsPaths::from_environment().map_err(|_| ServerError::MissingProvider {
             provider: "tls_paths",
         })?;
+        let authority_repository = repository::PgAuthorityRepository::new(pool.clone());
+        let route_repository = repository::PgRouteRepository::new(pool);
+        let enrollment_service = Arc::new(enrollment::EnrollmentService::new(
+            authority_repository.clone(),
+            issuer.clone(),
+        ));
+        let provisioning_service = Arc::new(enrollment::AdminProvisioningService::new(
+            authority_repository,
+        ));
         Ok(Self {
             directory_verifier: directory,
             certificate_issuer: Some(Arc::new(RuntimeIssuer(issuer))),
@@ -173,10 +181,10 @@ impl ProductionProviders {
                 dlp_crypto::ConfigurationSigner::from_seed("phase1-runtime", seed),
             )))),
             repository: Some(Arc::new(RuntimeRepository {
-                _authority: repository::PgAuthorityRepository::new(pool.clone()),
-                _routes: repository::PgRouteRepository::new(pool),
-                route_repository: Arc::new(repository::RouteRepository::default()),
+                route_repository: Arc::new(route_repository),
             })),
+            enrollment_service: Some(enrollment_service),
+            provisioning_service: Some(provisioning_service),
             clock: Some(Arc::new(RuntimeClock)),
         })
     }
@@ -189,7 +197,11 @@ fn required_environment(name: &'static str) -> Result<String, ServerError> {
 }
 
 fn decode_signing_seed(value: &str) -> Result<[u8; 32], ServerError> {
-    if value.len() != 64 { return Err(ServerError::MissingProvider { provider: "configuration_signer" }); }
+    if value.len() != 64 {
+        return Err(ServerError::MissingProvider {
+            provider: "configuration_signer",
+        });
+    }
     let mut seed = [0_u8; 32];
     for (index, output) in seed.iter_mut().enumerate() {
         *output = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
@@ -206,15 +218,17 @@ struct RuntimeIssuer(pki::RcgenDeviceCertificateIssuer);
 impl DeviceCertificateIssuer for RuntimeIssuer {}
 struct RuntimeSigner(Arc<dlp_crypto::ConfigurationSigner>);
 impl ConfigurationSigner for RuntimeSigner {
-    fn route_signer(&self) -> Arc<dlp_crypto::ConfigurationSigner> { Arc::clone(&self.0) }
+    fn route_signer(&self) -> Arc<dlp_crypto::ConfigurationSigner> {
+        Arc::clone(&self.0)
+    }
 }
 struct RuntimeRepository {
-    _authority: repository::PgAuthorityRepository,
-    _routes: repository::PgRouteRepository,
-    route_repository: Arc<repository::RouteRepository>,
+    route_repository: Arc<dyn repository::RouteRepositoryPort>,
 }
 impl ServerRepository for RuntimeRepository {
-    fn route_repository(&self) -> Arc<repository::RouteRepository> { Arc::clone(&self.route_repository) }
+    fn route_repository(&self) -> Arc<dyn repository::RouteRepositoryPort> {
+        Arc::clone(&self.route_repository)
+    }
 }
 struct RuntimeClock;
 impl Clock for RuntimeClock {}
@@ -225,7 +239,7 @@ pub trait ConfigurationSigner: Send + Sync {
     fn route_signer(&self) -> Arc<dlp_crypto::ConfigurationSigner>;
 }
 pub trait ServerRepository: Send + Sync {
-    fn route_repository(&self) -> Arc<crate::repository::RouteRepository>;
+    fn route_repository(&self) -> Arc<dyn crate::repository::RouteRepositoryPort>;
 }
 pub trait Clock: Send + Sync {}
 
@@ -235,6 +249,8 @@ pub struct ProductionProviders {
     pub certificate_issuer: Option<Arc<dyn DeviceCertificateIssuer>>,
     pub configuration_signer: Option<Arc<dyn ConfigurationSigner>>,
     pub repository: Option<Arc<dyn ServerRepository>>,
+    pub enrollment_service: Option<Arc<dyn enrollment::EnrollmentServicePort>>,
+    pub provisioning_service: Option<Arc<dyn enrollment::ProvisioningServicePort>>,
     pub clock: Option<Arc<dyn Clock>>,
 }
 
@@ -262,10 +278,25 @@ impl ServerState {
             .as_ref()
             .expect("validated repository provider")
             .route_repository();
+        let enrollment_service = providers
+            .enrollment_service
+            .as_ref()
+            .expect("validated enrollment service")
+            .clone();
+        let provisioning_service = providers
+            .provisioning_service
+            .as_ref()
+            .expect("validated provisioning service")
+            .clone();
         Ok(Self {
             _config: config,
             _providers: Some(providers),
-            route_state: routes::RouteState::new(repository, signer),
+            route_state: routes::RouteState::new(
+                repository,
+                enrollment_service,
+                provisioning_service,
+                signer,
+            ),
             readiness: health::ReadinessDependencies::all_ready(),
         })
     }
@@ -297,6 +328,16 @@ fn validate_providers(providers: &ProductionProviders) -> Result<(), ServerError
     if providers.repository.is_none() {
         return Err(ServerError::MissingProvider {
             provider: "repository",
+        });
+    }
+    if providers.enrollment_service.is_none() {
+        return Err(ServerError::MissingProvider {
+            provider: "enrollment_service",
+        });
+    }
+    if providers.provisioning_service.is_none() {
+        return Err(ServerError::MissingProvider {
+            provider: "provisioning_service",
         });
     }
     if providers.clock.is_none() {
@@ -332,7 +373,11 @@ pub async fn health_ready(
     Extension(dependencies): Extension<health::ReadinessDependencies>,
 ) -> (StatusCode, Json<HealthResponse>) {
     let report = health::readiness(&dependencies);
-    let status = if report.status == StatusCode::OK { "ok" } else { "not_ready" };
+    let status = if report.status == StatusCode::OK {
+        "ok"
+    } else {
+        "not_ready"
+    };
     (
         report.status,
         Json(HealthResponse { status }),
@@ -344,7 +389,6 @@ pub async fn health_ready(
 pub async fn tracer_contract() -> StatusCode {
     StatusCode::NO_CONTENT
 }
-
 
 /// Development-only state used by the SQLite tracer. It is unavailable from a release build,
 /// so fixture providers cannot be accidentally selected by production startup.
@@ -444,8 +488,34 @@ mod tests {
         }
         struct Repository;
         impl ServerRepository for Repository {
-            fn route_repository(&self) -> Arc<crate::repository::RouteRepository> {
+            fn route_repository(
+                &self,
+            ) -> Arc<dyn crate::repository::RouteRepositoryPort> {
                 Arc::new(crate::repository::RouteRepository::default())
+            }
+        }
+        struct TestEnrollmentService;
+        #[async_trait::async_trait]
+        impl crate::enrollment::EnrollmentServicePort for TestEnrollmentService {
+            async fn enroll(
+                &self,
+                _submission: crate::enrollment::EnrollmentSubmission,
+            ) -> Result<crate::pki::IssuedDeviceCredential, crate::enrollment::EnrollmentError> {
+                Ok(crate::pki::IssuedDeviceCredential {
+                    certificate_chain_pem: String::new(),
+                    serial: vec![],
+                    expires_after_days: 30,
+                })
+            }
+        }
+        struct TestProvisioningService;
+        #[async_trait::async_trait]
+        impl crate::enrollment::ProvisioningServicePort for TestProvisioningService {
+            async fn provision(
+                &self,
+                _request: dlp_protocol::ProvisionDeviceRequestV1,
+            ) -> Result<String, crate::enrollment::EnrollmentError> {
+                Ok("token".into())
             }
         }
         struct TestClock;
@@ -456,6 +526,8 @@ mod tests {
             certificate_issuer: Some(Arc::new(CertificateIssuer)),
             configuration_signer: Some(Arc::new(Signer)),
             repository: Some(Arc::new(Repository)),
+            enrollment_service: Some(Arc::new(TestEnrollmentService)),
+            provisioning_service: Some(Arc::new(TestProvisioningService)),
             clock: Some(Arc::new(TestClock)),
         };
         assert!(ServerState::production(ServerConfig::for_test(), providers).is_ok());

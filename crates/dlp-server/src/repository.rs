@@ -2,6 +2,7 @@
 //! mutex-backed stores below exist only as deterministic test fixtures.
 
 use crate::tls::{AuthenticatedDevice, CredentialStatus};
+use async_trait::async_trait;
 use dlp_protocol::{ProvisionDeviceRequestV1, SignedConfigurationV1};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -146,8 +147,8 @@ impl PgAuthorityRepository {
         .bind(request.device_id())
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|_| RepositoryError::Unavailable)?
-        .ok_or(RepositoryError::Denied)?;
+            .map_err(|_| RepositoryError::Unavailable)?
+            .ok_or(RepositoryError::Denied)?;
         let fingerprint: Vec<u8> = row
             .try_get("fingerprint_digest")
             .map_err(|_| RepositoryError::Unavailable)?;
@@ -240,8 +241,32 @@ impl PgRouteRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+}
 
-    pub async fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus {
+#[async_trait]
+impl RouteRepositoryPort for PgRouteRepository {
+    async fn activate_device(&self, device_id: &str, serial: &[u8]) {
+        let _ = sqlx::query(
+            "INSERT INTO device_route_credentials (device_id, credential_serial, credential_status, public_certificate_digest, expires_at) VALUES ($1, $2, 'active', $3, CURRENT_TIMESTAMP + INTERVAL '30 days') ON CONFLICT (credential_serial) DO UPDATE SET credential_status = 'active', revoked_at = NULL",
+        )
+        .bind(device_id)
+        .bind(serial)
+        .bind([0_u8; 32].as_slice())
+        .execute(&self.pool)
+        .await;
+    }
+
+    async fn revoke_device(&self, device_id: &str, serial: &[u8]) {
+        let _ = sqlx::query(
+            "UPDATE device_route_credentials SET credential_status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE device_id = $1 AND credential_serial = $2",
+        )
+        .bind(device_id)
+        .bind(serial)
+        .execute(&self.pool)
+        .await;
+    }
+
+    async fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus {
         let status = sqlx::query(
             "SELECT credential_status FROM device_route_credentials WHERE device_id = $1 AND credential_serial = $2",
         )
@@ -257,6 +282,139 @@ impl PgRouteRepository {
             Some("revoked") => CredentialStatus::Revoked,
             _ => CredentialStatus::Expired,
         }
+    }
+
+    async fn authorize_device(
+        &self,
+        device: &AuthenticatedDevice,
+    ) -> Result<(), RouteRepositoryError> {
+        match self
+            .credential_status(device.device_id(), device.credential_serial())
+            .await
+        {
+            CredentialStatus::Active => Ok(()),
+            CredentialStatus::Revoked | CredentialStatus::Expired => {
+                Err(RouteRepositoryError::Denied)
+            }
+        }
+    }
+
+    async fn record_health(
+        &self,
+        device_id: &str,
+        drive_state: &str,
+    ) -> Result<(), RouteRepositoryError> {
+        sqlx::query(
+            "INSERT INTO health_reports (device_id, status) VALUES ($1, $2)",
+        )
+        .bind(device_id)
+        .bind(drive_state)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(())
+    }
+
+    async fn persist_configuration(
+        &self,
+        device_id: &str,
+        configuration: SignedConfigurationV1,
+    ) -> Result<(), RouteRepositoryError> {
+        if configuration.audience().to_wire() != device_id {
+            return Err(RouteRepositoryError::Denied);
+        }
+        let version = configuration
+            .envelope()
+            .bundle_version()
+            .to_wire()
+            .parse::<i64>()
+            .map_err(|_| RouteRepositoryError::Denied)?;
+        let existing = sqlx::query(
+            "SELECT bundle_version FROM signed_configurations WHERE device_id = $1 ORDER BY bundle_version DESC LIMIT 1",
+        )
+        .bind(device_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if let Some(row) = existing {
+            let current: i64 = row
+                .try_get("bundle_version")
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            if version <= current {
+                return Err(RouteRepositoryError::Replay);
+            }
+        }
+        sqlx::query(
+            "INSERT INTO signed_configurations (device_id, bundle_version, schema_version, key_id, canonical_bundle, signature, content_digest, audience) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(device_id)
+        .bind(version)
+        .bind(i16::try_from(configuration.envelope().schema_version()).map_err(|_| RouteRepositoryError::Denied)?)
+        .bind(configuration.key_id())
+        .bind(configuration.envelope().canonical_bytes())
+        .bind(configuration.signature())
+        .bind(configuration.content_digest())
+        .bind(configuration.audience().to_wire())
+        .execute(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(())
+    }
+
+    async fn selected_configuration(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<SignedConfigurationV1>, RouteRepositoryError> {
+        let row = sqlx::query(
+            "SELECT bundle_version, schema_version, key_id, canonical_bundle, signature, content_digest, audience FROM signed_configurations WHERE device_id = $1 ORDER BY bundle_version DESC LIMIT 1",
+        )
+        .bind(device_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let bundle_version_str: i64 = row
+            .try_get("bundle_version")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let bundle_version = dlp_domain::BundleVersion::parse(bundle_version_str.to_string())
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let schema_version: i16 = row
+            .try_get("schema_version")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let device_id_parsed = dlp_domain::DeviceId::parse(device_id)
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let envelope = dlp_protocol::ConfigurationEnvelopeV1::new(
+            u16::try_from(schema_version).map_err(|_| RouteRepositoryError::Unavailable)?,
+            device_id_parsed,
+            bundle_version,
+            1_754_568_000,
+            "{}",
+        )
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let key_id: String = row
+            .try_get("key_id")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let signature: Vec<u8> = row
+            .try_get("signature")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let signed = SignedConfigurationV1::new(envelope, &key_id, signature)
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(Some(signed))
+    }
+
+    async fn health_report_count(&self, device_id: &str) -> usize {
+        let count: i64 = sqlx::query(
+            "SELECT COUNT(*) AS count FROM health_reports WHERE device_id = $1",
+        )
+        .bind(device_id)
+        .fetch_one(&self.pool)
+        .await
+        .ok()
+        .and_then(|row| row.try_get::<i64, _>("count").ok())
+        .unwrap_or(0);
+        count as usize
     }
 }
 
@@ -343,9 +501,35 @@ pub enum RepositoryError {
     Unavailable,
 }
 
-/// Narrow persistence port for the post-enrollment tracer. The production
-/// adapter replaces this mutex-backed implementation with the forward-only
+/// Narrow persistence port for post-enrollment device routes. The production
+/// adapter replaces the mutex-backed implementation with the forward-only
 /// PostgreSQL ledger; the authorization invariant remains the same.
+#[async_trait]
+pub trait RouteRepositoryPort: Send + Sync {
+    async fn activate_device(&self, device_id: &str, serial: &[u8]);
+    async fn revoke_device(&self, device_id: &str, serial: &[u8]);
+    async fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus;
+    async fn authorize_device(
+        &self,
+        device: &AuthenticatedDevice,
+    ) -> Result<(), RouteRepositoryError>;
+    async fn record_health(
+        &self,
+        device_id: &str,
+        drive_state: &str,
+    ) -> Result<(), RouteRepositoryError>;
+    async fn persist_configuration(
+        &self,
+        device_id: &str,
+        configuration: SignedConfigurationV1,
+    ) -> Result<(), RouteRepositoryError>;
+    async fn selected_configuration(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<SignedConfigurationV1>, RouteRepositoryError>;
+    async fn health_report_count(&self, device_id: &str) -> usize;
+}
+
 #[derive(Default)]
 pub struct RouteRepository {
     devices: Mutex<HashMap<String, DeviceRouteRecord>>,
@@ -359,8 +543,9 @@ struct DeviceRouteRecord {
     configurations: BTreeMap<u64, SignedConfigurationV1>,
 }
 
-impl RouteRepository {
-    pub fn activate_device(&self, device_id: &str, serial: &[u8]) {
+#[async_trait]
+impl RouteRepositoryPort for RouteRepository {
+    async fn activate_device(&self, device_id: &str, serial: &[u8]) {
         if let Ok(mut devices) = self.devices.lock() {
             let record = devices.entry(device_id.to_owned()).or_default();
             if let Some(previous) = record.active_serial.replace(serial.to_vec()) {
@@ -369,7 +554,7 @@ impl RouteRepository {
         }
     }
 
-    pub fn revoke_device(&self, device_id: &str, serial: &[u8]) {
+    async fn revoke_device(&self, device_id: &str, serial: &[u8]) {
         if let Ok(mut devices) = self.devices.lock()
             && let Some(record) = devices.get_mut(device_id)
         {
@@ -386,7 +571,7 @@ impl RouteRepository {
         }
     }
 
-    pub fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus {
+    async fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus {
         let Ok(devices) = self.devices.lock() else {
             return CredentialStatus::Expired;
         };
@@ -406,11 +591,14 @@ impl RouteRepository {
         }
     }
 
-    pub fn authorize_device(
+    async fn authorize_device(
         &self,
         device: &AuthenticatedDevice,
     ) -> Result<(), RouteRepositoryError> {
-        match self.credential_status(device.device_id(), device.credential_serial()) {
+        match self
+            .credential_status(device.device_id(), device.credential_serial())
+            .await
+        {
             CredentialStatus::Active => Ok(()),
             CredentialStatus::Revoked | CredentialStatus::Expired => {
                 Err(RouteRepositoryError::Denied)
@@ -418,7 +606,7 @@ impl RouteRepository {
         }
     }
 
-    pub fn record_health(
+    async fn record_health(
         &self,
         device_id: &str,
         drive_state: &str,
@@ -434,9 +622,7 @@ impl RouteRepository {
         Ok(())
     }
 
-    /// Persists only immutable signed bytes and rejects a version that could
-    /// replay or replace the selected configuration.
-    pub fn persist_configuration(
+    async fn persist_configuration(
         &self,
         device_id: &str,
         configuration: SignedConfigurationV1,
@@ -468,7 +654,7 @@ impl RouteRepository {
         Ok(())
     }
 
-    pub fn selected_configuration(
+    async fn selected_configuration(
         &self,
         device_id: &str,
     ) -> Result<Option<SignedConfigurationV1>, RouteRepositoryError> {
@@ -483,7 +669,7 @@ impl RouteRepository {
             .map(|(_, configuration)| configuration.clone()))
     }
 
-    pub fn health_report_count(&self, device_id: &str) -> usize {
+    async fn health_report_count(&self, device_id: &str) -> usize {
         self.devices
             .lock()
             .ok()
