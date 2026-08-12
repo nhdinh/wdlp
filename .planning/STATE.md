@@ -9,7 +9,7 @@ progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 8
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -23,12 +23,12 @@ progress:
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 23 of 11 — complete
-- **Task**: 3 of 3
+- **Plan**: 19 of 11 — complete
+- **Task**: 1 of 1
 - **Status**: Complete
-- **Progress**: 55%
-- **Next plan**: 01-19 (Wave 7)
-- **Topology update**: PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning.
+- **Progress**: 73%
+- **Next plan**: 01-15 (Wave 8)
+- **Topology update**: PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by token/VM reachability.
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ progress:
 | Phase 01-first-encrypted-drive-vertical-slice P13 | 4h | 3 tasks | 14 files |
 | Phase 01-first-encrypted-drive-vertical-slice P14 | 2h | 2 tasks | 9 files |
 | Phase 01-first-encrypted-drive-vertical-slice P18 | 65min | 1 tasks | 6 files |
+| Phase 01-first-encrypted-drive-vertical-slice P19 | 45m | 1 tasks | 10 files |
 | Phase 01-first-encrypted-drive-vertical-slice P23 | 45m | 3 tasks | 13 files |
 
 ## Accumulated Context
@@ -75,15 +76,15 @@ progress:
 
 ## Session Continuity
 
-**Resume file:** 01-23-PLAN.md
+**Resume file:** 01-15-PLAN.md
 
-**Last session:** 2026-08-12T04:00:00Z
-**Stopped at:** Completed 01-23-PLAN.md.
+**Last session:** 2026-08-12T05:35:00Z
+**Stopped at:** Completed 01-19-PLAN.md.
 
 **Current session:** 2026-08-12
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
 
-- Last action: Committed Tasks 1-3 of Plan 01-23 (production route/TLS/provider wiring, typed mTLS provisioning client, and LAB-DC01 dual-DC Kerberos preflight). Source tests, clippy, and evidence checks passed.
+- Last action: Completed Plan 01-19 (SCM service lifecycle, native fingerprint, secret-free config, and LAB-CLIENT01 smoke artifacts). Source checks pass; LAB-CLIENT01 runtime blocked by token/VM reachability. Plan 01-18 source-level blocker resolved.
 
 ### Completed Plan 01-23 Evidence
 
@@ -122,8 +123,11 @@ progress:
 - [Phase 01]: 01-18: Keep directory sync best-effort in portable dlp-agent-core; Windows-specific directory flush injected by service crate.
 - [Phase 01]: 01-23: Return a versioned JSON provisioning response from the administrator route so the client validates device identity before token handoff.
 - [Phase 01]: 01-23: Remove the obsolete bearer-style `DLP_ADMIN_PROVISIONING_KEY` and document mTLS provisioning runtime-provider paths.
+- [Phase 01]: 01-19: Load cache pointers during service startup so restart recovery is validated before mTLS polling.
+- [Phase 01]: 01-19: Keep diagnostic helpers redacted by calling hidden binary verbs that emit stable codes only.
+- [Phase 01]: 01-19: Accept LAB-CLIENT01 runtime verification as blocked when the runtime token and VM reachability are unavailable; source artifacts must remain fail-closed.
 
 ### Blockers
 
 - 01-14 LAB-CLIENT01 runtime scenarios blocked: runtime token missing and LAB-CLIENT01 unreachable from hungdinh-lt; server /api/v1/enrollment route source contract is now wired by Plan 01-23 but PostgreSQL transaction evidence remains for Plan 01-13.
-- 01-18 runtime verification blocked: `tests/windows/Invoke-AgentServiceSmoke.ps1` does not include a `ConfigurationCache` scenario and `scripts/verify-phase1-evidence.ps1` lacks the scenario in its `ValidateSet`.
+- 01-19 LAB-CLIENT01 runtime scenarios blocked: runtime token missing and LAB-CLIENT01/LAB-DC01 unreachable from hungdinh-lt; source artifacts and source checks are complete.

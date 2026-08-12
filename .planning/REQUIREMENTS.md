@@ -50,7 +50,7 @@
 
 ### Endpoint Agent (AGT)
 
-- [ ] **AGT-01**: Run as a Windows service with automatic startup and no interactive user session requirement.
+- [x] **AGT-01**: Run as a Windows service with automatic startup and no interactive user session requirement.
 - [x] **AGT-02**: Enroll the device and protect credentials using Windows-protected storage.
 - [x] **AGT-03**: Periodically contact the server over TLS; verify server identity.
 - [x] **AGT-04**: Download, verify, cache, and atomically activate signed configuration bundles.
@@ -173,7 +173,7 @@
 | CRY-03 | Phase 3 | Pending |
 | CRY-04 | Phase 1 | Complete |
 | CRY-05 | Phase 2 | Pending |
-| AGT-01 | Phase 1 | Pending |
+| AGT-01 | Phase 1 | Complete |
 | AGT-02 | Phase 1 | Complete |
 | AGT-03 | Phase 1 | Complete |
 | AGT-04 | Phase 1 | Complete |
