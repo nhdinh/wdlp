@@ -14,6 +14,11 @@ dlp-domain = { path = "../dlp-domain" }
 dlp-protocol = { path = "../dlp-protocol" }
 dlp-storage = { path = "../dlp-storage" }
 rcgen = { version = "=0.14.8", features = ["pem", "x509-parser"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["rustls", "blocking", "http2"] }
+rustls-pemfile = "=1.0.4"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 secrecy = "=0.10.3"
 sha2 = "=0.11.0"
+x509-parser = "=0.18.1"
 zeroize = "=1.9.0"

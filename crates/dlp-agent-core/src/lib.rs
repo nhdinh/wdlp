@@ -15,7 +15,10 @@ pub mod enrollment;
 pub mod health;
 
 pub use client::{AgentHttpClient, ClientError};
-pub use enrollment::{EnrollmentCoordinator, EnrollmentError, EnrollmentMode, EnrollmentTransport};
+pub use enrollment::{
+    EnrollmentCoordinator, EnrollmentCredential, EnrollmentCredentialStore, EnrollmentError,
+    EnrollmentMode, EnrollmentTransport,
+};
 pub use health::{HealthSnapshot, RedactedDiagnostic};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
