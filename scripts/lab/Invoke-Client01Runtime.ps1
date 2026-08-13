@@ -225,16 +225,34 @@ function Invoke-Client01TrustedProvisioning {
         [Parameter()][char]$PreferredDriveLetter = 'P'
     )
     Write-Host 'TrustedProvisioning: invoking trusted provisioning on LAB-DC01...'
+
+    # Invoke-TrustedProvisioning.ps1 guards require both the approved digest and
+    # the administrator provisioning mTLS material to be present in the LAB-DC01
+    # session. These values are consumed only on LAB-DC01; they are not written
+    # to LAB-CLIENT01 or persisted on hungdinh-lt.
+    $provisioningRootCa = $env:DLP_PROVISIONING_ROOT_CA_PEM
+    $provisioningAdminCert = $env:DLP_PROVISIONING_ADMIN_CERT_PEM
+    $provisioningAdminKey = $env:DLP_PROVISIONING_ADMIN_KEY_PEM
+    if ([string]::IsNullOrWhiteSpace($provisioningRootCa) -or
+        [string]::IsNullOrWhiteSpace($provisioningAdminCert) -or
+        [string]::IsNullOrWhiteSpace($provisioningAdminKey)) {
+        Stop-Client01 'provisioning_material_missing: set DLP_PROVISIONING_ROOT_CA_PEM, DLP_PROVISIONING_ADMIN_CERT_PEM, and DLP_PROVISIONING_ADMIN_KEY_PEM on hungdinh-lt'
+    }
+
     $resultJson = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
-        param($Digest, $Target, $PreferredLetter)
+        param($Digest, $Target, $PreferredLetter, $ProvisioningRootCa, $ProvisioningAdminCert, $ProvisioningAdminKey)
         $ErrorActionPreference = 'Stop'
         Set-Location C:\dlp\server
+        $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST = $Digest
+        $env:DLP_PROVISIONING_ROOT_CA_PEM = $ProvisioningRootCa
+        $env:DLP_PROVISIONING_ADMIN_CERT_PEM = $ProvisioningAdminCert
+        $env:DLP_PROVISIONING_ADMIN_KEY_PEM = $ProvisioningAdminKey
         & scripts/lab/Invoke-TrustedProvisioning.ps1 `
             -ExecutionMachine LAB-DC01 `
             -TargetComputer $Target `
             -PrivilegeManifestDigest $Digest `
             -PreferredDriveLetter $PreferredLetter
-    } -ArgumentList @($PrivilegeManifestDigest, $TargetComputer, $PreferredDriveLetter)
+    } -ArgumentList @($PrivilegeManifestDigest, $TargetComputer, $PreferredDriveLetter, $provisioningRootCa, $provisioningAdminCert, $provisioningAdminKey)
 
     $result = $resultJson | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace($result.enrollment_token)) {
