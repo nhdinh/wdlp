@@ -76,6 +76,19 @@ Plans:
 
 - [ ] 01-21-PLAN.md (Wave 11) — Execute D-19 failure recovery, seal requirement-indexed evidence, and require independent Phase 1 review
 
+### Phase 01.1: Add docs for those env var DLP_DEVICE_ID, DLP_SERVER_URL, DLP_ROOT_CA_PEM, DLP_CONFIGURATION_PUBLIC_KEY_HEX. Add docs to guide how to collect/create all env vars for setting up (INSERTED)
+
+**Goal:** Document every runtime environment variable consumed by the DLP Windows endpoint agent service and provide operator instructions for collecting or creating the four required variables.
+**Requirements**: TBD
+**Depends on:** Phase 01
+**Plans:** 1 plan
+
+Plans:
+
+**Wave 1**
+
+- [x] 01.1-01-PLAN.md (Wave 1) — Create ENV-VARS.md reference and cross-reference it from the lab startup guide
+
 ### Phase 2: Policy Enforcement and User Feedback
 
 **Goal**: Turn the encrypted drive into a working DLP boundary with metadata rules, actions, and user-facing feedback.
