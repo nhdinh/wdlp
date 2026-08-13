@@ -25,6 +25,7 @@ progress:
 | Date | Slug | Summary | Artifacts |
 |------|------|---------|-----------|
 | 2026-08-13 | hyperv-vm-start-guide | PowerShell walkthrough for starting and cold-starting Hyper-V VMs | `.planning/docs/HYPERV-VM-START-GUIDE.md` |
+| 2026-08-13 | hyperv-dlp-start-guide | PowerShell walkthrough for starting/cold-starting DLP server/services/endpoint apps on Hyper-V VMs | `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
 
 ## Current Position
 
