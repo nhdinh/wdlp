@@ -81,7 +81,7 @@ Plans:
 **Goal:** Document every runtime environment variable consumed by the DLP Windows endpoint agent service and provide operator instructions for collecting or creating the four required variables.
 **Requirements**: TBD
 **Depends on:** Phase 01
-**Plans:** 1 plan
+**Plans:** 1/1 plans executed
 
 Plans:
 

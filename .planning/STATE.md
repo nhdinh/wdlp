@@ -2,13 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in_progress
-stopped_at: Completed 01-23-PLAN.md
-last_updated: "2026-08-12T03:58:53.201Z"
+current_phase: 01.1
+status: verifying
+stopped_at: Completed 01.1-01-PLAN.md
+last_updated: "2026-08-13T12:56:07.248Z"
 progress:
-  total_phases: 1
-  completed_phases: 0
-  total_plans: 11
+  total_phases: 2
+  completed_phases: 1
+  total_plans: 12
   completed_plans: 8
 ---
 
@@ -31,13 +32,13 @@ progress:
 
 ## Current Position
 
-- **Phase**: 1 - First Encrypted-Drive Vertical Slice
-- **Plan**: 19 of 11 — complete
-- **Task**: 1 of 1
-- **Status**: Complete
-- **Progress**: 73%
-- **Next plan**: 01-15 (Wave 8)
-- **Topology update**: PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by token/VM reachability.
+- **Phase:** 01.1 - Add docs for env vars
+- **Plan:** 19 of 11 — complete
+- **Task:** 1 of 1
+- **Status:** Phase complete — ready for verification
+- **Progress:** [███████░░░] 67%
+- **Next plan:** /gsd-plan-phase 01.1
+- **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by token/VM reachability.
 
 ## Performance Metrics
 
@@ -63,6 +64,7 @@ progress:
 | Phase 01-first-encrypted-drive-vertical-slice P18 | 65min | 1 tasks | 6 files |
 | Phase 01-first-encrypted-drive-vertical-slice P19 | 45m | 1 tasks | 10 files |
 | Phase 01-first-encrypted-drive-vertical-slice P23 | 45m | 3 tasks | 13 files |
+| Phase 01.1-add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp P01 | 12m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -83,12 +85,16 @@ progress:
   - mTLS certificate issuance, renewal, and revocation lifecycle.
 - **Blockers**: None
 
+### Roadmap Evolution
+
+- Phase 01.1 inserted after Phase 01: Add docs for those env var DLP_DEVICE_ID, DLP_SERVER_URL, DLP_ROOT_CA_PEM, DLP_CONFIGURATION_PUBLIC_KEY_HEX. Add docs to guide how to collect/create all env vars for setting up (URGENT)
+
 ## Session Continuity
 
-**Resume file:** 01-15-PLAN.md
+**Resume file:** None
 
-**Last session:** 2026-08-12T05:35:00Z
-**Stopped at:** Completed 01-19-PLAN.md.
+**Last session:** 2026-08-13T12:55:44.975Z
+**Stopped at:** Completed 01.1-01-PLAN.md
 
 **Current session:** 2026-08-12
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
@@ -135,6 +141,8 @@ progress:
 - [Phase 01]: 01-19: Load cache pointers during service startup so restart recovery is validated before mTLS polling.
 - [Phase 01]: 01-19: Keep diagnostic helpers redacted by calling hidden binary verbs that emit stable codes only.
 - [Phase 01]: 01-19: Accept LAB-CLIENT01 runtime verification as blocked when the runtime token and VM reachability are unavailable; source artifacts must remain fail-closed.
+- [Phase ?]: [Phase 01.1]: Kept example env-var lines in HYPERV-DLP-STARTUP-GUIDE.md as a quick reminder but added a comment and link deferring to ENV-VARS.md for collection/creation instructions.
+- [Phase ?]: [Phase 01.1]: Documented DLP_ROOT_CA_PEM as accepting either PEM content or a filesystem path, matching the service loader and Invoke-Client01Runtime.ps1 behavior.
 
 ### Blockers
 
