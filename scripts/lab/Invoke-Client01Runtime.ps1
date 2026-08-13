@@ -5,6 +5,8 @@ param(
     [Parameter()][ValidateSet('LAB-DC01')][string]$ProbeMachine = 'LAB-DC01',
     [Parameter()][ValidateSet('Runtime')][string]$SecretProvider = 'Runtime',
     [Parameter(Mandatory)][ValidateSet('Tracer', 'ServiceInstall', 'All')][string]$Scenario,
+    [Parameter()][ValidateSet('Manual', 'TrustedProvisioning')][string]$EnrollmentTokenProvider = 'Manual',
+    [Parameter()][switch]$RetainEnrollmentToken,
     [Parameter()][switch]$Apply,
     [Parameter()][System.Management.Automation.PSCredential]$Credential
 )
@@ -168,8 +170,43 @@ function Assert-RuntimeSecretsPresent {
         'DLP_ROOT_CA_PEM',
         'DLP_CONFIGURATION_PUBLIC_KEY_HEX'
     )
+    if ($EnrollmentTokenProvider -ne 'TrustedProvisioning') {
+        $required += 'DLP_AGENT_ENROLLMENT_TOKEN'
+    }
     $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
     if ($missing.Count -gt 0) { Stop-Client01 ("runtime_secrets_missing: " + ($missing -join ', ')) }
+}
+
+function Test-Client01CredentialPresent {
+    return Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+        Test-Path -LiteralPath 'C:\dlp\agent\data\credentials\device.dpapi'
+    }
+}
+
+function Invoke-Client01TrustedProvisioning {
+    param(
+        [Parameter(Mandatory)][string]$PrivilegeManifestDigest,
+        [Parameter(Mandatory)][string]$TargetComputer,
+        [Parameter()][char]$PreferredDriveLetter = 'P'
+    )
+    Write-Host 'TrustedProvisioning: invoking trusted provisioning on LAB-DC01...'
+    $resultJson = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        param($Digest, $Target, $PreferredLetter)
+        $ErrorActionPreference = 'Stop'
+        Set-Location C:\dlp\server
+        & scripts/lab/Invoke-TrustedProvisioning.ps1 `
+            -ExecutionMachine LAB-DC01 `
+            -TargetComputer $Target `
+            -PrivilegeManifestDigest $Digest `
+            -PreferredDriveLetter $PreferredLetter
+    } -ArgumentList @($PrivilegeManifestDigest, $TargetComputer, $PreferredDriveLetter)
+
+    $result = $resultJson | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace($result.enrollment_token)) {
+        Stop-Client01 'trusted_provisioning_returned_empty_token'
+    }
+    Write-Host "TrustedProvisioning: obtained enrollment token for $($result.target)"
+    return $result.enrollment_token
 }
 
 function Install-Client01ServiceBinary {
@@ -205,6 +242,8 @@ function Stop-Client01Service {
 }
 
 function Install-Client01RuntimeSecrets {
+    param([Parameter()][string]$EnrollmentToken)
+
     # The runtime provider supplies configuration as environment variables. We
     # write them to an env file on LAB-CLIENT01; Install-Client01Service later
     # persists the same lines into the service registry Environment value so the
@@ -239,7 +278,9 @@ function Install-Client01RuntimeSecrets {
         $envLines.Add("DLP_CONFIGURATION_KEY_ID=$($env:DLP_CONFIGURATION_KEY_ID)")
     }
     $envLines.Add("DLP_CONFIGURATION_PUBLIC_KEY_HEX=$($env:DLP_CONFIGURATION_PUBLIC_KEY_HEX)")
-    if (-not [string]::IsNullOrWhiteSpace($env:DLP_AGENT_ENROLLMENT_TOKEN)) {
+    if (-not [string]::IsNullOrWhiteSpace($EnrollmentToken)) {
+        $envLines.Add("DLP_AGENT_ENROLLMENT_TOKEN=$EnrollmentToken")
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:DLP_AGENT_ENROLLMENT_TOKEN)) {
         $envLines.Add("DLP_AGENT_ENROLLMENT_TOKEN=$($env:DLP_AGENT_ENROLLMENT_TOKEN)")
     }
     if (-not [string]::IsNullOrWhiteSpace($env:DLP_POLL_INTERVAL_SECONDS)) {
@@ -258,12 +299,15 @@ function Install-Client01RuntimeSecrets {
 }
 
 function Install-Client01Service {
-    param([Parameter()][switch]$StartAfterInstall)
+    param(
+        [Parameter()][switch]$StartAfterInstall,
+        [Parameter()][string]$EnrollmentToken
+    )
 
     Write-Host 'Install-Client01Service: installing binary...'
     Install-Client01ServiceBinary
     Write-Host 'Install-Client01Service: installing secrets...'
-    Install-Client01RuntimeSecrets
+    Install-Client01RuntimeSecrets -EnrollmentToken $EnrollmentToken
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         param($StartAfter)
@@ -303,8 +347,10 @@ function Test-Client01ServiceRunning {
 }
 
 function Invoke-Client01ServiceInstall {
+    param([Parameter()][string]$EnrollmentToken)
+
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine $ExecutionMachine
-    Install-Client01Service -StartAfterInstall
+    Install-Client01Service -StartAfterInstall -EnrollmentToken $EnrollmentToken
 
     $running = Test-Client01ServiceRunning
     $status = if ($running) { 'pass' } else { 'fail' }
@@ -317,8 +363,21 @@ function Invoke-Client01ServiceInstall {
 }
 
 function Invoke-Client01Tracer {
+    $enrollmentToken = $null
+    if ($EnrollmentTokenProvider -eq 'TrustedProvisioning') {
+        if (Test-Client01CredentialPresent) {
+            Write-Host 'Tracer: existing DPAPI credential found on LAB-CLIENT01; skipping trusted provisioning.'
+        } else {
+            $approvedDigest = Get-ApprovedPrivilegeManifestDigest
+            $enrollmentToken = Invoke-Client01TrustedProvisioning `
+                -PrivilegeManifestDigest $approvedDigest `
+                -TargetComputer 'LAB-CLIENT01.lab.local' `
+                -PreferredDriveLetter 'P'
+        }
+    }
+
     Write-Host 'Tracer: installing service...'
-    Invoke-Client01ServiceInstall
+    Invoke-Client01ServiceInstall -EnrollmentToken $enrollmentToken
 
     $serverHost = $script:Dc01Ip
     Write-Host "Tracer: probing management server from $ExecutionMachine via $serverHost..."
