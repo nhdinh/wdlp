@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01-first-encrypted-drive-vertical-slice
+current_phase: 01
 status: in_progress
-stopped_at: Completed 01.1-01-PLAN.md
-last_updated: "2026-08-13T13:05:00Z"
+stopped_at: Completed 01.2-01-PLAN.md
+last_updated: "2026-08-13T16:21:28.000Z"
 progress:
-  total_phases: 2
+  total_phases: 4
   completed_phases: 1
-  total_plans: 12
-  completed_plans: 8
+  total_plans: 13
+  completed_plans: 9
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -32,13 +32,14 @@ progress:
 | 2026-08-13 | update-startup-guide | Update HYPERV-DLP-STARTUP-GUIDE.md to deploy endpoint service via Invoke-Client01Runtime.ps1 | `.planning/quick/20260813-update-startup-guide/`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
 | 2026-08-13 | provisioning-token-capture | Configure Invoke-TrustedProvisioning.ps1 to capture and return dlpctl enrollment token | `.planning/quick/20260813-provisioning-token-capture/`, `scripts/lab/Invoke-TrustedProvisioning.ps1`, `scripts/lab/Invoke-Dc01Server.ps1` |
 | 2026-08-13 | pem-key-collection-guide | Guide for obtaining or generating the PEM/KEY files used by Phase 1 lab env vars | `.planning/docs/PEM-KEY-GUIDE.md`, `.planning/docs/ENV-VARS.md`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
+| 2026-08-13 | automatic-enrollment-token-acquisition | Orchestrator-chained automatic DLP_AGENT_ENROLLMENT_TOKEN acquisition, validation, cleanup, and doc update | `.planning/phases/01.2-dlp-agent-enrollment-token-should-be-obtained-automatically/01.2-01-SUMMARY.md`, `scripts/lab/Invoke-Client01Runtime.ps1`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md`, `.planning/docs/ENV-VARS.md` |
 
 ## Current Position
 
 - **Phase:** 01 - First Encrypted-Drive Vertical Slice
 - **Plan:** 7/11 complete; next: 01-15-PLAN.md (Wave 8)
 - **Task:** 1 of 1
-- **Status:** In progress
+- **Status:** in_progress
 - **Progress:** [████████░░] 64%
 - **Next plan:** 01-15-PLAN.md — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, isolation, sign-out drain, and service-restart behavior
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by token/VM reachability.
@@ -91,15 +92,17 @@ progress:
 ### Roadmap Evolution
 
 - Phase 01.1 inserted after Phase 01: Add docs for those env var DLP_DEVICE_ID, DLP_SERVER_URL, DLP_ROOT_CA_PEM, DLP_CONFIGURATION_PUBLIC_KEY_HEX. Add docs to guide how to collect/create all env vars for setting up (URGENT)
+- Phase 01.2 inserted after Phase 1: DLP_AGENT_ENROLLMENT_TOKEN should be obtained automatically when DlpWindowsService installed (URGENT)
+- Phase 01.2 plan created: 01.2-01-PLAN.md — Orchestrator-chained automatic enrollment token acquisition, validation, cleanup, and doc update.
 
 ## Session Continuity
 
 **Resume file:** None
 
-**Last session:** 2026-08-13T12:55:44.975Z
-**Stopped at:** Completed 01.1-01-PLAN.md
+**Last session:** 2026-08-13T16:21:28.975Z
+**Stopped at:** Completed 01.2-01-PLAN.md
 
-**Current session:** 2026-08-12
+**Current session:** 2026-08-13
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
 
 - Last action: Completed Plan 01-19 (SCM service lifecycle, native fingerprint, secret-free config, and LAB-CLIENT01 smoke artifacts). Source checks pass; LAB-CLIENT01 runtime blocked by token/VM reachability. Plan 01-18 source-level blocker resolved.
@@ -146,8 +149,10 @@ progress:
 - [Phase 01]: 01-19: Accept LAB-CLIENT01 runtime verification as blocked when the runtime token and VM reachability are unavailable; source artifacts must remain fail-closed.
 - [Phase ?]: [Phase 01.1]: Kept example env-var lines in HYPERV-DLP-STARTUP-GUIDE.md as a quick reminder but added a comment and link deferring to ENV-VARS.md for collection/creation instructions.
 - [Phase ?]: [Phase 01.1]: Documented DLP_ROOT_CA_PEM as accepting either PEM content or a filesystem path, matching the service loader and Invoke-Client01Runtime.ps1 behavior.
+- [Phase 01.2]: Retained Manual as the default EnrollmentTokenProvider so existing operator workflows continue unchanged.
+- [Phase 01.2]: Made token cleanup the default after successful enrollment; only retain with -RetainEnrollmentToken for explicit troubleshooting.
+- [Phase 01.2]: Validated enrollment token length (<=512) and charset ([A-Za-z0-9_.~/-]) before any persistence to LAB-CLIENT01.
 
 ### Blockers
 
-- 01-14 LAB-CLIENT01 runtime scenarios blocked: runtime token missing and LAB-CLIENT01 unreachable from hungdinh-lt; server /api/v1/enrollment route source contract is now wired by Plan 01-23 but PostgreSQL transaction evidence remains for Plan 01-13.
-- 01-19 LAB-CLIENT01 runtime scenarios blocked: runtime token missing and LAB-CLIENT01/LAB-DC01 unreachable from hungdinh-lt; source artifacts and source checks are complete.
+- 01-14 and 01-19 LAB-CLIENT01 runtime scenarios remain blocked by LAB-CLIENT01/LAB-DC01 unreachability from hungdinh-lt; the runtime-token blocker is removed by Phase 01.2 automatic acquisition. Live end-to-end verification of `Invoke-Client01Runtime.ps1 -EnrollmentTokenProvider TrustedProvisioning -Apply` is pending VM access.

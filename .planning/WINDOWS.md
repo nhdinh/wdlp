@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 16
+open_count: 17
 waived_count: 0
 fixed_count: 1
-total_count: 17
-last_updated: 2026-08-12T04:56:49.047Z
+total_count: 18
+last_updated: 2026-08-13T16:26:14.385Z
 ---
 
 # Broken Windows Ledger
@@ -32,6 +32,7 @@ last_updated: 2026-08-12T04:56:49.047Z
 | 15 | 01 | stub | tests/windows/Invoke-AgentServiceSmoke.ps1 | 155 | ReplacementRevocation smoke scenario stops at enrollment_endpoint_stub_503 pending LAB-CLIENT01 enrollment endpoint runtime | open |  | 2026-08-12T04:56:46.375Z |  |
 | 16 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ServiceRestart runtime smoke not executed due to missing runtime token and VM reachability | open |  | 2026-08-12T04:56:47.762Z |  |
 | 17 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ConfigurationCache runtime smoke not executed due to missing runtime token and VM reachability | open |  | 2026-08-12T04:56:49.047Z |  |
+| 18 | 01.2 | unrun-verify | scripts/lab/Invoke-Client01Runtime.ps1 | 360 | End-to-end tracer with -EnrollmentTokenProvider TrustedProvisioning -Apply requires elevated PowerShell and live LAB-DC01/LAB-CLIENT01 VMs; not executed from this shell. | open |  | 2026-08-13T16:26:14.385Z |  |
 
 ````json
 [
@@ -237,6 +238,18 @@ last_updated: 2026-08-12T04:56:49.047Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-12T04:56:49.047Z",
+    "resolved_at": null
+  },
+  {
+    "id": 18,
+    "kind": "unrun-verify",
+    "phase": "01.2",
+    "file": "scripts/lab/Invoke-Client01Runtime.ps1",
+    "line": 360,
+    "description": "End-to-end tracer with -EnrollmentTokenProvider TrustedProvisioning -Apply requires elevated PowerShell and live LAB-DC01/LAB-CLIENT01 VMs; not executed from this shell.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-13T16:26:14.385Z",
     "resolved_at": null
   }
 ]

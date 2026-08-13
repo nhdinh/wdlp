@@ -76,6 +76,19 @@ Plans:
 
 - [ ] 01-21-PLAN.md (Wave 11) — Execute D-19 failure recovery, seal requirement-indexed evidence, and require independent Phase 1 review
 
+### Phase 01.2: DLP_AGENT_ENROLLMENT_TOKEN should be obtained automatically when DlpWindowsService installed (INSERTED)
+
+**Goal:** As a lab operator, I want the endpoint deployment script to obtain the enrollment token automatically from trusted provisioning, so that I can install and start DlpWindowsService without manually copying a short-lived secret.
+**Requirements**: SRV-13, SRV-14, TST-05, AGT-01
+**Depends on:** Phase 1
+**Plans:** 1 plan
+
+Plans:
+
+**Wave 1**
+
+- [x] 01.2-01-PLAN.md (Wave 1) — Orchestrator-chained automatic enrollment token acquisition, validation, cleanup, and doc update (completed 2026-08-13)
+
 ### Phase 01.1: Add docs for those env var DLP_DEVICE_ID, DLP_SERVER_URL, DLP_ROOT_CA_PEM, DLP_CONFIGURATION_PUBLIC_KEY_HEX. Add docs to guide how to collect/create all env vars for setting up (INSERTED)
 
 **Goal:** Document every runtime environment variable consumed by the DLP Windows endpoint agent service and provide operator instructions for collecting or creating the four required variables.
@@ -149,6 +162,8 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. First Encrypted-Drive Vertical Slice | 8/11 | In Progress|  |
+| 1.1. Add env-var docs | 1/1 | Complete | 2026-08-13 |
+| 1.2. Automatic enrollment token acquisition | 1/1 | Complete | 2026-08-13 |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |
