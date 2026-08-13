@@ -4,8 +4,8 @@ Step-by-step PowerShell commands for booting the Phase 1 DLP lab environment on 
 
 > **Lab topology:**
 > - `hungdinh-lt` — developer orchestration host (where you run these commands).
-> - `LAB-SERVER01` (`192.168.50.12`) — native PostgreSQL database server.
-> - `LAB-DC01` (`192.168.50.10`) — management server / primary directory server.
+> - `LAB-SERVER01` (`192.168.50.12`) — native PostgreSQL database server (Ubuntu Server; managed via SSH).
+> - `LAB-DC01` (`192.168.50.10`) — management server / primary directory server (Windows; managed via PowerShell Direct/WinRM).
 > - `LAB-CLIENT01` — endpoint runtime target (agent service, DPAPI, WinFsp).
 > - `LAB-DC02` — secondary AD authority (used only by trusted-provisioning scenarios).
 
@@ -31,6 +31,7 @@ $env:DLP_VM_ADMIN_USER     = 'labadmin'
 $env:DLP_VM_ADMIN_PASSWORD = '***from-runtime-provider***'
 $env:DLP_DATABASE_URL      = 'postgres://dlp_server:***@192.168.50.12:5432/dlp'
 $env:DLP_SERVER01_ADMIN_PASSWORD = '***from-runtime-provider***'
+$env:DLP_SERVER01_SSH_USER = 'dlpadmin'   # Ubuntu account with passwordless sudo or postgres group membership
 
 # Server runtime secrets (PEM content as multi-line strings)
 $env:DLP_SERVER_CERT_PEM  = '-----BEGIN CERTIFICATE-----...'
@@ -112,31 +113,78 @@ Invoke-DlpLabColdStart
 
 ## 5. Start the Database on LAB-SERVER01
 
-The PostgreSQL service on `LAB-SERVER01` should start automatically, but verify it.
+`LAB-SERVER01` runs Ubuntu Server, so manage PostgreSQL over SSH rather than PowerShell Direct. Use the SSH user configured during server provisioning (see `.planning/docs/LAB-SERVER01-SETUP.md`).
+
+### 5.1 Verify SSH connectivity
 
 ```powershell
-$cred = Get-Credential -Message "LAB-SERVER01 admin credential"
+# Interactive password authentication
+ssh "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "uname -a"
 
-Invoke-Command -VMName 'LAB-SERVER01' -Credential $cred -ScriptBlock {
-    $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue
-    if ($svc -and $svc.Status -ne 'Running') {
-        Start-Service -Name $svc.Name
-    }
-    Write-Output (Get-Service -Name $svc.Name | Select-Object Name, Status)
-}
+# Or with a key
+ssh -i "${env:USERPROFILE}\.ssh\lab-server01" "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "uname -a"
 ```
 
-Run migrations from `hungdinh-lt`:
+### 5.2 Check and start PostgreSQL
+
+```bash
+# Check service status
+ssh "${DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl status postgresql"
+
+# Start if not running
+ssh "${DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl start postgresql"
+
+# Enable autostart
+ssh "${DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl enable postgresql"
+```
+
+Run the same commands from PowerShell on `hungdinh-lt` by inlining the bash string:
+
+```powershell
+$serverUser = $env:DLP_SERVER01_SSH_USER
+$serverIp   = '192.168.50.12'
+
+ssh "${serverUser}@${serverIp}" "sudo systemctl is-active postgresql"
+ssh "${serverUser}@${serverIp}" "sudo systemctl start postgresql"
+```
+
+### 5.3 Run SQLx migrations
+
+Migrations are executed from the orchestration host against the live PostgreSQL instance:
 
 ```powershell
 $env:DATABASE_URL = $env:DLP_DATABASE_URL
 sqlx migrate run --source migrations/
+```
 
-# Verify
+### 5.4 Verify migrations
+
+```powershell
+# Via psql on hungdinh-lt
 psql "$env:DLP_DATABASE_URL" -c "SELECT COUNT(*) FROM _sqlx_migrations;"
+
+# Or query directly on the server
+ssh "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo -u postgres psql -d dlp -t -c 'SELECT COUNT(*) FROM _sqlx_migrations;'"
 ```
 
 Expected result after Phase 1 migrations: `3`.
+
+### 5.5 Cold-start the database VM specifically
+
+If `LAB-SERVER01` is off or needs a clean boot, start it from Hyper-V and then bring PostgreSQL up:
+
+```powershell
+# From hungdinh-lt
+Start-VM -Name 'LAB-SERVER01'
+while ((Get-VM -Name 'LAB-SERVER01').Heartbeat -notin ('OkApplicationsHealthy','OkApplicationsUnknown')) {
+    Start-Sleep -Seconds 5
+}
+
+# Wait a few seconds for the OS and SSH daemon, then start PostgreSQL
+Start-Sleep -Seconds 15
+ssh "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl start postgresql"
+ssh "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl is-active postgresql"
+```
 
 ---
 
@@ -297,7 +345,8 @@ If you need to clean the developer host after a test run:
 |---------|-------------|
 | `Get-VM` access denied | Run PowerShell as Administrator. |
 | VM stuck in `Starting` | `Stop-VM -Name <VM> -TurnOff -Force`, then `Start-VM`. |
-| `sqlx migrate` fails | Verify `$env:DLP_DATABASE_URL` and PostgreSQL service state on `LAB-SERVER01`. |
+| `sqlx migrate` fails | Verify `$env:DLP_DATABASE_URL`, SSH to `LAB-SERVER01`, and run `sudo systemctl status postgresql`. |
+| Cannot SSH to `LAB-SERVER01` | Verify the VM IP, SSH key or password, and that `sshd` is installed and running. |
 | `Invoke-Dc01Server.ps1` fails with `vm_credentials_required` | Set `$env:DLP_VM_ADMIN_USER`/`PASSWORD` or pass `-Credential`. |
 | `dlp-server` port not reachable from `LAB-CLIENT01` | Check firewall rule on `LAB-DC01`; verify VM network profile is Domain/Private. |
 | `dlp-agent` service fails to start | Check `C:\ProgramData\DLP\logs`, verify WinFsp is installed, verify DPAPI identity. |
@@ -316,6 +365,12 @@ Start-VM -Name 'LAB-SERVER01'; Start-VM -Name 'LAB-DC01'; Start-VM -Name 'LAB-CL
 
 # Cold start one VM
 Stop-VM -Name 'LAB-DC01' -TurnOff -Force; Start-Sleep 2; Start-VM -Name 'LAB-DC01'
+
+# Start PostgreSQL on LAB-SERVER01 via SSH
+ssh "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl start postgresql"
+
+# Check migrations
+psql "$env:DLP_DATABASE_URL" -c "SELECT COUNT(*) FROM _sqlx_migrations;"
 
 # Start management server with tracer
 .\scripts\lab\Invoke-Dc01Server.ps1 -CallerMachine hungdinh-lt -ExecutionMachine LAB-DC01 -ProbeMachine LAB-CLIENT01 -SecretProvider Runtime -Scenario Tracer -Credential $cred
