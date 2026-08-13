@@ -80,6 +80,8 @@ How to obtain it:
 2. If the server certificate was issued by an internal CA, export the root CA certificate (not the intermediate, not the server certificate, and never the private key).
 3. Save the PEM content to your runtime secret provider.
 
+For step-by-step generation instructions for the whole Phase 1 PKI, see [PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md).
+
 How the service accepts it:
 
 - As a multi-line PEM string in the environment variable, or
@@ -174,6 +176,7 @@ Set-Location $repoRoot
 
 ## Related Docs
 
+- [PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md) — how to obtain or generate the PEM/KEY files used by these variables.
 - `scripts/lab/Invoke-Client01Runtime.ps1` — lab deployment script that consumes these variables.
 - `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` — end-to-end lab cold-start walkthrough.
 - `crates/dlp-windows-service/src/service.rs` — service configuration loader that reads these variables.
