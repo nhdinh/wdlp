@@ -20,6 +20,12 @@ progress:
 - **MVP boundary**: Enroll → signed config → mount → copy → encrypted store → read back → survive restart; policy blocking and toast follow.
 - **Constraints**: Rust for endpoint agent and core domain; PostgreSQL server persistence; Docker Compose server deployment; WinFsp user-mode virtual drive; no kernel-mode filtering or signed driver; safe Rust in portable domain crates.
 
+## Quick Tasks Completed
+
+| Date | Slug | Summary | Artifacts |
+|------|------|---------|-----------|
+| 2026-08-13 | hyperv-vm-start-guide | PowerShell walkthrough for starting and cold-starting Hyper-V VMs | `.planning/docs/HYPERV-VM-START-GUIDE.md` |
+
 ## Current Position
 
 - **Phase**: 1 - First Encrypted-Drive Vertical Slice
