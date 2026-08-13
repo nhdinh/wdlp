@@ -23,7 +23,7 @@ Updated the trusted provisioning flow so `dlpctl provision-device` receives the 
 - Added `Assert-ProvisioningMaterialPresent` to `Invoke-TrustedProvisioning.ps1`.
 - Updated `Invoke-TrustedProvisioning.ps1` to:
   - Create `C:\dlp\provisioning\` on `LAB-DC01`.
-  - Write `root-ca.pem`, `admin-cert.pem`, and `admin-key.pem` from runtime-provider PEM content.
+  - Write `phase1-root-ca.pem`, `provisioning-admin-cert.pem`, and `provisioning-admin-key.pem` from runtime-provider PEM content.
   - Set `DLP_PROVISIONING_ENDPOINT`, `DLP_PROVISIONING_ROOT_CA_PATH`, `DLP_PROVISIONING_ADMIN_CERT_PATH`, `DLP_PROVISIONING_ADMIN_KEY_PATH`, and `DLP_PROVISIONING_TOKEN_HANDOFF_PATH`.
   - Invoke `dlpctl provision-device`.
   - Read the enrollment token from the handoff file.

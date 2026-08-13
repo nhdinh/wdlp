@@ -29,7 +29,7 @@ Currently `Invoke-TrustedProvisioning.ps1` only sets AD GUID/SID and drive lette
 2. Update `Invoke-TrustedProvisioning.ps1`:
    - Accept optional runtime-provider values or read them from environment variables.
    - Create `C:\dlp\provisioning\` on `LAB-DC01`.
-   - Write `root-ca.pem`, `admin-cert.pem`, `admin-key.pem` from runtime-provider PEM content.
+   - Write `phase1-root-ca.pem`, `provisioning-admin-cert.pem`, `provisioning-admin-key.pem` from runtime-provider PEM content.
    - Set `DLP_PROVISIONING_ENDPOINT`, `DLP_PROVISIONING_ROOT_CA_PATH`, `DLP_PROVISIONING_ADMIN_CERT_PATH`, `DLP_PROVISIONING_ADMIN_KEY_PATH`, `DLP_PROVISIONING_TOKEN_HANDOFF_PATH`.
    - Call `dlpctl provision-device`.
    - Read the token from the handoff file.

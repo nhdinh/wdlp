@@ -14,7 +14,7 @@ These variables must be present before the service can start. If any are missing
 |----------|---------|---------------------|---------|---------|
 | `DLP_DEVICE_ID` | Stable identifier for this endpoint, used in enrollment, health posts, and audit events. | Non-empty string accepted by `DeviceId::parse`. Avoid spaces, control characters, and shell-sensitive punctuation. Use hostname-derived or assigned identifiers. | `LAB-CLIENT01` | None (required) |
 | `DLP_SERVER_URL` | Base URL of the management server the agent contacts for enrollment, configuration, and health. | Valid HTTPS URL including scheme and port. The agent pins TLS to the root CA in `DLP_ROOT_CA_PEM`. | `https://LAB-DC01:8443` | None (required) |
-| `DLP_ROOT_CA_PEM` | Pinned public root CA used to validate the management server's TLS certificate. | Either the PEM content as a multi-line string starting with `-----BEGIN CERTIFICATE-----`, or an absolute filesystem path to a PEM file. Must be the **public root only**; never the private key. | `-----BEGIN CERTIFICATE-----\nMIIC...` or `C:\dlp\secrets\root-ca.pem` | None (required) |
+| `DLP_ROOT_CA_PEM` | Pinned public root CA used to validate the management server's TLS certificate. | Either the PEM content as a multi-line string starting with `-----BEGIN CERTIFICATE-----`, or an absolute filesystem path to a PEM file. Must be the **public root only**; never the private key. | `-----BEGIN CERTIFICATE-----\nMIIC...` or `C:\dlp\secrets\phase1-root-ca.pem` | None (required) |
 | `DLP_DATA_DIRECTORY` | Directory for durable agent state, including the DPAPI-protected credential store. | Absolute filesystem path. The service creates subdirectories as needed. Must be writable by the service account (`NT AUTHORITY\SYSTEM` in the lab). | `C:\dlp\agent\data` | None (required) |
 | `DLP_CACHE_DIRECTORY` | Directory for the signed configuration cache (`current` + last-known-good). | Absolute filesystem path. Must be writable by the service account. | `C:\dlp\agent\cache` | None (required) |
 | `DLP_CONFIGURATION_PUBLIC_KEY_HEX` | Ed25519 public key used to verify signed configuration bundles. | Exactly 64 lowercase hexadecimal characters representing 32 bytes. | `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef` | None (required) |
@@ -85,7 +85,7 @@ For step-by-step generation instructions for the whole Phase 1 PKI, see [PEM-KEY
 How the service accepts it:
 
 - As a multi-line PEM string in the environment variable, or
-- As an absolute filesystem path. In the lab, `Invoke-Client01Runtime.ps1` writes the PEM to `C:\dlp\secrets\root-ca.pem` and sets the variable to that path.
+- As an absolute filesystem path. In the lab, `Invoke-Client01Runtime.ps1` writes the PEM to `C:\dlp\secrets\phase1-root-ca.pem` and sets the variable to that path.
 
 Example PEM snippet (synthetic, not a real certificate):
 
@@ -139,7 +139,7 @@ Copy this template into your orchestration host PowerShell session and fill in t
 # Required runtime secrets — replace placeholders with values from your secret provider.
 $env:DLP_DEVICE_ID                    = 'LAB-CLIENT01'
 $env:DLP_SERVER_URL                   = 'https://LAB-DC01:8443'
-$env:DLP_ROOT_CA_PEM                  = '-----BEGIN CERTIFICATE-----...'  # or C:\dlp\secrets\root-ca.pem
+$env:DLP_ROOT_CA_PEM                  = '-----BEGIN CERTIFICATE-----...'  # or C:\dlp\secrets\phase1-root-ca.pem
 $env:DLP_DATA_DIRECTORY               = 'C:\dlp\agent\data'
 $env:DLP_CACHE_DIRECTORY              = 'C:\dlp\agent\cache'
 $env:DLP_CONFIGURATION_PUBLIC_KEY_HEX = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'

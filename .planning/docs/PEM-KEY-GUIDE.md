@@ -15,8 +15,8 @@ For the canonical list of variables and how the service consumes them, see [ENV-
 │  phase1-root (self-signed root CA)                                  │
 │  ├─ server-cert       → dlp-server TLS listener                     │
 │  ├─ admin-ca          → dlp-server admin mTLS verifier              │
-│  │   └─ admin-cert    → dlpctl trusted-provisioning client          │
-│  └─ device-issuer     → dlp-server device certificate issuer        │
+│  │   └─ provisioning-admin-cert → dlpctl trusted-provisioning client  │
+│  └─ device-issuing    → dlp-server device certificate issuer          │
 │       └─ device-cert  → dlp-windows-service mTLS client             │
 ├─────────────────────────────────────────────────────────────────────┤
 │  ad-ca                → Active Directory LDAPS trust anchor         │
@@ -39,14 +39,14 @@ $Secrets = 'C:\dlp\secrets'
 New-Item -ItemType Directory -Path $Secrets -Force | Out-Null
 
 # Generate private key
-openssl genrsa -out "$Secrets\phase1-root.key.pem" 4096
+openssl genrsa -out "$Secrets\phase1-root-ca-key.pem" 4096
 
 # Self-sign root CA (10-year validity)
 openssl req -x509 -new -nodes `
-    -key "$Secrets\phase1-root.key.pem" `
+    -key "$Secrets\phase1-root-ca-key.pem" `
     -sha256 -days 3650 `
     -subj '/CN=phase1-root-ca/O=DLP Lab' `
-    -out "$Secrets\phase1-root.cert.pem"
+    -out "$Secrets\phase1-root-ca.pem"
 ```
 
 Env vars that use this file:
@@ -56,7 +56,7 @@ Env vars that use this file:
 | `DLP_PHASE1_ROOT_CA_CERT_PEM` | Management server (`LAB-DC01`) |
 | `DLP_ROOT_CA_PEM` | Endpoint agent (`LAB-CLIENT01`) |
 
-> Store `phase1-root.key.pem` offline. The management server and agent only need the public certificate.
+> Store `phase1-root-ca-key.pem` offline. The management server and agent only need the public certificate.
 
 ---
 
@@ -74,21 +74,21 @@ extendedKeyUsage = serverAuth
 Generate and sign:
 
 ```powershell
-openssl genrsa -out "$Secrets\server.key.pem" 2048
+openssl genrsa -out "$Secrets\server-key.pem" 2048
 
 openssl req -new `
-    -key "$Secrets\server.key.pem" `
+    -key "$Secrets\server-key.pem" `
     -subj '/CN=LAB-DC01.lab.local/O=DLP Lab' `
     -out "$Secrets\server.csr"
 
 openssl x509 -req `
     -in "$Secrets\server.csr" `
-    -CA "$Secrets\phase1-root.cert.pem" `
-    -CAkey "$Secrets\phase1-root.key.pem" `
+    -CA "$Secrets\phase1-root-ca.pem" `
+    -CAkey "$Secrets\phase1-root-ca-key.pem" `
     -CAcreateserial `
     -extfile server-ext.cnf `
     -days 365 -sha256 `
-    -out "$Secrets\server.cert.pem"
+    -out "$Secrets\server-cert.pem"
 ```
 
 Env vars:
@@ -107,13 +107,13 @@ The management server uses `DLP_ADMIN_CA_CERT_PEM` to verify administrator clien
 #### 3a. Create the admin CA
 
 ```powershell
-openssl genrsa -out "$Secrets\admin-ca.key.pem" 4096
+openssl genrsa -out "$Secrets\admin-ca-key.pem" 4096
 
 openssl req -x509 -new -nodes `
-    -key "$Secrets\admin-ca.key.pem" `
+    -key "$Secrets\admin-ca-key.pem" `
     -sha256 -days 3650 `
     -subj '/CN=admin-ca/O=DLP Lab' `
-    -out "$Secrets\admin-ca.cert.pem"
+    -out "$Secrets\admin-ca.pem"
 ```
 
 Env var:
@@ -125,27 +125,27 @@ Env var:
 #### 3b. Create the provisioning administrator certificate
 
 ```powershell
-openssl genrsa -out "$Secrets\admin.key.pem" 2048
+openssl genrsa -out "$Secrets\provisioning-admin-key.pem" 2048
 
 openssl req -new `
-    -key "$Secrets\admin.key.pem" `
+    -key "$Secrets\provisioning-admin-key.pem" `
     -subj '/CN=dlp-provisioning-admin/O=DLP Lab' `
-    -out "$Secrets\admin.csr"
+    -out "$Secrets\provisioning-admin.csr"
 
 openssl x509 -req `
-    -in "$Secrets\admin.csr" `
-    -CA "$Secrets\admin-ca.cert.pem" `
-    -CAkey "$Secrets\admin-ca.key.pem" `
+    -in "$Secrets\provisioning-admin.csr" `
+    -CA "$Secrets\admin-ca.pem" `
+    -CAkey "$Secrets\admin-ca-key.pem" `
     -CAcreateserial `
     -days 365 -sha256 `
-    -out "$Secrets\admin-cert.pem"
+    -out "$Secrets\provisioning-admin-cert.pem"
 ```
 
 Env vars (trusted provisioning on `hungdinh-lt` / `LAB-DC01`):
 
 | Variable | Purpose |
 |----------|---------|
-| `DLP_PROVISIONING_ROOT_CA_PATH` | Trust anchor for the provisioning HTTPS connection (usually `phase1-root.cert.pem`) |
+| `DLP_PROVISIONING_ROOT_CA_PATH` | Trust anchor for the provisioning HTTPS connection (usually `phase1-root-ca.pem`) |
 | `DLP_PROVISIONING_ADMIN_CERT_PATH` | Administrator client certificate (public) |
 | `DLP_PROVISIONING_ADMIN_KEY_PATH` | Administrator client certificate private key |
 
@@ -156,13 +156,13 @@ Env vars (trusted provisioning on `hungdinh-lt` / `LAB-DC01`):
 The device-issuing CA signs the mTLS client certificates presented by enrolled endpoints. The management server needs both the certificate and the private key so it can issue device certificates during enrollment.
 
 ```powershell
-openssl genrsa -out "$Secrets\device-issuer.key.pem" 4096
+openssl genrsa -out "$Secrets\device-issuing-ca-key.pem" 4096
 
 openssl req -x509 -new -nodes `
-    -key "$Secrets\device-issuer.key.pem" `
+    -key "$Secrets\device-issuing-ca-key.pem" `
     -sha256 -days 3650 `
-    -subj '/CN=device-issuer-ca/O=DLP Lab' `
-    -out "$Secrets\device-issuer.cert.pem"
+    -subj '/CN=device-issuing-ca/O=DLP Lab' `
+    -out "$Secrets\device-issuing-ca.pem"
 ```
 
 Env vars:
@@ -185,15 +185,15 @@ To export the AD CS root CA:
 3. Find the CA that issued the domain controller certificate.
 4. Right-click → **All Tasks → Export**.
 5. Choose **Base-64 encoded X.509 (.CER)**.
-6. Save as `ad-ca.cert.pem` and place it in `C:\dlp\secrets\`.
+6. Save as `ad-ca.pem` and place it in `C:\dlp\secrets\`.
 
 If you do not have AD CS, generate a standalone CA and import it into the domain controller certificate store:
 
 ```powershell
-openssl genrsa -out "$Secrets\ad-ca.key.pem" 4096
-openssl req -x509 -new -nodes -key "$Secrets\ad-ca.key.pem" `
+openssl genrsa -out "$Secrets\ad-ca-key.pem" 4096
+openssl req -x509 -new -nodes -key "$Secrets\ad-ca-key.pem" `
     -sha256 -days 3650 -subj '/CN=ad-ca/O=DLP Lab' `
-    -out "$Secrets\ad-ca.cert.pem"
+    -out "$Secrets\ad-ca.pem"
 ```
 
 Env var:
@@ -234,17 +234,17 @@ If these files match your lab topology, copy them to `C:\dlp\secrets\` and updat
 
 | Environment Variable | File (example) | Machine | Origin |
 |----------------------|----------------|---------|--------|
-| `DLP_SERVER_CERT_PEM` | `C:\dlp\secrets\server.cert.pem` | `LAB-DC01` | Leaf TLS certificate signed by Phase 1 root |
-| `DLP_SERVER_KEY_PEM` | `C:\dlp\secrets\server.key.pem` | `LAB-DC01` | Private key for server certificate |
-| `DLP_ADMIN_CA_CERT_PEM` | `C:\dlp\secrets\admin-ca.cert.pem` | `LAB-DC01` | CA that signed provisioning admin certs |
-| `DLP_PHASE1_ROOT_CA_CERT_PEM` | `C:\dlp\secrets\phase1-root.cert.pem` | `LAB-DC01` | Self-signed root CA |
-| `DLP_DEVICE_ISSUING_CA_CERT_PEM` | `C:\dlp\secrets\device-issuer.cert.pem` | `LAB-DC01` | CA that issues device mTLS certs |
-| `DLP_DEVICE_ISSUING_CA_KEY_PEM` | `C:\dlp\secrets\device-issuer.key.pem` | `LAB-DC01` | Private key of device-issuing CA |
-| `DLP_AD_CA_CERT_PEM` | `C:\dlp\secrets\ad-ca.cert.pem` | `LAB-DC01` | Active Directory LDAPS root CA |
-| `DLP_PROVISIONING_ROOT_CA_PATH` | `C:\dlp\secrets\phase1-root.cert.pem` | `hungdinh-lt` | HTTPS trust anchor for provisioning endpoint |
-| `DLP_PROVISIONING_ADMIN_CERT_PATH` | `C:\dlp\secrets\admin-cert.pem` | `hungdinh-lt` | Admin client certificate for `dlpctl` |
-| `DLP_PROVISIONING_ADMIN_KEY_PATH` | `C:\dlp\secrets\admin-key.pem` | `hungdinh-lt` | Private key for admin client certificate |
-| `DLP_ROOT_CA_PEM` | `C:\dlp\secrets\phase1-root.cert.pem` | `LAB-CLIENT01` | Same root CA the agent pins for server TLS |
+| `DLP_SERVER_CERT_PEM` | `C:\dlp\secrets\server-cert.pem` | `LAB-DC01` | Leaf TLS certificate signed by Phase 1 root |
+| `DLP_SERVER_KEY_PEM` | `C:\dlp\secrets\server-key.pem` | `LAB-DC01` | Private key for server certificate |
+| `DLP_ADMIN_CA_CERT_PEM` | `C:\dlp\secrets\admin-ca.pem` | `LAB-DC01` | CA that signed provisioning admin certs |
+| `DLP_PHASE1_ROOT_CA_CERT_PEM` | `C:\dlp\secrets\phase1-root-ca.pem` | `LAB-DC01` | Self-signed root CA |
+| `DLP_DEVICE_ISSUING_CA_CERT_PEM` | `C:\dlp\secrets\device-issuing-ca.pem` | `LAB-DC01` | CA that issues device mTLS certs |
+| `DLP_DEVICE_ISSUING_CA_KEY_PEM` | `C:\dlp\secrets\device-issuing-ca-key.pem` | `LAB-DC01` | Private key of device-issuing CA |
+| `DLP_AD_CA_CERT_PEM` | `C:\dlp\secrets\ad-ca.pem` | `LAB-DC01` | Active Directory LDAPS root CA |
+| `DLP_PROVISIONING_ROOT_CA_PATH` | `C:\dlp\secrets\phase1-root-ca.pem` | `hungdinh-lt` | HTTPS trust anchor for provisioning endpoint |
+| `DLP_PROVISIONING_ADMIN_CERT_PATH` | `C:\dlp\secrets\provisioning-admin-cert.pem` | `hungdinh-lt` | Admin client certificate for `dlpctl` |
+| `DLP_PROVISIONING_ADMIN_KEY_PATH` | `C:\dlp\secrets\provisioning-admin-key.pem` | `hungdinh-lt` | Private key for admin client certificate |
+| `DLP_ROOT_CA_PEM` | `C:\dlp\secrets\phase1-root-ca.pem` | `LAB-CLIENT01` | Same root CA the agent pins for server TLS |
 
 ---
 
@@ -269,8 +269,8 @@ Then load it:
 2. Or set the variables directly in PowerShell:
 
 ```powershell
-$env:DLP_SERVER_CERT_PEM = Get-Content -Raw 'C:\dlp\secrets\server.cert.pem'
-$env:DLP_SERVER_KEY_PEM  = Get-Content -Raw 'C:\dlp\secrets\server.key.pem'
+$env:DLP_SERVER_CERT_PEM = Get-Content -Raw 'C:\dlp\secrets\server-cert.pem'
+$env:DLP_SERVER_KEY_PEM  = Get-Content -Raw 'C:\dlp\secrets\server-key.pem'
 # ... etc
 ```
 
@@ -284,10 +284,10 @@ After generating or copying artifacts, verify the chain of trust:
 
 ```powershell
 # Server certificate chains to Phase 1 root
-openssl verify -CAfile C:\dlp\secrets\phase1-root.cert.pem C:\dlp\secrets\server.cert.pem
+openssl verify -CAfile C:\dlp\secrets\phase1-root-ca.pem C:\dlp\secrets\server-cert.pem
 
 # Admin cert chains to admin CA
-openssl verify -CAfile C:\dlp\secrets\admin-ca.cert.pem C:\dlp\secrets\admin-cert.pem
+openssl verify -CAfile C:\dlp\secrets\admin-ca.pem C:\dlp\secrets\provisioning-admin-cert.pem
 ```
 
 ---
