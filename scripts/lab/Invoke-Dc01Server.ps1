@@ -226,6 +226,16 @@ function Assert-RuntimeSecretsPresent {
     if ($missing.Count -gt 0) { Stop-Dc01 ("runtime_secrets_missing: " + ($missing -join ', ')) }
 }
 
+function Assert-RuntimeProvisioningSecretsPresent {
+    $required = @(
+        'DLP_PROVISIONING_ROOT_CA_PEM',
+        'DLP_PROVISIONING_ADMIN_CERT_PEM',
+        'DLP_PROVISIONING_ADMIN_KEY_PEM'
+    )
+    $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+    if ($missing.Count -gt 0) { Stop-Dc01 ("runtime_provisioning_secrets_missing: " + ($missing -join ', ')) }
+}
+
 function Test-RuntimeAdSecretsPresent {
     return -not ([string]::IsNullOrWhiteSpace($env:DLP_AD_PRIMARY_LDAPS_URL) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_SECONDARY_LDAPS_URL) -or
@@ -607,20 +617,31 @@ function Invoke-Dc01Tracer {
 function Invoke-TrustedProvisioningScenario {
     Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($SecondaryDcMachine)) 'secondary_dc_required'
     Assert-RuntimeAdSecretsPresent
+    Assert-RuntimeProvisioningSecretsPresent
     $digest = Get-ApprovedPrivilegeManifestDigest
 
     # Ensure server is running so dlpctl can POST the provisioning request.
     Start-Dc01Server -WaitForReady
 
     $resultJson = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
-        param($Digest, $Target, $PreferredLetter)
+        param($Digest, $Target, $PreferredLetter, $ProvisioningRootCa, $ProvisioningAdminCert, $ProvisioningAdminKey)
         $ErrorActionPreference = 'Stop'
         Set-Location C:\dlp\server
         $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST = $Digest
+        $env:DLP_PROVISIONING_ROOT_CA_PEM = $ProvisioningRootCa
+        $env:DLP_PROVISIONING_ADMIN_CERT_PEM = $ProvisioningAdminCert
+        $env:DLP_PROVISIONING_ADMIN_KEY_PEM = $ProvisioningAdminKey
         & scripts/lab/Invoke-TrustedProvisioning.ps1 -ExecutionMachine LAB-DC01 -TargetComputer $Target -PrivilegeManifestDigest $Digest -PreferredDriveLetter $PreferredLetter
-    } -ArgumentList @($digest, 'LAB-CLIENT01.lab.local', 'P')
+    } -ArgumentList @($digest, 'LAB-CLIENT01.lab.local', 'P', $env:DLP_PROVISIONING_ROOT_CA_PEM, $env:DLP_PROVISIONING_ADMIN_CERT_PEM, $env:DLP_PROVISIONING_ADMIN_KEY_PEM)
 
     $result = $resultJson | ConvertFrom-Json
+
+    # Hand the short-lived enrollment token to the orchestrator process so the
+    # caller can deploy it to LAB-CLIENT01 without persisting it on hungdinh-lt.
+    if (-not [string]::IsNullOrWhiteSpace($result.enrollment_token)) {
+        $env:DLP_AGENT_ENROLLMENT_TOKEN = $result.enrollment_token
+        Write-Host "TrustedProvisioning: obtained enrollment token for $($result.target)"
+    }
 
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine $ExecutionMachine
     New-Dc01Evidence -RequirementId 'TST-05' -CheckId 'trusted-provisioning' -Status 'pass' `

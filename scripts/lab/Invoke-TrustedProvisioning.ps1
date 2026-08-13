@@ -59,10 +59,24 @@ function Get-ObservationDigest([string[]]$Values) {
     } finally { $sha.Dispose() }
 }
 
+function Assert-ProvisioningMaterialPresent {
+    $required = @(
+        'DLP_PROVISIONING_ROOT_CA_PEM',
+        'DLP_PROVISIONING_ADMIN_CERT_PEM',
+        'DLP_PROVISIONING_ADMIN_KEY_PEM'
+    )
+    foreach ($name in $required) {
+        if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+            Stop-TrustedProvisioning "provisioning_material_missing: $name"
+        }
+    }
+}
+
 # All guards run before directory or remote-CIM access.
 Assert-TrustedProvisioning ($env:COMPUTERNAME -eq 'LAB-DC01' -and $ExecutionMachine -eq 'LAB-DC01') 'execution_machine_denied'
 Assert-TrustedProvisioning ($TargetComputer -eq 'LAB-CLIENT01.lab.local') 'target_denied'
 Assert-TrustedProvisioning ($PrivilegeManifestDigest -eq $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST) 'privilege_manifest_denied'
+Assert-ProvisioningMaterialPresent
 $domainTime = (Get-Date).ToUniversalTime()
 Assert-TrustedProvisioning ([math]::Abs(((Get-Date).ToUniversalTime() - $domainTime).TotalSeconds) -le 300) 'domain_time_skew'
 
@@ -98,13 +112,45 @@ try {
     $env:DLP_PROVISIONING_AD_OBJECT_GUID = $guidHex
     $env:DLP_PROVISIONING_AD_OBJECT_SID = $sidHex
     $env:DLP_PROVISIONING_PREFERRED_DRIVE_LETTER = $PreferredDriveLetter
+
+    # Write provisioning material to files so dlpctl can load them by path.
+    $provDir = 'C:\dlp\provisioning'
+    New-Item -ItemType Directory -Path $provDir -Force | Out-Null
+    $rootCaPath = Join-Path $provDir 'root-ca.pem'
+    $adminCertPath = Join-Path $provDir 'admin-cert.pem'
+    $adminKeyPath = Join-Path $provDir 'admin-key.pem'
+    $tokenHandoffPath = Join-Path $provDir 'enrollment-token.txt'
+    [System.IO.File]::WriteAllText($rootCaPath, $env:DLP_PROVISIONING_ROOT_CA_PEM, (New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText($adminCertPath, $env:DLP_PROVISIONING_ADMIN_CERT_PEM, (New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText($adminKeyPath, $env:DLP_PROVISIONING_ADMIN_KEY_PEM, (New-Object System.Text.UTF8Encoding($false)))
+
+    $env:DLP_PROVISIONING_ENDPOINT = "https://${env:COMPUTERNAME}:8443/api/v1/admin/provisioning"
+    $env:DLP_PROVISIONING_ROOT_CA_PATH = $rootCaPath
+    $env:DLP_PROVISIONING_ADMIN_CERT_PATH = $adminCertPath
+    $env:DLP_PROVISIONING_ADMIN_KEY_PATH = $adminKeyPath
+    $env:DLP_PROVISIONING_TOKEN_HANDOFF_PATH = $tokenHandoffPath
+
     $dlpctl = if ($env:DLP_PROVISIONING_DLPCTL_PATH) { $env:DLP_PROVISIONING_DLPCTL_PATH } else { 'dlpctl' }
     & $dlpctl provision-device --computer $TargetComputer
     if ($LASTEXITCODE -ne 0) { Stop-TrustedProvisioning 'provisioning_client_failed' }
 
+    Assert-TrustedProvisioning (Test-Path -LiteralPath $tokenHandoffPath) 'provisioning_token_handoff_missing'
+    $token = [System.IO.File]::ReadAllText($tokenHandoffPath)
+    Assert-TrustedProvisioning (-not [string]::IsNullOrWhiteSpace($token)) 'provisioning_token_empty'
+
     # Plan 01-13 performs the actual runtime-provider handoff and lab mutation.
-    # This source-complete preflight emits only non-secret provenance and digest.
-    [pscustomobject]@{ procedure_version = 1; target = $TargetComputer; fingerprint_digest = $digest; preferred_drive_letter = $PreferredDriveLetter; transport = 'Kerberos WinRM HTTPS'; disk_identity_source = $diskIdentity.source; evidence = 'sanitized' } | ConvertTo-Json -Compress
+    # This source-complete preflight emits only non-secret provenance, digest,
+    # and the short-lived enrollment token for the next orchestration step.
+    [pscustomobject]@{
+        procedure_version = 1
+        target = $TargetComputer
+        fingerprint_digest = $digest
+        preferred_drive_letter = $PreferredDriveLetter
+        transport = 'Kerberos WinRM HTTPS'
+        disk_identity_source = $diskIdentity.source
+        enrollment_token = $token
+        evidence = 'sanitized'
+    } | ConvertTo-Json -Compress
 } finally {
     if ($null -ne $session) { Remove-CimSession -CimSession $session }
 }

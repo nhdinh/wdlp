@@ -30,6 +30,7 @@ progress:
 | 2026-08-13 | deploy-client01-runtime | PowerShell orchestrator to build and deploy dlp-windows-service runtime to LAB-CLIENT01 | `.planning/quick/20260813-deploy-client01-runtime/`, `scripts/lab/Invoke-Client01Runtime.ps1` |
 | 2026-08-13 | document-agent-env-vars | Document every DLP Windows agent runtime env var and cross-reference from the lab startup guide | `.planning/docs/ENV-VARS.md`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md`, `.planning/ROADMAP.md` |
 | 2026-08-13 | update-startup-guide | Update HYPERV-DLP-STARTUP-GUIDE.md to deploy endpoint service via Invoke-Client01Runtime.ps1 | `.planning/quick/20260813-update-startup-guide/`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
+| 2026-08-13 | provisioning-token-capture | Configure Invoke-TrustedProvisioning.ps1 to capture and return dlpctl enrollment token | `.planning/quick/20260813-provisioning-token-capture/`, `scripts/lab/Invoke-TrustedProvisioning.ps1`, `scripts/lab/Invoke-Dc01Server.ps1` |
 
 ## Current Position
 

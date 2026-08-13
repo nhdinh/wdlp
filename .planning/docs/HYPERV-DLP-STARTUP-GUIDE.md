@@ -47,7 +47,9 @@ $env:DLP_SERVER_URL                    = 'https://LAB-DC01:8443'
 $env:DLP_ROOT_CA_PEM                   = '-----BEGIN CERTIFICATE-----...'
 $env:DLP_CONFIGURATION_PUBLIC_KEY_HEX  = '0123...abcdef'   # 64 hex chars
 $env:DLP_CONFIGURATION_KEY_ID          = 'phase1-config-signer'   # optional
-$env:DLP_AGENT_ENROLLMENT_TOKEN        = '***from-runtime-provider***'   # optional; omit for replacement-enrollment-required mode
+
+# Enrollment token is obtained from Invoke-Dc01Server.ps1 TrustedProvisioning scenario
+# $env:DLP_AGENT_ENROLLMENT_TOKEN       = 'opaquealphanumerictokenfromserver'
 ```
 
 ---
@@ -260,6 +262,8 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 ## 8. Deploy and Start the Endpoint Agent Service on LAB-CLIENT01
 
 Use the endpoint orchestration script. It builds the release binary, copies it to `LAB-CLIENT01`, deploys the root CA, writes `C:\dlp\agent\agent.env`, installs or reconfigures the `DlpWindowsService` Windows service, and starts it.
+
+> **Enrollment token flow:** Run the `TrustedProvisioning` scenario on `LAB-DC01` first. It returns an `enrollment_token` that `Invoke-Client01Runtime.ps1` needs for first-start enrollment. The token is short-lived; keep it out of logs and committed files.
 
 ### 8.1 Dry-run the deployment
 
