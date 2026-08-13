@@ -183,6 +183,41 @@ function Test-Client01CredentialPresent {
     }
 }
 
+function Assert-EnrollmentTokenValid {
+    param([Parameter(Mandatory)][string]$Token)
+    if ([string]::IsNullOrWhiteSpace($Token)) {
+        Stop-Client01 'enrollment_token_invalid: token is empty'
+    }
+    if ($Token.Length -gt 512) {
+        Stop-Client01 'enrollment_token_invalid: token exceeds 512 characters'
+    }
+    if ($Token -cmatch '[^A-Za-z0-9_.~/-]') {
+        Stop-Client01 'enrollment_token_invalid: token contains characters outside the allowed alphabet'
+    }
+}
+
+function Remove-Client01EnrollmentToken {
+    Write-Host 'Install-Client01Service: removing enrollment token from service environment...'
+    Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+        $ErrorActionPreference = 'Stop'
+        $serviceName = 'DlpWindowsService'
+        $serviceKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\' + $serviceName
+        $envPath = 'C:\dlp\agent\agent.env'
+
+        $existing = Get-ItemProperty -Path $serviceKey -Name 'Environment' -ErrorAction SilentlyContinue
+        if ($null -ne $existing -and $null -ne $existing.Environment) {
+            $cleaned = @($existing.Environment | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
+            Set-ItemProperty -Path $serviceKey -Name 'Environment' -Value $cleaned -Type MultiString -Force
+        }
+
+        if (Test-Path -LiteralPath $envPath) {
+            $lines = [System.IO.File]::ReadAllLines($envPath)
+            $cleaned = @($lines | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
+            [System.IO.File]::WriteAllLines($envPath, $cleaned, (New-Object System.Text.UTF8Encoding($false)))
+        }
+    }
+}
+
 function Invoke-Client01TrustedProvisioning {
     param(
         [Parameter(Mandatory)][string]$PrivilegeManifestDigest,
@@ -205,6 +240,7 @@ function Invoke-Client01TrustedProvisioning {
     if ([string]::IsNullOrWhiteSpace($result.enrollment_token)) {
         Stop-Client01 'trusted_provisioning_returned_empty_token'
     }
+    Assert-EnrollmentTokenValid -Token $result.enrollment_token
     Write-Host "TrustedProvisioning: obtained enrollment token for $($result.target)"
     return $result.enrollment_token
 }
@@ -353,6 +389,13 @@ function Invoke-Client01ServiceInstall {
     Install-Client01Service -StartAfterInstall -EnrollmentToken $EnrollmentToken
 
     $running = Test-Client01ServiceRunning
+    if ($running -and $EnrollmentTokenProvider -eq 'TrustedProvisioning' -and -not $RetainEnrollmentToken) {
+        if (Test-Client01CredentialPresent) {
+            Remove-Client01EnrollmentToken
+        } else {
+            Write-Host 'Install-Client01Service: credential store not yet present; deferring token cleanup.'
+        }
+    }
     $status = if ($running) { 'pass' } else { 'fail' }
     $actual = if ($running) { 'DlpWindowsService installed and running on LAB-CLIENT01' } else { 'DlpWindowsService did not reach Running state' }
     New-Client01Evidence -RequirementId 'SRV-13' -CheckId 'client01-service-install' -Status $status `
