@@ -316,9 +316,9 @@ function Install-Dc01ServerSecrets {
         'server-cert.pem' = $env:DLP_SERVER_CERT_PEM
         'server-key.pem' = $env:DLP_SERVER_KEY_PEM
         'admin-ca.pem' = $env:DLP_ADMIN_CA_CERT_PEM
-        'root-ca.pem' = $env:DLP_PHASE1_ROOT_CA_CERT_PEM
+        'phase1-root-ca.pem' = $env:DLP_PHASE1_ROOT_CA_CERT_PEM
         'device-issuing-ca.pem' = $env:DLP_DEVICE_ISSUING_CA_CERT_PEM
-        'device-issuing-ca.key' = $env:DLP_DEVICE_ISSUING_CA_KEY_PEM
+        'device-issuing-ca-key.pem' = $env:DLP_DEVICE_ISSUING_CA_KEY_PEM
     }
     if (-not [string]::IsNullOrWhiteSpace($env:DLP_AD_CA_CERT_PEM)) {
         $secrets['ad-ca.pem'] = $env:DLP_AD_CA_CERT_PEM
@@ -369,9 +369,9 @@ function Start-Dc01Server {
     $envLines.Add('DLP_SERVER_CERT_PEM=C:\dlp\secrets\server-cert.pem')
     $envLines.Add('DLP_SERVER_KEY_PEM=C:\dlp\secrets\server-key.pem')
     $envLines.Add('DLP_ADMIN_CA_CERT_PEM=C:\dlp\secrets\admin-ca.pem')
-    $envLines.Add('DLP_PHASE1_ROOT_CA_CERT_PEM=C:\dlp\secrets\root-ca.pem')
+    $envLines.Add('DLP_PHASE1_ROOT_CA_CERT_PEM=C:\dlp\secrets\phase1-root-ca.pem')
     $envLines.Add('DLP_DEVICE_ISSUING_CA_CERT_PEM=C:\dlp\secrets\device-issuing-ca.pem')
-    $envLines.Add('DLP_DEVICE_ISSUING_CA_KEY_PEM=C:\dlp\secrets\device-issuing-ca.key')
+    $envLines.Add('DLP_DEVICE_ISSUING_CA_KEY_PEM=C:\dlp\secrets\device-issuing-ca-key.pem')
     $envLines.Add("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX=$($env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX)")
     $envLines.Add("DLP_ADMIN_PROVISIONING_KEY=$($env:DLP_ADMIN_PROVISIONING_KEY)")
 

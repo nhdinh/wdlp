@@ -19,12 +19,12 @@ services:
       - ../config/server.env.example
     environment:
       DATABASE_URL:
-      DLP_SERVER_CERT_PEM: /run/dlp-pki/server.cert.pem
-      DLP_SERVER_KEY_PEM: /run/dlp-pki/server.key.pem
-      DLP_ADMIN_CA_CERT_PEM: /run/dlp-pki/admin-ca.cert.pem
-      DLP_PHASE1_ROOT_CA_CERT_PEM: /run/dlp-pki/phase1-root.cert.pem
-      DLP_DEVICE_ISSUING_CA_CERT_PEM: /run/dlp-pki/device-issuer.cert.pem
-      DLP_DEVICE_ISSUING_CA_KEY_PEM: /run/dlp-pki/device-issuer.key.pem
+      DLP_SERVER_CERT_PEM: /run/dlp-pki/server-cert.pem
+      DLP_SERVER_KEY_PEM: /run/dlp-pki/server-key.pem
+      DLP_ADMIN_CA_CERT_PEM: /run/dlp-pki/admin-ca.pem
+      DLP_PHASE1_ROOT_CA_CERT_PEM: /run/dlp-pki/phase1-root-ca.pem
+      DLP_DEVICE_ISSUING_CA_CERT_PEM: /run/dlp-pki/device-issuing-ca.pem
+      DLP_DEVICE_ISSUING_CA_KEY_PEM: /run/dlp-pki/device-issuing-ca-key.pem
       DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX:
     volumes:
       - type: bind

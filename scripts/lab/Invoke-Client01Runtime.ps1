@@ -303,7 +303,7 @@ function Install-Client01RuntimeSecrets {
     # persists the same lines into the service registry Environment value so the
     # SCM creates the service process with these variables already loaded.
     $secrets = [ordered]@{
-        'root-ca.pem' = $env:DLP_ROOT_CA_PEM
+        'phase1-root-ca.pem' = $env:DLP_ROOT_CA_PEM
     }
     foreach ($name in $secrets.Keys) {
         Assert-Client01 (-not [string]::IsNullOrWhiteSpace($secrets[$name])) "secret_missing_$name"
@@ -325,7 +325,7 @@ function Install-Client01RuntimeSecrets {
     $envLines = [System.Collections.Generic.List[string]]::new()
     $envLines.Add("DLP_DEVICE_ID=$($env:DLP_DEVICE_ID)")
     $envLines.Add("DLP_SERVER_URL=$($env:DLP_SERVER_URL)")
-    $envLines.Add('DLP_ROOT_CA_PEM=C:\dlp\secrets\root-ca.pem')
+    $envLines.Add('DLP_ROOT_CA_PEM=C:\dlp\secrets\phase1-root-ca.pem')
     $envLines.Add('DLP_DATA_DIRECTORY=C:\dlp\agent\data')
     $envLines.Add('DLP_CACHE_DIRECTORY=C:\dlp\agent\cache')
     if (-not [string]::IsNullOrWhiteSpace($env:DLP_CONFIGURATION_KEY_ID)) {

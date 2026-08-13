@@ -10,7 +10,7 @@ hostname = "dlp.lab.local"
 port = 8443
 # Path to the pinned Phase 1 public root CA certificate (PEM). The private root key
 # must never be present on the endpoint.
-public_root_path = "C:/ProgramData/DLP/root-ca.pem"
+public_root_path = "C:/ProgramData/DLP/phase1-root-ca.pem"
 
 [service]
 # Human-readable service display name.

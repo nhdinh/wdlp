@@ -116,9 +116,9 @@ try {
     # Write provisioning material to files so dlpctl can load them by path.
     $provDir = 'C:\dlp\provisioning'
     New-Item -ItemType Directory -Path $provDir -Force | Out-Null
-    $rootCaPath = Join-Path $provDir 'root-ca.pem'
-    $adminCertPath = Join-Path $provDir 'admin-cert.pem'
-    $adminKeyPath = Join-Path $provDir 'admin-key.pem'
+    $rootCaPath = Join-Path $provDir 'phase1-root-ca.pem'
+    $adminCertPath = Join-Path $provDir 'provisioning-admin-cert.pem'
+    $adminKeyPath = Join-Path $provDir 'provisioning-admin-key.pem'
     $tokenHandoffPath = Join-Path $provDir 'enrollment-token.txt'
     [System.IO.File]::WriteAllText($rootCaPath, $env:DLP_PROVISIONING_ROOT_CA_PEM, (New-Object System.Text.UTF8Encoding($false)))
     [System.IO.File]::WriteAllText($adminCertPath, $env:DLP_PROVISIONING_ADMIN_CERT_PEM, (New-Object System.Text.UTF8Encoding($false)))
