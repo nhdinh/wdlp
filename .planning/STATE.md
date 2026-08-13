@@ -27,6 +27,7 @@ progress:
 | 2026-08-13 | hyperv-vm-start-guide | PowerShell walkthrough for starting and cold-starting Hyper-V VMs | `.planning/docs/HYPERV-VM-START-GUIDE.md` |
 | 2026-08-13 | hyperv-dlp-start-guide | PowerShell walkthrough for starting/cold-starting DLP server/services/endpoint apps on Hyper-V VMs | `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
 | 2026-08-13 | deploy-client01-runtime | PowerShell orchestrator to build and deploy dlp-windows-service runtime to LAB-CLIENT01 | `.planning/quick/20260813-deploy-client01-runtime/`, `scripts/lab/Invoke-Client01Runtime.ps1` |
+| 2026-08-13 | update-startup-guide | Update HYPERV-DLP-STARTUP-GUIDE.md to deploy endpoint service via Invoke-Client01Runtime.ps1 | `.planning/quick/20260813-update-startup-guide/`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
 
 ## Current Position
 

@@ -37,6 +37,14 @@ $env:DLP_SERVER01_SSH_USER = 'dlpadmin'   # Ubuntu account with passwordless sud
 $env:DLP_SERVER_CERT_PEM  = '-----BEGIN CERTIFICATE-----...'
 $env:DLP_SERVER_KEY_PEM   = '-----BEGIN PRIVATE KEY-----...'
 # ... remaining secrets per Invoke-Dc01Server.ps1
+
+# Endpoint runtime secrets for LAB-CLIENT01 (required by Invoke-Client01Runtime.ps1)
+$env:DLP_DEVICE_ID                     = 'device-id-from-runtime-provider'
+$env:DLP_SERVER_URL                    = 'https://LAB-DC01:8443'
+$env:DLP_ROOT_CA_PEM                   = '-----BEGIN CERTIFICATE-----...'
+$env:DLP_CONFIGURATION_PUBLIC_KEY_HEX  = '0123...abcdef'   # 64 hex chars
+$env:DLP_CONFIGURATION_KEY_ID          = 'phase1-config-signer'   # optional
+$env:DLP_AGENT_ENROLLMENT_TOKEN        = '***from-runtime-provider***'   # optional; omit for replacement-enrollment-required mode
 ```
 
 ---
@@ -129,13 +137,13 @@ ssh -i "${env:USERPROFILE}\.ssh\lab-server01" "${env:DLP_SERVER01_SSH_USER}@192.
 
 ```bash
 # Check service status
-ssh "${DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl status postgresql"
+ssh "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl status postgresql"
 
 # Start if not running
-ssh "${DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl start postgresql"
+ssh "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl start postgresql"
 
 # Enable autostart
-ssh "${DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl enable postgresql"
+ssh "${env:DLP_SERVER01_SSH_USER}@192.168.50.12" "sudo systemctl enable postgresql"
 ```
 
 Run the same commands from PowerShell on `hungdinh-lt` by inlining the bash string:
@@ -244,49 +252,95 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
 ---
 
-## 8. Manage the Endpoint Agent Service on LAB-CLIENT01
+> **Note:** `Invoke-Client01Runtime.ps1 -Scenario Tracer` performs the same health probes from `LAB-CLIENT01`, so the manual probe step below is optional if you run the tracer next.
 
-### 8.1 Check service state
+## 8. Deploy and Start the Endpoint Agent Service on LAB-CLIENT01
+
+Use the endpoint orchestration script. It builds the release binary, copies it to `LAB-CLIENT01`, deploys the root CA, writes `C:\dlp\agent\agent.env`, installs or reconfigures the `DlpWindowsService` Windows service, and starts it.
+
+### 8.1 Dry-run the deployment
+
+```powershell
+$cred = Get-Credential -Message "LAB-CLIENT01 admin credential"
+
+$repoRoot = 'C:\Users\nhdinh\dev\dleakprevention'
+Set-Location $repoRoot
+.\scripts\lab\Invoke-Client01Runtime.ps1 `
+    -CallerMachine    hungdinh-lt `
+    -ExecutionMachine LAB-CLIENT01 `
+    -ProbeMachine     LAB-DC01 `
+    -SecretProvider   Runtime `
+    -Scenario         ServiceInstall
+```
+
+### 8.2 Install and start the service
+
+```powershell
+.\scripts\lab\Invoke-Client01Runtime.ps1 `
+    -CallerMachine    hungdinh-lt `
+    -ExecutionMachine LAB-CLIENT01 `
+    -ProbeMachine     LAB-DC01 `
+    -SecretProvider   Runtime `
+    -Scenario         ServiceInstall `
+    -Credential       $cred `
+    -Apply
+```
+
+The script:
+
+- Builds `target/release/dlp-windows-service.exe` if it is missing.
+- Copies the binary to `C:\dlp\agent\dlp-windows-service.exe` on `LAB-CLIENT01`.
+- Creates `C:\dlp\agent\data` and `C:\dlp\agent\cache`.
+- Writes `C:\dlp\agent\agent.env` and persists the same values to the service registry `Environment` value.
+- Installs or reconfigures the `DlpWindowsService` service as automatic, running as `NT AUTHORITY\SYSTEM`.
+- Starts the service and verifies it reaches the `Running` state.
+
+### 8.3 Run the endpoint tracer
+
+The `Tracer` scenario installs the service and then probes `/health/live` and `/health/ready` on `LAB-DC01` from `LAB-CLIENT01`.
+
+```powershell
+.\scripts\lab\Invoke-Client01Runtime.ps1 `
+    -CallerMachine    hungdinh-lt `
+    -ExecutionMachine LAB-CLIENT01 `
+    -ProbeMachine     LAB-DC01 `
+    -SecretProvider   Runtime `
+    -Scenario         Tracer `
+    -Credential       $cred `
+    -Apply
+```
+
+### 8.4 Check service state manually
 
 ```powershell
 Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
-    $svc = Get-Service -Name 'dlp-agent' -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name 'DlpWindowsService' -ErrorAction SilentlyContinue
     if ($svc) {
         [PSCustomObject]@{
             Name      = $svc.Name
             Status    = $svc.Status.ToString()
-            StartType = (Get-CimInstance Win32_Service -Filter "Name='dlp-agent'").StartMode
+            StartType = (Get-CimInstance Win32_Service -Filter "Name='DlpWindowsService'").StartMode
         }
     } else {
-        Write-Output 'dlp-agent service is not installed'
+        Write-Output 'DlpWindowsService is not installed'
     }
 }
 ```
 
-### 8.2 Install the service
+### 8.5 Stop, start, and restart the service
 
 ```powershell
-Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
-    $binary = 'C:/Program Files/DLP/dlp-windows-service.exe'
-    if (-not (Test-Path -LiteralPath $binary)) { throw 'agent_binary_missing' }
-    New-Service -Name 'dlp-agent' -BinaryPathName "`"$binary`"" -DisplayName 'DLP Agent' -StartupType Automatic | Out-Null
-}
-```
-
-### 8.3 Start, stop, and restart
-
-```powershell
-# Start
-Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Start-Service -Name 'dlp-agent' }
-
 # Stop
-Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Stop-Service -Name 'dlp-agent' -Force }
+Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Stop-Service -Name 'DlpWindowsService' -Force }
+
+# Start
+Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Start-Service -Name 'DlpWindowsService' }
 
 # Restart
-Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Restart-Service -Name 'dlp-agent' -Force }
+Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Restart-Service -Name 'DlpWindowsService' -Force }
 ```
 
-### 8.4 Force-kill the agent process
+### 8.6 Force-kill the agent process
 
 Use only when the service control manager cannot stop it.
 
@@ -348,8 +402,10 @@ If you need to clean the developer host after a test run:
 | `sqlx migrate` fails | Verify `$env:DLP_DATABASE_URL`, SSH to `LAB-SERVER01`, and run `sudo systemctl status postgresql`. |
 | Cannot SSH to `LAB-SERVER01` | Verify the VM IP, SSH key or password, and that `sshd` is installed and running. |
 | `Invoke-Dc01Server.ps1` fails with `vm_credentials_required` | Set `$env:DLP_VM_ADMIN_USER`/`PASSWORD` or pass `-Credential`. |
+| `Invoke-Client01Runtime.ps1` fails with `runtime_secrets_missing` | Set `DLP_DEVICE_ID`, `DLP_SERVER_URL`, `DLP_ROOT_CA_PEM`, and `DLP_CONFIGURATION_PUBLIC_KEY_HEX`. |
+| `Invoke-Client01Runtime.ps1` fails with `service_failed_to_start` | Check `C:\dlp\agent\dlp-windows-service.err`, verify the env file, and confirm `DlpWindowsService` is configured. |
 | `dlp-server` port not reachable from `LAB-CLIENT01` | Check firewall rule on `LAB-DC01`; verify VM network profile is Domain/Private. |
-| `dlp-agent` service fails to start | Check `C:\ProgramData\DLP\logs`, verify WinFsp is installed, verify DPAPI identity. |
+| `DlpWindowsService` service fails to start | Check `C:\dlp\agent` logs, verify WinFsp is installed, verify DPAPI identity. |
 | `Invoke-AgentServiceSmoke` fails `host_service_present` | Run environment reconcile with `-Apply` on `hungdinh-lt` to remove leaked artifacts. |
 
 ---
@@ -375,11 +431,17 @@ psql "$env:DLP_DATABASE_URL" -c "SELECT COUNT(*) FROM _sqlx_migrations;"
 # Start management server with tracer
 .\scripts\lab\Invoke-Dc01Server.ps1 -CallerMachine hungdinh-lt -ExecutionMachine LAB-DC01 -ProbeMachine LAB-CLIENT01 -SecretProvider Runtime -Scenario Tracer -Credential $cred
 
-# Start agent service
-Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Start-Service -Name 'dlp-agent' }
+# Deploy and start endpoint service
+.\scripts\lab\Invoke-Client01Runtime.ps1 -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ProbeMachine LAB-DC01 -SecretProvider Runtime -Scenario Tracer -Credential $cred -Apply
 
-# Restart agent service
-Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Restart-Service -Name 'dlp-agent' -Force }
+# Stop endpoint service
+Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Stop-Service -Name 'DlpWindowsService' -Force }
+
+# Start endpoint service
+Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Start-Service -Name 'DlpWindowsService' }
+
+# Restart endpoint service
+Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Restart-Service -Name 'DlpWindowsService' -Force }
 
 # Health probe from endpoint
 Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
@@ -395,6 +457,7 @@ Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
 - `.planning/docs/HYPERV-VM-START-GUIDE.md` — generic Hyper-V VM start/cold-start reference.
 - `.planning/docs/LAB-SERVER01-SETUP.md` — PostgreSQL setup on `LAB-SERVER01`.
 - `scripts/lab/Invoke-Dc01Server.ps1` — management-server orchestration.
+- `scripts/lab/Invoke-Client01Runtime.ps1` — endpoint agent service deployment on `LAB-CLIENT01`.
 - `scripts/lab/Invoke-Phase1EnvironmentReconcile.ps1` — developer-host cleanup.
 - `tests/windows/Invoke-AgentServiceSmoke.ps1` — endpoint agent smoke tests.
 - `.planning/STATE.md` — current lab environment status.
