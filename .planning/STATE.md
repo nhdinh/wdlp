@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01.1
-status: verifying
+current_phase: 01-first-encrypted-drive-vertical-slice
+status: in_progress
 stopped_at: Completed 01.1-01-PLAN.md
-last_updated: "2026-08-13T12:56:07.248Z"
+last_updated: "2026-08-13T13:05:00Z"
 progress:
   total_phases: 2
   completed_phases: 1
@@ -28,16 +28,17 @@ progress:
 | 2026-08-13 | hyperv-vm-start-guide | PowerShell walkthrough for starting and cold-starting Hyper-V VMs | `.planning/docs/HYPERV-VM-START-GUIDE.md` |
 | 2026-08-13 | hyperv-dlp-start-guide | PowerShell walkthrough for starting/cold-starting DLP server/services/endpoint apps on Hyper-V VMs | `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
 | 2026-08-13 | deploy-client01-runtime | PowerShell orchestrator to build and deploy dlp-windows-service runtime to LAB-CLIENT01 | `.planning/quick/20260813-deploy-client01-runtime/`, `scripts/lab/Invoke-Client01Runtime.ps1` |
+| 2026-08-13 | document-agent-env-vars | Document every DLP Windows agent runtime env var and cross-reference from the lab startup guide | `.planning/docs/ENV-VARS.md`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md`, `.planning/ROADMAP.md` |
 | 2026-08-13 | update-startup-guide | Update HYPERV-DLP-STARTUP-GUIDE.md to deploy endpoint service via Invoke-Client01Runtime.ps1 | `.planning/quick/20260813-update-startup-guide/`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
 
 ## Current Position
 
-- **Phase:** 01.1 - Add docs for env vars
-- **Plan:** 19 of 11 — complete
+- **Phase:** 01 - First Encrypted-Drive Vertical Slice
+- **Plan:** 7/11 complete; next: 01-15-PLAN.md (Wave 8)
 - **Task:** 1 of 1
-- **Status:** Phase complete — ready for verification
-- **Progress:** [███████░░░] 67%
-- **Next plan:** /gsd-plan-phase 01.1
+- **Status:** In progress
+- **Progress:** [████████░░] 64%
+- **Next plan:** 01-15-PLAN.md — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, isolation, sign-out drain, and service-restart behavior
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by token/VM reachability.
 
 ## Performance Metrics
