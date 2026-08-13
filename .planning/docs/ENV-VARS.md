@@ -2,7 +2,7 @@
 
 This document lists every environment variable consumed by the DLP Windows endpoint agent service (`dlp-windows-service.exe`). These values are **runtime-only** secrets and configuration. They are supplied by the operator's secret provider at deployment time and are **never committed to source control**.
 
-The service reads all runtime values through environment variables. In the lab, `scripts/lab/Invoke-Client01Runtime.ps1` collects them from the orchestration host, writes `C:\dlp\agent\agent.env` on `LAB-CLIENT01`, and persists the same values into the service registry so the SCM starts the service with them already loaded.
+The service reads all runtime values through environment variables. In the lab, `scripts/lab/Invoke-Client01Runtime.ps1` collects them from the orchestration host, writes `C:\dlp\agent\agent.env` on `LAB-CLIENT01`, and persists the same values into the service registry so the SCM starts the service with them already loaded. When the script is run with `-EnrollmentTokenProvider TrustedProvisioning`, the one-time enrollment token is obtained automatically from LAB-DC01 and injected into the service environment without being written to disk on the orchestration host.
 
 ---
 
@@ -26,7 +26,7 @@ These variables must be present before the service can start. If any are missing
 | Variable | Purpose | Format / Validation | Example | Default |
 |----------|---------|---------------------|---------|---------|
 | `DLP_CONFIGURATION_KEY_ID` | Human-readable identifier for the configuration signer, recorded with the active bundle. | Any non-empty string. Must match the key ID the server uses when signing bundles. | `phase1-config-signer` | `phase1-config-signer` |
-| `DLP_AGENT_ENROLLMENT_TOKEN` | One-time token used for initial enrollment. If omitted and no credential exists, the service enters `ReplacementEnrollmentRequired` mode. | String supplied by the management server's enrollment endpoint. Treat as a secret. | `eyJ...` | None (optional) |
+| `DLP_AGENT_ENROLLMENT_TOKEN` | One-time token used for initial enrollment. In the lab this is automatically obtained when `Invoke-Client01Runtime.ps1` is run with `-EnrollmentTokenProvider TrustedProvisioning`. It remains optional for manual or offline scenarios. | String supplied by the management server's enrollment endpoint. Treat as a secret. | `eyJ...` | None (optional) |
 | `DLP_POLL_INTERVAL_SECONDS` | How often the agent polls the server for a new signed configuration bundle. | Positive integer seconds. | `300` | `300` (5 minutes) |
 | `DLP_HEALTH_INTERVAL_SECONDS` | How often the agent posts a redacted health snapshot to the server. | Positive integer seconds. | `60` | `60` (1 minute) |
 | `DLP_START_TIMEOUT_SECONDS` | Internal timeout budget for the service start sequence. | Positive integer seconds. | `60` | `60` |
@@ -146,7 +146,10 @@ $env:DLP_CONFIGURATION_PUBLIC_KEY_HEX = '0123456789abcdef0123456789abcdef0123456
 
 # Optional overrides
 $env:DLP_CONFIGURATION_KEY_ID         = 'phase1-config-signer'
-$env:DLP_AGENT_ENROLLMENT_TOKEN       = '***from-runtime-provider***'
+# $env:DLP_AGENT_ENROLLMENT_TOKEN is no longer required here for the automatic
+# trusted-provisioning flow; Invoke-Client01Runtime.ps1 obtains it from LAB-DC01
+# when run with -EnrollmentTokenProvider TrustedProvisioning. Set it only for
+# manual or offline enrollment scenarios.
 $env:DLP_POLL_INTERVAL_SECONDS        = '300'
 $env:DLP_HEALTH_INTERVAL_SECONDS      = '60'
 $env:DLP_START_TIMEOUT_SECONDS        = '60'
@@ -166,6 +169,7 @@ Set-Location $repoRoot
     -ProbeMachine     LAB-DC01 `
     -SecretProvider   Runtime `
     -Scenario         Tracer `
+    -EnrollmentTokenProvider TrustedProvisioning `
     -Credential       $cred `
     -Apply
 ```

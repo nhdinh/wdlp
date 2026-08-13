@@ -47,9 +47,6 @@ $env:DLP_SERVER_URL                    = 'https://LAB-DC01:8443'
 $env:DLP_ROOT_CA_PEM                   = '-----BEGIN CERTIFICATE-----...'
 $env:DLP_CONFIGURATION_PUBLIC_KEY_HEX  = '0123...abcdef'   # 64 hex chars
 $env:DLP_CONFIGURATION_KEY_ID          = 'phase1-config-signer'   # optional
-
-# Enrollment token is obtained from Invoke-Dc01Server.ps1 TrustedProvisioning scenario
-# $env:DLP_AGENT_ENROLLMENT_TOKEN       = 'opaquealphanumerictokenfromserver'
 ```
 
 ---
@@ -263,7 +260,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
 Use the endpoint orchestration script. It builds the release binary, copies it to `LAB-CLIENT01`, deploys the root CA, writes `C:\dlp\agent\agent.env`, installs or reconfigures the `DlpWindowsService` Windows service, and starts it.
 
-> **Enrollment token flow:** Run the `TrustedProvisioning` scenario on `LAB-DC01` first. It returns an `enrollment_token` that `Invoke-Client01Runtime.ps1` needs for first-start enrollment. The token is short-lived; keep it out of logs and committed files.
+> **Enrollment token flow:** Use `-EnrollmentTokenProvider TrustedProvisioning` so `Invoke-Client01Runtime.ps1` obtains the short-lived enrollment token directly from LAB-DC01 trusted provisioning. The token is never written to disk on hungdinh-lt and is removed from the service registry after enrollment unless you add `-RetainEnrollmentToken` for troubleshooting.
 
 ### 8.1 Dry-run the deployment
 
@@ -289,6 +286,7 @@ Set-Location $repoRoot
     -ProbeMachine     LAB-DC01 `
     -SecretProvider   Runtime `
     -Scenario         ServiceInstall `
+    -EnrollmentTokenProvider TrustedProvisioning `
     -Credential       $cred `
     -Apply
 ```
@@ -313,6 +311,7 @@ The `Tracer` scenario installs the service and then probes `/health/live` and `/
     -ProbeMachine     LAB-DC01 `
     -SecretProvider   Runtime `
     -Scenario         Tracer `
+    -EnrollmentTokenProvider TrustedProvisioning `
     -Credential       $cred `
     -Apply
 ```
@@ -439,7 +438,7 @@ psql "$env:DLP_DATABASE_URL" -c "SELECT COUNT(*) FROM _sqlx_migrations;"
 .\scripts\lab\Invoke-Dc01Server.ps1 -CallerMachine hungdinh-lt -ExecutionMachine LAB-DC01 -ProbeMachine LAB-CLIENT01 -SecretProvider Runtime -Scenario Tracer -Credential $cred
 
 # Deploy and start endpoint service
-.\scripts\lab\Invoke-Client01Runtime.ps1 -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ProbeMachine LAB-DC01 -SecretProvider Runtime -Scenario Tracer -Credential $cred -Apply
+.\scripts\lab\Invoke-Client01Runtime.ps1 -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ProbeMachine LAB-DC01 -SecretProvider Runtime -Scenario Tracer -EnrollmentTokenProvider TrustedProvisioning -Credential $cred -Apply
 
 # Stop endpoint service
 Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Stop-Service -Name 'DlpWindowsService' -Force }
