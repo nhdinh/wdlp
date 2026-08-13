@@ -26,6 +26,8 @@ Get-VM | Select-Object -First 5
 
 Set the environment variables the lab scripts expect. Values come from your runtime secret provider; they are never committed.
 
+For authoritative collection and creation instructions for each DLP Windows agent runtime variable, see [.planning/docs/ENV-VARS.md](ENV-VARS.md). The lines below are a quick-reference reminder only.
+
 ```powershell
 $env:DLP_VM_ADMIN_USER     = 'labadmin'
 $env:DLP_VM_ADMIN_PASSWORD = '***from-runtime-provider***'
@@ -38,7 +40,8 @@ $env:DLP_SERVER_CERT_PEM  = '-----BEGIN CERTIFICATE-----...'
 $env:DLP_SERVER_KEY_PEM   = '-----BEGIN PRIVATE KEY-----...'
 # ... remaining secrets per Invoke-Dc01Server.ps1
 
-# Endpoint runtime secrets for LAB-CLIENT01 (required by Invoke-Client01Runtime.ps1)
+# Endpoint runtime secrets for LAB-CLIENT01 (required by Invoke-Client01Runtime.ps1).
+# See ENV-VARS.md for how to collect or create each value.
 $env:DLP_DEVICE_ID                     = 'device-id-from-runtime-provider'
 $env:DLP_SERVER_URL                    = 'https://LAB-DC01:8443'
 $env:DLP_ROOT_CA_PEM                   = '-----BEGIN CERTIFICATE-----...'
@@ -454,6 +457,7 @@ Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
 
 ## Related Docs
 
+- `.planning/docs/ENV-VARS.md` — canonical reference for DLP Windows agent runtime environment variables.
 - `.planning/docs/HYPERV-VM-START-GUIDE.md` — generic Hyper-V VM start/cold-start reference.
 - `.planning/docs/LAB-SERVER01-SETUP.md` — PostgreSQL setup on `LAB-SERVER01`.
 - `scripts/lab/Invoke-Dc01Server.ps1` — management-server orchestration.
