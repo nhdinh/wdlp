@@ -25,9 +25,9 @@ fn ensure_phase1_pki_fixtures() -> std::path::PathBuf {
         ("DLP_SERVER_CERT_PEM", "server-cert.pem"),
         ("DLP_SERVER_KEY_PEM", "server-key.pem"),
         ("DLP_ADMIN_CA_CERT_PEM", "admin-ca.pem"),
-        ("DLP_PHASE1_ROOT_CA_CERT_PEM", "root-ca.pem"),
+        ("DLP_PHASE1_ROOT_CA_CERT_PEM", "phase1-root-ca.pem"),
         ("DLP_DEVICE_ISSUING_CA_CERT_PEM", "device-issuing-ca.pem"),
-        ("DLP_DEVICE_ISSUING_CA_KEY_PEM", "device-issuing-ca.key"),
+        ("DLP_DEVICE_ISSUING_CA_KEY_PEM", "device-issuing-ca-key.pem"),
     ];
 
     for (var, filename) in pem_vars {
@@ -42,11 +42,11 @@ fn ensure_phase1_pki_fixtures() -> std::path::PathBuf {
     }
 
     // Generate a device leaf cert signed by the device-issuing CA.
-    let device_cert_path = fixture_dir.join("device.cert.pem");
+    let device_cert_path = fixture_dir.join("device-cert.pem");
     if !device_cert_path.exists() {
         let ca_cert_pem = fs::read_to_string(fixture_dir.join("device-issuing-ca.pem"))
             .expect("device issuing CA cert");
-        let ca_key_pem = fs::read_to_string(fixture_dir.join("device-issuing-ca.key"))
+        let ca_key_pem = fs::read_to_string(fixture_dir.join("device-issuing-ca-key.pem"))
             .expect("device issuing CA key");
         let ca_key = KeyPair::from_pem(&ca_key_pem).expect("parse device CA key");
         let issuer = rcgen::Issuer::from_ca_cert_pem(&ca_cert_pem, ca_key)
@@ -161,7 +161,7 @@ fn mtls_server_config_requires_the_mounted_phase1_material() {
         server_certificate: fixture_dir.join("server-cert.pem"),
         server_private_key: fixture_dir.join("server-key.pem"),
         administrator_ca: fixture_dir.join("admin-ca.pem"),
-        phase1_root_ca: fixture_dir.join("root-ca.pem"),
+        phase1_root_ca: fixture_dir.join("phase1-root-ca.pem"),
         device_issuing_ca: fixture_dir.join("device-issuing-ca.pem"),
     };
     let configuration = paths
@@ -176,7 +176,7 @@ fn mtls_server_config_requires_the_mounted_phase1_material() {
 #[test]
 fn device_leaf_requires_uri_san_serial_and_client_profile() {
     let fixture_dir = ensure_phase1_pki_fixtures();
-    let leaf = fixture_dir.join("device.cert.pem");
+    let leaf = fixture_dir.join("device-cert.pem");
     let pem = std::fs::read(leaf).expect("fixture leaf");
     let leaf = rustls::pki_types::CertificateDer::pem_slice_iter(&pem)
         .next()
