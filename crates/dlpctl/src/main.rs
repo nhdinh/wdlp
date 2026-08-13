@@ -326,20 +326,20 @@ async fn main() -> Result<(), CliError> {
 
             let endpoint = env::var("DLP_PROVISIONING_ENDPOINT")
                 .map_err(|_| CliError::TrustedStationRequired)?;
-            let root_ca = env::var("DLP_PROVISIONING_ROOT_CA_PATH")
+            let provisioning_root_ca = env::var("DLP_PROVISIONING_ROOT_CA_PATH")
                 .map_err(|_| CliError::TrustedStationRequired)?;
-            let admin_cert = env::var("DLP_PROVISIONING_ADMIN_CERT_PATH")
+            let provisioning_admin_cert = env::var("DLP_PROVISIONING_ADMIN_CERT_PATH")
                 .map_err(|_| CliError::TrustedStationRequired)?;
-            let admin_key = env::var("DLP_PROVISIONING_ADMIN_KEY_PATH")
+            let provisioning_admin_key = env::var("DLP_PROVISIONING_ADMIN_KEY_PATH")
                 .map_err(|_| CliError::TrustedStationRequired)?;
             let handoff_path = env::var("DLP_PROVISIONING_TOKEN_HANDOFF_PATH")
                 .map_err(|_| CliError::TrustedStationRequired)?;
 
             let client = dlpctl::ProvisioningClient::new(
                 endpoint,
-                std::path::Path::new(&root_ca),
-                std::path::Path::new(&admin_cert),
-                std::path::Path::new(&admin_key),
+                std::path::Path::new(&provisioning_root_ca),
+                std::path::Path::new(&provisioning_admin_cert),
+                std::path::Path::new(&provisioning_admin_key),
             )
             .map_err(|_| CliError::ProvisioningApiUnavailable)?;
             let mut provider = FileSecretProvider::new(std::path::PathBuf::from(handoff_path));

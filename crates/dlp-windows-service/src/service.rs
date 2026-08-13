@@ -16,6 +16,33 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
+const SERVICE_LOG_PATH: &str = r"C:\dlp\agent\logs\dlp-windows-service.log";
+
+/// Append a timestamped line to the service log file.
+///
+/// Logging is intentionally primitive: it must work before any runtime or
+/// configuration is loaded so we can diagnose why the SCM start fails.
+pub fn service_log(level: &str, message: impl AsRef<str>) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let message = message.as_ref();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| format!("{}.{:03}", d.as_secs(), d.subsec_millis()))
+        .unwrap_or_else(|_| "0".to_string());
+    let line = format!("[{timestamp}] [{level}] {message}\n");
+
+    if let Some(parent) = std::path::Path::new(SERVICE_LOG_PATH).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(SERVICE_LOG_PATH)
+        .and_then(|mut file| file.write_all(line.as_bytes()));
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServiceState {
     Starting,
@@ -56,7 +83,7 @@ impl std::error::Error for ServiceStartError {}
 pub struct ServiceConfig {
     pub device_id: DeviceId,
     pub server_url: String,
-    pub root_ca_pem: String,
+    pub phase1_root_ca_pem: String,
     pub data_directory: PathBuf,
     pub cache_directory: PathBuf,
     pub enrollment_token: Option<String>,
@@ -106,7 +133,7 @@ impl ServiceContext {
             .load_pointers()
             .map_err(|_| ServiceStartError::CacheLoadFailed)?;
 
-        let bootstrap_client = AgentHttpClient::bootstrap(&config.server_url, &config.root_ca_pem)
+        let bootstrap_client = AgentHttpClient::bootstrap(&config.server_url, &config.phase1_root_ca_pem)
             .map_err(|_| ServiceStartError::ConfigInvalid)?;
 
         let mode = match Self::ensure_credential(&config, &bootstrap_client, &credential_store) {
@@ -279,6 +306,8 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
     define_windows_service!(ffi_service_main, service_main);
 
     fn service_main(_arguments: Vec<std::ffi::OsString>) {
+        service_log("INFO", "service_main invoked");
+
         fn build_status(
             state: ScmState,
             checkpoint: u32,
@@ -312,6 +341,7 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
                 _ => ServiceControlHandlerResult::NotImplemented,
             })
             .expect("register service control handler");
+        service_log("INFO", "control handler registered");
 
         let _ = handler.set_service_status(build_status(
             ScmState::StartPending,
@@ -322,7 +352,8 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
 
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
-            Err(_) => {
+            Err(error) => {
+                service_log("ERROR", format!("failed to create tokio runtime: {error}"));
                 let _ = handler.set_service_status(build_status(
                     ScmState::Stopped,
                     0,
@@ -332,6 +363,7 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
                 return;
             }
         };
+        service_log("INFO", "tokio runtime created");
 
         let _ = handler.set_service_status(build_status(
             ScmState::StartPending,
@@ -342,7 +374,8 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
 
         let config = match load_service_config() {
             Ok(c) => c,
-            Err(_) => {
+            Err(error) => {
+                service_log("ERROR", format!("failed to load service config: {error}"));
                 let _ = handler.set_service_status(build_status(
                     ScmState::Stopped,
                     0,
@@ -352,6 +385,7 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
                 return;
             }
         };
+        service_log("INFO", "service config loaded");
 
         let _ = handler.set_service_status(build_status(
             ScmState::StartPending,
@@ -362,7 +396,8 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
 
         let (context, mode) = match ServiceContext::startup(config) {
             Ok(result) => result,
-            Err(_) => {
+            Err(error) => {
+                service_log("ERROR", format!("service startup failed: {error}"));
                 let _ = handler.set_service_status(build_status(
                     ScmState::Stopped,
                     0,
@@ -372,6 +407,7 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
                 return;
             }
         };
+        service_log("INFO", format!("service context initialized mode={mode:?}"));
 
         let _service_state = startup_state(matches!(mode, EnrollmentMode::Existing));
         let _ = handler.set_service_status(build_status(
@@ -380,11 +416,13 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
             Duration::default(),
             ServiceExitCode::Win32(0),
         ));
+        service_log("INFO", "service status set to Running");
 
         let handle = runtime.spawn_blocking(move || run_service_loop(context, shutdown_rx));
         let _ = runtime.block_on(handle);
         runtime.shutdown_timeout(Duration::from_secs(10));
 
+        service_log("INFO", "service loop ended");
         let _ = handler.set_service_status(build_status(
             ScmState::Stopped,
             0,
@@ -408,7 +446,7 @@ fn load_service_config() -> Result<ServiceConfig, ServiceStartError> {
         .and_then(|v| DeviceId::parse(&v).map_err(|_| ServiceStartError::ConfigInvalid))?;
     let server_url =
         std::env::var("DLP_SERVER_URL").map_err(|_| ServiceStartError::ConfigMissing)?;
-    let root_ca_pem =
+    let phase1_root_ca_pem =
         std::env::var("DLP_ROOT_CA_PEM").map_err(|_| ServiceStartError::ConfigMissing)?;
     let data_directory = std::env::var("DLP_DATA_DIRECTORY")
         .map_err(|_| ServiceStartError::ConfigMissing)
@@ -433,7 +471,7 @@ fn load_service_config() -> Result<ServiceConfig, ServiceStartError> {
     Ok(ServiceConfig {
         device_id,
         server_url,
-        root_ca_pem,
+        phase1_root_ca_pem,
         data_directory,
         cache_directory,
         enrollment_token: std::env::var("DLP_AGENT_ENROLLMENT_TOKEN").ok(),

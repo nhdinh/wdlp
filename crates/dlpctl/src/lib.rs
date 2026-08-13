@@ -99,9 +99,9 @@ pub struct ProvisioningClient {
 impl ProvisioningClient {
     pub fn new(
         endpoint: impl Into<String>,
-        root_ca_pem_path: &Path,
-        admin_cert_pem_path: &Path,
-        admin_key_pem_path: &Path,
+        provisioning_root_ca_pem_path: &Path,
+        provisioning_admin_cert_pem_path: &Path,
+        provisioning_admin_key_pem_path: &Path,
     ) -> Result<Self, ProvisioningError> {
         let endpoint = endpoint.into();
         let url = reqwest::Url::parse(&endpoint).map_err(|_| ProvisioningError::InvalidRequest)?;
@@ -113,12 +113,12 @@ impl ProvisioningClient {
             return Err(ProvisioningError::InvalidRequest);
         }
 
-        let root_pem = fs::read_to_string(root_ca_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
+        let root_pem = fs::read_to_string(provisioning_root_ca_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
         let root_certificate = reqwest::Certificate::from_pem(root_pem.as_bytes())
             .map_err(|_| ProvisioningError::InvalidRequest)?;
 
-        let cert = fs::read_to_string(admin_cert_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
-        let key = fs::read_to_string(admin_key_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
+        let cert = fs::read_to_string(provisioning_admin_cert_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
+        let key = fs::read_to_string(provisioning_admin_key_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
         let identity = reqwest::Identity::from_pem((cert + &key).as_bytes())
             .map_err(|_| ProvisioningError::InvalidRequest)?;
 
