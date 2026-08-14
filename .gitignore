@@ -1,2 +1,5 @@
 /target/
 /evidence/phase1/attempts/
+config/*.env.local
+.env
+*.env.local
