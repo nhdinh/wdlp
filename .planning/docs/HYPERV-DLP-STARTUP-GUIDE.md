@@ -509,6 +509,8 @@ If you need to clean the developer host after a test run:
 
 ## 12. Troubleshooting Quick Reference
 
+For the independent `DlpLogDebugService` diagnostic only, use the development-only runbook in Related Docs; it is not an endpoint deployment or DLP health procedure.
+
 | Symptom | Check / Fix |
 |---------|-------------|
 | `Get-VM` access denied | Run PowerShell as Administrator. |
@@ -567,6 +569,8 @@ Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
 ---
 
 ## Related Docs
+
+- `.planning/docs/DLP-LOG-DEBUG-SERVICE.md` - development-only independent log debugger lifecycle and troubleshooting; it is not part of endpoint deployment.
 
 - `.planning/docs/ENV-VARS.md` — canonical reference for DLP Windows agent runtime environment variables.
 - `.planning/docs/PEM-KEY-GUIDE.md` — how to obtain or generate the PEM/KEY files used by the lab.

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "trusted_client_ips": ["192.0.2.10"],
+  "allowed_folders": ["C:\\path\\to\\logs"],
+  "port": 9191,
+  "max_response_bytes": 262144
+}
