@@ -46,14 +46,14 @@ function Read-DlpValue {
 
     if (-not $NoHelp -and -not [string]::IsNullOrWhiteSpace($HelpText)) {
         Write-Host ''
-        Write-Host 'How to obtain this value:' -ForegroundColor DarkCyan
+        Write-Host "How to obtain `$Name:" -ForegroundColor DarkCyan
         Write-Host $HelpText -ForegroundColor DarkGray
     }
 
     $fullPrompt = if (Test-IsPlaceholder $Default) {
-        "$Prompt`: "
+        "[$Name] $Prompt`: "
     } else {
-        "$Prompt [default: $Default]`: "
+        "[$Name] $Prompt [default: $Default]`: "
     }
 
     while ($true) {
