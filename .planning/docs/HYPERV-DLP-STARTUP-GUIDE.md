@@ -256,13 +256,121 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
 > **Note:** `Invoke-Client01Runtime.ps1 -Scenario Tracer` performs the same health probes from `LAB-CLIENT01`, so the manual probe step below is optional if you run the tracer next.
 
-## 8. Deploy and Start the Endpoint Agent Service on LAB-CLIENT01
+---
+
+## 8. Enrollment Flow
+
+When `Invoke-Client01Runtime.ps1` is run with `-EnrollmentTokenProvider TrustedProvisioning`, the operator no longer needs to copy `DLP_AGENT_ENROLLMENT_TOKEN` from the provisioning output. The orchestrator requests the token from LAB-DC01 and installs it directly into the DlpWindowsService environment, then removes it once the agent has enrolled.
+
+### 8.1 Trust boundaries
+
+| Hop | Channel | What moves | What stays behind |
+|-----|---------|------------|-------------------|
+| `hungdinh-lt` → `LAB-DC01` | PowerShell Direct / WinRM | A constrained JSON provisioning request for `LAB-CLIENT01.lab.local` | Administrator mTLS certificate and private key remain on `LAB-DC01` only |
+| `LAB-DC01` → `hungdinh-lt` | PowerShell return value | Short-lived `enrollment_token` (≤512 chars, JWT-safe charset) | The token is kept in a PowerShell variable only; it is never written to disk on `hungdinh-lt` or emitted to the console |
+| `hungdinh-lt` → `LAB-CLIENT01` | PowerShell Direct / WinRM | `DLP_AGENT_ENROLLMENT_TOKEN=<token>` written to `agent.env` and the service registry `Environment` value | The token is consumed once by the service during startup |
+| `LAB-CLIENT01` service process | Local DPAPI | mTLS client credential encrypted as `C:\dlp\agent\data\credentials\device.dpapi` | The plaintext token is discarded from memory and removed from persistent config after enrollment |
+
+### 8.2 Automatic token acquisition
+
+```powershell
+$cred = Get-Credential -Message "LAB admin credential"
+
+.\scripts\lab\Invoke-Client01Runtime.ps1 `
+    -CallerMachine    hungdinh-lt `
+    -ExecutionMachine LAB-CLIENT01 `
+    -ProbeMachine     LAB-DC01 `
+    -SecretProvider   Runtime `
+    -Scenario         Tracer `
+    -EnrollmentTokenProvider TrustedProvisioning `
+    -Credential       $cred `
+    -Apply
+```
+
+What happens:
+
+1. `Invoke-Client01Runtime.ps1` checks whether `C:\dlp\agent\data\credentials\device.dpapi` already exists. If it does, trusted provisioning is skipped and the existing credential is reused.
+2. Otherwise, it invokes `Invoke-TrustedProvisioning.ps1` on `LAB-DC01` with the target identity `LAB-CLIENT01.lab.local`.
+3. LAB-DC01 returns a JSON response containing `enrollment_token`.
+4. The orchestrator validates the token length (≤512) and charset (`[A-Za-z0-9_.~/-]`) before writing anything to `LAB-CLIENT01`. If validation fails, the install stops with `enrollment_token_invalid`.
+5. The token is written into `C:\dlp\agent\agent.env` and the `HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment` registry value.
+6. The service starts, reads the token once, contacts the management server, and creates the DPAPI-protected credential store at `C:\dlp\agent\data\credentials\device.dpapi`.
+
+### 8.3 Token cleanup
+
+By default, after the service reaches `Running` and the DPAPI credential exists, `Invoke-Client01Runtime.ps1` removes the `DLP_AGENT_ENROLLMENT_TOKEN` line from both `agent.env` and the service registry `Environment` value. This prevents the short-lived secret from remaining in persistent configuration.
+
+To keep the token in place for explicit troubleshooting, add `-RetainEnrollmentToken`:
+
+```powershell
+.\scripts\lab\Invoke-Client01Runtime.ps1 `
+    -CallerMachine            hungdinh-lt `
+    -ExecutionMachine         LAB-CLIENT01 `
+    -ProbeMachine             LAB-DC01 `
+    -SecretProvider           Runtime `
+    -Scenario                 ServiceInstall `
+    -EnrollmentTokenProvider  TrustedProvisioning `
+    -RetainEnrollmentToken `
+    -Credential               $cred `
+    -Apply
+```
+
+> **Warning:** Only use `-RetainEnrollmentToken` during active troubleshooting. Remove it for normal deployments.
+
+### 8.4 Verify cleanup
+
+After enrollment, confirm the token is no longer persisted on `LAB-CLIENT01`:
+
+```powershell
+Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
+    $envLines = Get-ItemPropertyValue -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService' -Name 'Environment' -ErrorAction SilentlyContinue
+    $agentEnv  = Get-Content -Path 'C:\dlp\agent\agent.env' -ErrorAction SilentlyContinue
+    $hasToken  = (($envLines -like 'DLP_AGENT_ENROLLMENT_TOKEN=*').Count -gt 0) -or
+                 (($agentEnv -like 'DLP_AGENT_ENROLLMENT_TOKEN=*').Count -gt 0)
+
+    [PSCustomObject]@{
+        TokenPersisted = $hasToken
+        CredentialExists = Test-Path 'C:\dlp\agent\data\credentials\device.dpapi'
+        ServiceStatus = (Get-Service -Name 'DlpWindowsService' -ErrorAction SilentlyContinue).Status
+    }
+}
+```
+
+Expected output after successful enrollment:
+
+```text
+TokenPersisted   : False
+CredentialExists : True
+ServiceStatus    : Running
+```
+
+### 8.5 Manual fallback
+
+If trusted provisioning is unavailable (for example, `LAB-DC01` is not reachable or you are testing offline), omit `-EnrollmentTokenProvider` and set the token manually before running the script:
+
+```powershell
+$env:DLP_AGENT_ENROLLMENT_TOKEN = '***from-runtime-provider***'
+.\scripts\lab\Invoke-Client01Runtime.ps1 `
+    -CallerMachine    hungdinh-lt `
+    -ExecutionMachine LAB-CLIENT01 `
+    -ProbeMachine     LAB-DC01 `
+    -SecretProvider   Runtime `
+    -Scenario         ServiceInstall `
+    -Credential       $cred `
+    -Apply
+```
+
+The manual provider remains the default behavior so existing operator workflows continue unchanged.
+
+---
+
+## 9. Deploy and Start the Endpoint Agent Service on LAB-CLIENT01
 
 Use the endpoint orchestration script. It builds the release binary, copies it to `LAB-CLIENT01`, deploys the root CA, writes `C:\dlp\agent\agent.env`, installs or reconfigures the `DlpWindowsService` Windows service, and starts it.
 
 > **Enrollment token flow:** Use `-EnrollmentTokenProvider TrustedProvisioning` so `Invoke-Client01Runtime.ps1` obtains the short-lived enrollment token directly from LAB-DC01 trusted provisioning. The token is never written to disk on hungdinh-lt and is removed from the service registry after enrollment unless you add `-RetainEnrollmentToken` for troubleshooting.
 
-### 8.1 Dry-run the deployment
+### 9.1 Dry-run the deployment
 
 ```powershell
 $cred = Get-Credential -Message "LAB-CLIENT01 admin credential"
@@ -277,7 +385,7 @@ Set-Location $repoRoot
     -Scenario         ServiceInstall
 ```
 
-### 8.2 Install and start the service
+### 9.2 Install and start the service
 
 ```powershell
 .\scripts\lab\Invoke-Client01Runtime.ps1 `
@@ -300,7 +408,7 @@ The script:
 - Installs or reconfigures the `DlpWindowsService` service as automatic, running as `NT AUTHORITY\SYSTEM`.
 - Starts the service and verifies it reaches the `Running` state.
 
-### 8.3 Run the endpoint tracer
+### 9.3 Run the endpoint tracer
 
 The `Tracer` scenario installs the service and then probes `/health/live` and `/health/ready` on `LAB-DC01` from `LAB-CLIENT01`.
 
@@ -316,7 +424,7 @@ The `Tracer` scenario installs the service and then probes `/health/live` and `/
     -Apply
 ```
 
-### 8.4 Check service state manually
+### 9.4 Check service state manually
 
 ```powershell
 Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
@@ -333,7 +441,7 @@ Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
 }
 ```
 
-### 8.5 Stop, start, and restart the service
+### 9.5 Stop, start, and restart the service
 
 ```powershell
 # Stop
@@ -346,7 +454,7 @@ Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Start-Ser
 Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock { Restart-Service -Name 'DlpWindowsService' -Force }
 ```
 
-### 8.6 Force-kill the agent process
+### 9.6 Force-kill the agent process
 
 Use only when the service control manager cannot stop it.
 
@@ -358,7 +466,7 @@ Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
 
 ---
 
-## 9. Run Endpoint Service Smoke Tests
+## 10. Run Endpoint Service Smoke Tests
 
 Use the existing smoke-test harness. The `ServiceRestart` scenario can run without a live enrollment endpoint.
 
@@ -377,7 +485,7 @@ Enrollment-dependent scenarios (`InitialEnrollmentCredential`, `ReplacementRevoc
 
 ---
 
-## 10. Full Environment Reconcile
+## 11. Full Environment Reconcile
 
 If you need to clean the developer host after a test run:
 
@@ -399,7 +507,7 @@ If you need to clean the developer host after a test run:
 
 ---
 
-## 11. Troubleshooting Quick Reference
+## 12. Troubleshooting Quick Reference
 
 | Symptom | Check / Fix |
 |---------|-------------|
@@ -416,7 +524,7 @@ If you need to clean the developer host after a test run:
 
 ---
 
-## 12. Cheat Sheet
+## 13. Cheat Sheet
 
 ```powershell
 # VM status
@@ -455,112 +563,6 @@ Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
     Invoke-RestMethod -Uri 'https://LAB-DC01:8443/health/ready' -TimeoutSec 30
 }
 ```
-
----
-
-## 13. Enrollment Flow
-
-When `Invoke-Client01Runtime.ps1` is run with `-EnrollmentTokenProvider TrustedProvisioning`, the operator no longer needs to copy `DLP_AGENT_ENROLLMENT_TOKEN` from the provisioning output. The orchestrator requests the token from LAB-DC01 and installs it directly into the DlpWindowsService environment, then removes it once the agent has enrolled.
-
-### 13.1 Trust boundaries
-
-| Hop | Channel | What moves | What stays behind |
-|-----|---------|------------|-------------------|
-| `hungdinh-lt` → `LAB-DC01` | PowerShell Direct / WinRM | A constrained JSON provisioning request for `LAB-CLIENT01.lab.local` | Administrator mTLS certificate and private key remain on `LAB-DC01` only |
-| `LAB-DC01` → `hungdinh-lt` | PowerShell return value | Short-lived `enrollment_token` (≤512 chars, JWT-safe charset) | The token is kept in a PowerShell variable only; it is never written to disk on `hungdinh-lt` or emitted to the console |
-| `hungdinh-lt` → `LAB-CLIENT01` | PowerShell Direct / WinRM | `DLP_AGENT_ENROLLMENT_TOKEN=<token>` written to `agent.env` and the service registry `Environment` value | The token is consumed once by the service during startup |
-| `LAB-CLIENT01` service process | Local DPAPI | mTLS client credential encrypted as `C:\dlp\agent\data\credentials\device.dpapi` | The plaintext token is discarded from memory and removed from persistent config after enrollment |
-
-### 13.2 Automatic token acquisition
-
-```powershell
-$cred = Get-Credential -Message "LAB admin credential"
-
-.\scripts\lab\Invoke-Client01Runtime.ps1 `
-    -CallerMachine    hungdinh-lt `
-    -ExecutionMachine LAB-CLIENT01 `
-    -ProbeMachine     LAB-DC01 `
-    -SecretProvider   Runtime `
-    -Scenario         Tracer `
-    -EnrollmentTokenProvider TrustedProvisioning `
-    -Credential       $cred `
-    -Apply
-```
-
-What happens:
-
-1. `Invoke-Client01Runtime.ps1` checks whether `C:\dlp\agent\data\credentials\device.dpapi` already exists. If it does, trusted provisioning is skipped and the existing credential is reused.
-2. Otherwise, it invokes `Invoke-TrustedProvisioning.ps1` on `LAB-DC01` with the target identity `LAB-CLIENT01.lab.local`.
-3. LAB-DC01 returns a JSON response containing `enrollment_token`.
-4. The orchestrator validates the token length (≤512) and charset (`[A-Za-z0-9_.~/-]`) before writing anything to `LAB-CLIENT01`. If validation fails, the install stops with `enrollment_token_invalid`.
-5. The token is written into `C:\dlp\agent\agent.env` and the `HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment` registry value.
-6. The service starts, reads the token once, contacts the management server, and creates the DPAPI-protected credential store at `C:\dlp\agent\data\credentials\device.dpapi`.
-
-### 13.3 Token cleanup
-
-By default, after the service reaches `Running` and the DPAPI credential exists, `Invoke-Client01Runtime.ps1` removes the `DLP_AGENT_ENROLLMENT_TOKEN` line from both `agent.env` and the service registry `Environment` value. This prevents the short-lived secret from remaining in persistent configuration.
-
-To keep the token in place for explicit troubleshooting, add `-RetainEnrollmentToken`:
-
-```powershell
-.\scripts\lab\Invoke-Client01Runtime.ps1 `
-    -CallerMachine            hungdinh-lt `
-    -ExecutionMachine         LAB-CLIENT01 `
-    -ProbeMachine             LAB-DC01 `
-    -SecretProvider           Runtime `
-    -Scenario                 ServiceInstall `
-    -EnrollmentTokenProvider  TrustedProvisioning `
-    -RetainEnrollmentToken `
-    -Credential               $cred `
-    -Apply
-```
-
-> **Warning:** Only use `-RetainEnrollmentToken` during active troubleshooting. Remove it for normal deployments.
-
-### 13.4 Verify cleanup
-
-After enrollment, confirm the token is no longer persisted on `LAB-CLIENT01`:
-
-```powershell
-Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
-    $envLines = Get-ItemPropertyValue -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService' -Name 'Environment' -ErrorAction SilentlyContinue
-    $agentEnv  = Get-Content -Path 'C:\dlp\agent\agent.env' -ErrorAction SilentlyContinue
-    $hasToken  = (($envLines -like 'DLP_AGENT_ENROLLMENT_TOKEN=*').Count -gt 0) -or
-                 (($agentEnv -like 'DLP_AGENT_ENROLLMENT_TOKEN=*').Count -gt 0)
-
-    [PSCustomObject]@{
-        TokenPersisted = $hasToken
-        CredentialExists = Test-Path 'C:\dlp\agent\data\credentials\device.dpapi'
-        ServiceStatus = (Get-Service -Name 'DlpWindowsService' -ErrorAction SilentlyContinue).Status
-    }
-}
-```
-
-Expected output after successful enrollment:
-
-```text
-TokenPersisted   : False
-CredentialExists : True
-ServiceStatus    : Running
-```
-
-### 13.5 Manual fallback
-
-If trusted provisioning is unavailable (for example, `LAB-DC01` is not reachable or you are testing offline), omit `-EnrollmentTokenProvider` and set the token manually before running the script:
-
-```powershell
-$env:DLP_AGENT_ENROLLMENT_TOKEN = '***from-runtime-provider***'
-.\scripts\lab\Invoke-Client01Runtime.ps1 `
-    -CallerMachine    hungdinh-lt `
-    -ExecutionMachine LAB-CLIENT01 `
-    -ProbeMachine     LAB-DC01 `
-    -SecretProvider   Runtime `
-    -Scenario         ServiceInstall `
-    -Credential       $cred `
-    -Apply
-```
-
-The manual provider remains the default behavior so existing operator workflows continue unchanged.
 
 ---
 
