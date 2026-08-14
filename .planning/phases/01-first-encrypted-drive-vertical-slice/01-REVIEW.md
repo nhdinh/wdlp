@@ -1,6 +1,6 @@
 ---
 phase: 01-first-encrypted-drive-vertical-slice
-reviewed: 2026-08-14T19:17:34Z
+reviewed: 2026-08-14T19:52:43Z
 depth: deep
 files_reviewed: 68
 files_reviewed_list:
@@ -73,142 +73,106 @@ files_reviewed_list:
   - tests/windows/Invoke-AgentServiceSmoke.ps1
   - tests/windows/Test-DlpLogDebugRunbookSyntax.ps1
 findings:
-  critical: 8
-  warning: 5
+  critical: 5
+  warning: 4
   info: 0
-  total: 13
+  total: 9
 status: issues_found
 ---
 
 # Phase 01: Code Review Report
 
-**Reviewed:** 2026-08-14T19:17:34Z
+**Reviewed:** 2026-08-14T19:52:43Z
 **Depth:** deep
 **Files Reviewed:** 68
 **Status:** issues_found
 
 ## Summary
 
-The deep review traced the enrollment, provisioning, TLS, configuration-cache, and persistence call chains. The production agent and server do not share working enrollment or configuration contracts; replacement enrollment and directory corroboration are disconnected; and credential/token custody controls are ineffective. `cargo test --workspace` also ends unsuccessfully because `dlp-windows-drive --test mounted_smoke` exits abnormally (`0xc06d007e`), despite the other suites reporting passes.
+The attempted reset-script fix is present: `Reset-DlpPostgres.py` now pins a known SSH host key, confines PostgreSQL identifiers, and passes password and SQL through SSH stdin. The prior focused suite now passes (82 tests). The full workspace run executes 104 passing tests but ends nonzero because the out-of-scope `dlp-windows-drive` `mounted_smoke` process terminates with `0xc06d007e` after the WinFsp delay-load warning.
+
+The vertical slice is still not shippable. Five authority and credential-custody blockers remain unchanged in the live worktree: real bootstrap enrollment cannot match a provisioned authority row; directory corroboration is never used to provision; replacement enrollment cannot supply its active serial; credential ACL verification remains insufficient; and administrator authorization is inferred from the issuing CA subject. Four verification and test-reliability warnings also remain.
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01 [BLOCKER]: Enrollment endpoint consumes the credential and returns an empty response
+### CR-01 [BLOCKER]: Bootstrap enrollment fabricates observations that cannot match the authority row
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-server/src/routes.rs:260-265`
+**File:** `crates/dlp-server/src/routes.rs:247-265`
 
-**Issue:** The route discards `IssuedDeviceCredential` and returns only `200 OK`. Its caller, `AgentHttpClient::post_enrollment`, requires a JSON object containing `credential_chain` at `crates/dlp-agent-core/src/client.rs:185-187,260-262`. A successful server enrollment therefore always fails at the client before it can persist its private key and certificate.
+**Issue:** The unauthenticated enrollment route creates a `ProvisionDeviceRequestV1` with an all-zero fingerprint, GUID, and SID and fixed DNS/domain values. `PgAuthorityRepository::consume_and_activate` compares the full request to the administrator-provisioned row. Therefore, a production provisioned device cannot complete bootstrap enrollment. The route test passes only because `RouteState::for_test()` uses a test service that does not exercise the PostgreSQL comparison.
 
-**Fix:** Return a versioned JSON enrollment response carrying the issued public chain, then contract-test the server route through `AgentHttpClient`.
+**Fix:** Change the enrollment contract so the locked authority row supplies the trusted provisioned observations. The bootstrap input should contain only device ID, one-time token, CSR, and any required prior serial; never synthesize identity observations in the route.
 
-```rust
-let issued = state.enrollment_service.enroll(submission).await
-    .map_err(|_| StatusCode::UNAUTHORIZED)?;
-Ok(Json(EnrollmentResponse { credential_chain: issued.certificate_chain_pem }))
-```
+### CR-02 [BLOCKER]: Directory corroboration is disconnected from the provisioning authority path
 
-### CR-02 [BLOCKER]: Bootstrap enrollment fabricates identity observations that cannot match provisioned authority data
+**File:** `crates/dlp-server/src/lib.rs:128-146,168-185,215-217`; `crates/dlp-server/src/routes.rs:292-305`
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-server/src/routes.rs:246-259`
+**Issue:** Production composition creates `RuntimeDirectory`, but its trait has no operation and the verifier is not injected into `AdminProvisioningService`. The provisioning route accepts administrator-supplied GUID, SID, and fingerprint values and uses fixed DNS/domain strings. As a result, an accepted administrator certificate can create authority records for arbitrary device identity facts without either configured LDAPS controller being consulted.
 
-**Issue:** The bootstrap handler constructs a `ProvisionDeviceRequestV1` with a zero fingerprint/GUID/SID and fixed DNS/domain values. `PgAuthorityRepository::consume_and_activate` requires all of those values to exactly equal the authority row at `crates/dlp-server/src/repository.rs:169-185`. Real provisioned devices therefore cannot enroll.
+**Fix:** Give `DirectoryVerifier` an async corroboration method, inject it into the provisioning service, and construct the persisted identity strictly from two-controller corroboration plus a trusted station fingerprint. Fail closed when directory configuration is absent for provisioning.
 
-**Fix:** Make the bootstrap DTO contain only device ID, token, CSR, and optional previous serial. Load the authoritative observation by device ID inside the transactional repository and compare only server-held values there.
+### CR-03 [BLOCKER]: Replacement enrollment never provides the active credential serial
 
-### CR-03 [BLOCKER]: Replacement enrollment drops the client’s prior credential serial
+**File:** `crates/dlp-windows-service/src/service.rs:159-184`
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-server/src/routes.rs:247-258`
+**Issue:** `ensure_credential` calls `EnrollmentCoordinator::startup(..., None)` whenever protection validation fails. The server requires a replacement request's prior serial to equal the active serial. A damaged or expired credential thus cannot be replaced, while any decryptable credential is immediately accepted as `Existing` with no renewal flow.
 
-**Issue:** The client serializes `prior_serial` at `crates/dlp-agent-core/src/client.rs:166-171`, but `BootstrapEnrollmentRequest` has no corresponding field (line 392) and the route always passes `None`. The repository requires `active_serial == prior_serial` before replacement at `crates/dlp-server/src/repository.rs:176-185`; replacement and revocation are consequently impossible.
+**Fix:** Validate and load the existing credential before renewal, extract and send its serial in a dedicated replacement-enrollment flow, and define a separate authenticated recovery/re-provisioning path for irrecoverable credentials.
 
-**Fix:** Add a bounded hexadecimal `prior_serial` field, decode it strictly, and pass it to `EnrollmentSubmission::new`. Reject malformed serials rather than silently treating them as absent.
+### CR-04 [BLOCKER]: Machine-DPAPI credential custody is bypassable through incomplete ACL validation
 
-### CR-04 [BLOCKER]: Server configuration response is not the agent’s signed-configuration wire format
+**File:** `crates/dlp-windows-service/src/credential.rs:193-205,235-247,321-323,388-433`
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-server/src/routes.rs:351-375`
+**Issue:** Startup's `validate_protection` decrypts the blob without ACL validation. The later `validate_acl` checks only that SYSTEM owns the file, not its DACL; it neither protects nor validates the containing directory; and `enforce_acl` silently succeeds when the service SID cannot be obtained. The file is also first written and renamed with inherited access before the DACL is set. On Windows, machine-scope DPAPI does not prevent another local principal with file access from reading or replacing the blob.
 
-**Issue:** The endpoint returns a JSON `ConfigurationResponse`, while `AgentConfigurationTransport` returns those raw bytes to `ConfigurationCache::deserialize_signed_configuration`, which requires the custom binary record beginning with `WIRE_FORMAT_VERSION` (`crates/dlp-agent-core/src/config_cache.rs:318-336`). The JSON `{` byte is rejected as `InvalidWireFormat`, so no polled configuration can activate.
+**Fix:** Fail closed when the service SID cannot be resolved. Create and validate both credential directory and file with a protected DACL granting only SYSTEM and the service SID before persistence/decryption; validate the DACL (not merely owner) in every load and protection-check path.
 
-**Fix:** Send `serialize_signed_configuration(&configuration)` with a declared binary media type, or replace the cache decoder with a strict JSON decoder that reconstructs and verifies the identical signed envelope. Cover the actual route-to-transport flow with an integration test.
+### CR-05 [BLOCKER]: Any leaf chained to the administrator CA is a provisioning administrator
 
-### CR-05 [BLOCKER]: PostgreSQL configuration retrieval destroys the signed envelope
+**File:** `crates/dlp-server/src/tls.rs:174-209,376-383`
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-server/src/repository.rs:368-411`
+**Issue:** After rustls accepts a client chain, `IdentityRoots::peer_identity` assigns the Administrator role solely when the leaf issuer's display string equals the configured administrator CA subject. It does not enforce an administrator EKU, a constrained SAN/subject, the exact CA key, or an administrator allowlist/role. `require_administrator` then authorizes this role for provisioning. Any unrelated client-auth certificate issued under that CA can mint enrollment tokens and authority rows.
 
-**Issue:** `persist_configuration` stores `canonical_bundle`, `content_digest`, and `audience` (lines 349-360), but `selected_configuration` never reads them. It creates a new envelope with fixed timestamp `1_754_568_000` and payload `{}` (lines 391-398), then attaches the old signature (lines 405-410). On every poll after the initial creation response, the agent receives bytes whose signature/digest cannot correspond to the stored configuration.
-
-**Fix:** Persist and retrieve a lossless signed envelope (or the existing cache wire bytes), reconstruct it exactly, validate the stored digest/audience, and test a second fetch after a server restart.
-
-### CR-06 [BLOCKER]: Production provisioning never uses the two-controller directory verifier
-
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-server/src/lib.rs:215-217`
-
-**Issue:** `RuntimeDirectory` wraps `LdapDirectoryVerifier` but implements only an empty marker trait. Nothing injects or calls `corroborate_computer`; the provisioning route instead accepts GUID, SID, and fingerprint bytes from the mTLS caller and substitutes constant DNS/domain (`crates/dlp-server/src/routes.rs:275-301`). An administrator certificate can provision arbitrary device facts without the promised independent two-DC corroboration.
-
-**Fix:** Add an async corroboration method to `DirectoryVerifier`, make it required for the production provisioning route, obtain the two LDAPS results using the requested DNS name, and build `ProvisionDeviceRequestV1` exclusively from that verified result.
-
-### CR-07 [BLOCKER]: Credential-custody ACL check is bypassed and does not inspect the DACL
-
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-windows-service/src/credential.rs:175-180,235-247,388-433`
-
-**Issue:** Startup uses `validate_protection` (`crates/dlp-windows-service/src/service.rs:159-166`), which decrypts without calling `validate_acl`. Even paths using `load` get an inadequate check: `validate_acl` requests only `OWNER_SECURITY_INFORMATION` and accepts any DACL as long as SYSTEM owns the file. The containing directory is created with inherited ACLs and never secured. Since machine-scope DPAPI permits other local accounts to decrypt, an untrusted local account with inherited directory/file access can read or replace the credential while the service treats it as valid.
-
-**Fix:** Secure the directory before creating files; apply a protected DACL granting only SYSTEM and the service SID; validate both file and directory DACLs before every read/decrypt; and call that validation from `validate_protection`.
-
-### CR-08 [BLOCKER]: Provisioning material and one-time token are exposed to ordinary files and logs
-
-**File:** `C:/Users/nhdinh/dev/dleakprevention/scripts/lab/Invoke-TrustedProvisioning.ps1:139-160,202-208,213-228`
-
-**Issue:** The script writes the provisioning administrator key and enrollment token under `C:\dlp\provisioning` without an explicit restrictive ACL. On failure it prints the first line of every file in that directory, and on success emits the plaintext token in its JSON output (`enrollment_token = $token`). This leaks reusable credential material and a usable token to transcripts, CI captures, and inherited-ACL locations.
-
-**Fix:** Create a protected per-run directory restricted to SYSTEM and the provisioning identity before writing any secret; never enumerate or print its contents; move the token through an approved secret provider; delete the handoff file immediately after delivery; and omit the token from all stdout/stderr objects.
+**Fix:** Define and verify a dedicated administrator certificate profile: exact trust anchor/key, client-auth EKU, and a provisioning-admin SAN/subject policy. Authorize the resulting principal against an explicit allowlist or directory role before adding `AuthenticatedAdmin`.
 
 ## Warnings
 
-### WR-01 [WARNING]: Persisted cache bundles are trusted after only a digest comparison
+### WR-01 [WARNING]: Persisted configurations are returned after restart without complete re-verification
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-agent-core/src/config_cache.rs:177-189,217-226`
+**File:** `crates/dlp-agent-core/src/config_cache.rs:171-192,217-226`
 
-**Issue:** `current_bundle` and `lkg_bundle` deserialize disk bytes and compare their digest with the pointer, but do not verify the Ed25519 signature, trusted key ID, audience, or version. A modified pointer and bundle with matching digest can be returned as authenticated after restart.
+**Issue:** `current_bundle` and `lkg_bundle` deserialize a stored bundle and compare only its content digest to the pointer. They do not invoke `ConfigurationVerifier` or recheck trusted key ID, signature, audience, schema, or monotonic version. An attacker able to modify both pointer and staging files can make a substituted configuration appear current after restart.
 
-**Fix:** Require `ConfigurationVerifier` for cache-load operations and repeat signature, key-ID, schema, audience, digest, and monotonic-version checks before returning a bundle.
+**Fix:** Require the verifier and expected device/version state for cache reads, then perform the same full activation validation sequence before returning persisted bundles.
 
-### WR-02 [WARNING]: Cache decoder ignores the serialized API version
+### WR-02 [WARNING]: Existing device credentials are not bound to the configured device or validated for expiry
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-agent-core/src/config_cache.rs:324-325`
+**File:** `crates/dlp-windows-service/src/service.rs:164-184`
 
-**Issue:** The decoder reads the API version into `_api_version` and never checks it. A different API version is treated as V1 if the remaining fields happen to parse.
+**Issue:** Any decryptable credential with a non-empty key becomes `EnrollmentMode::Existing`. The service neither compares its device ID to `config.device_id` nor cryptographically validates its certificate chain, key binding, profile, or lifetime before constructing the mTLS client. A stale or wrong-device identity reaches runtime and fails only later during transport.
 
-**Fix:** Reject values other than `dlp_protocol::API_VERSION_V1` before constructing the envelope.
+**Fix:** Parse and validate the credential chain against the configured root, device ID, serial/key binding, EKU, and validity period before selecting `Existing`; enter an explicit replacement flow when it is expired or invalid.
 
-### WR-03 [WARNING]: Existing service credentials are neither identity- nor expiry-validated at startup
+### WR-03 [WARNING]: Enrollment response validation compares a textual root subject instead of validating the chain
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-windows-service/src/service.rs:159-184`
+**File:** `crates/dlp-agent-core/src/client.rs:341-356`
 
-**Issue:** Any decryptable blob containing a non-empty private key selects `EnrollmentMode::Existing`. `client_with_identity` only checks PEM markers; it does not compare the credential device ID to `config.device_id`, validate the certificate chain/profile, or detect expiry. A stale or wrong-device credential leaves the service running until later mTLS failures instead of triggering replacement enrollment.
+**Issue:** `validate_device_chain` accepts the response when any certificate in it has the same textual subject as the configured root. It neither verifies certificate signatures nor anchors the path to the exact trusted root DER/public key. A same-subject chain can be persisted as the device identity and later authenticate to the wrong issuer or simply fail mTLS.
 
-**Fix:** Validate the stored chain against the configured root and device ID, including validity period and client-auth profile, before returning `Existing`; treat validation failure/expiry as replacement enrollment.
+**Fix:** Use rustls/webpki path validation anchored in the configured root certificate and enforce leaf EKU, SAN, validity, and generated-CSR key binding on the verified chain.
 
-### WR-04 [WARNING]: Device-certificate acceptance relies on subject-string matching for the trust anchor
+### WR-04 [WARNING]: Enrollment E2E tests still depend on ambient PKI and do not cover the real enrollment path
 
-**File:** `C:/Users/nhdinh/dev/dleakprevention/crates/dlp-agent-core/src/client.rs:298-311`
+**File:** `tests/e2e/server_enrollment.rs:33-50,351-376`
 
-**Issue:** `validate_device_chain` accepts a returned chain when any certificate’s textual subject equals the configured root’s textual subject. It does not validate the certificate path/signatures or require the configured root’s exact DER/public key. A same-subject certificate chain can be accepted as an issued device credential.
+**Issue:** The fixture helper writes CA/server material only if environment variables are supplied; on a clean checkout it then fails when reading the missing device issuing CA. The route test sends a placeholder CSR and asserts only `200 OK` against `RouteState::for_test()`, so it cannot detect the production authority-row mismatch, response parsing, replacement serial flow, or PostgreSQL persistence failure.
 
-**Fix:** Build a rustls/webpki verification path anchored in the configured root certificate, enforce the expected EKU/SAN on the verified leaf, and reject chains that do not cryptographically chain to that exact anchor.
-
-### WR-05 [WARNING]: The integration tests assert source text and in-memory stubs, not the real protocol contract
-
-**File:** `C:/Users/nhdinh/dev/dleakprevention/tests/e2e/server_enrollment.rs:93-108,228-273`
-
-**Issue:** The purported production tests mostly use `include_str!` checks and `RouteState::for_test()` stubs. The bootstrap test asserts only an OK status and never parses the response through `AgentHttpClient`; thus it cannot catch the missing enrollment body, dropped replacement serial, JSON/binary configuration mismatch, or PostgreSQL reconstruction defect.
-
-**Fix:** Add a test with production service/repository adapters (or faithful fakes), invoke the actual router over HTTP, parse enrollment via `AgentHttpClient`, then fetch and activate a configuration twice through `AgentConfigurationTransport` and `ConfigurationCache`.
+**Fix:** Generate a complete isolated root, issuing CA, server, administrator, and device fixture in the test. Exercise router-to-client enrollment with the real repository adapter (or a faithful transactional test adapter), assert the returned credential body is parseable, then cover replacement and configuration fetches.
 
 ---
 
-_Reviewed: 2026-08-14T19:17:34Z_
+_Reviewed: 2026-08-14T19:52:43Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: deep_
