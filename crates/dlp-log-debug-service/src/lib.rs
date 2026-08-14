@@ -19,13 +19,17 @@ pub use tail::{TailReadError, read_bounded_tail};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServiceError {
+    ListenerBindFailed,
     ServeFailed,
+    RuntimeFailed,
 }
 
 impl ServiceError {
     pub const fn stable_code(self) -> &'static str {
         match self {
+            Self::ListenerBindFailed => "listener_bind_failed",
             Self::ServeFailed => "serve_failed",
+            Self::RuntimeFailed => "runtime_failed",
         }
     }
 }
@@ -38,7 +42,10 @@ impl fmt::Display for ServiceError {
 
 impl std::error::Error for ServiceError {}
 
-#[cfg(windows)]
-pub fn run_windows_dispatcher() -> Result<(), ServiceError> {
-    Ok(())
+pub const fn service_exit_code(error: &ServiceError) -> u32 {
+    match error {
+        ServiceError::ListenerBindFailed => 1,
+        ServiceError::ServeFailed => 2,
+        ServiceError::RuntimeFailed => 3,
+    }
 }

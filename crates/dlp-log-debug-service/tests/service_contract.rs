@@ -3,9 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use dlp_log_debug_service::{
-    AppState, ServiceError, service_exit_code, serve_http,
-};
+use dlp_log_debug_service::{AppState, ServiceError, serve_http, service_exit_code};
 use tokio::{net::TcpListener, sync::oneshot};
 
 fn unique_temp_dir() -> std::path::PathBuf {
@@ -30,6 +28,23 @@ fn service_error_contract_is_portable_and_stable() {
     }
 }
 
+#[test]
+fn dependency_isolation_contract() {
+    let manifest = include_str!("../Cargo.toml");
+    for forbidden_dependency in [
+        "dlp-agent-core",
+        "dlp-crypto",
+        "dlp-domain",
+        "dlp-server",
+        "dlp-windows-service",
+    ] {
+        assert!(
+            !manifest.contains(forbidden_dependency),
+            "debug service must not depend on {forbidden_dependency}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn graceful_shutdown_owns_prebound_listener() {
     let directory = unique_temp_dir();
@@ -37,7 +52,9 @@ async fn graceful_shutdown_owns_prebound_listener() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("test listener should bind");
-    let address = listener.local_addr().expect("listener should have an address");
+    let address = listener
+        .local_addr()
+        .expect("listener should have an address");
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let server = tokio::spawn(serve_http(
         listener,
@@ -48,7 +65,9 @@ async fn graceful_shutdown_owns_prebound_listener() {
     ));
 
     assert!(TcpListener::bind(address).await.is_err());
-    shutdown_tx.send(()).expect("server should still own the listener");
+    shutdown_tx
+        .send(())
+        .expect("server should still own the listener");
     assert_eq!(server.await.expect("server task should complete"), Ok(()));
     let released = TcpListener::bind(address)
         .await

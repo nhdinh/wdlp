@@ -1,14 +1,9 @@
 #[cfg(windows)]
-windows_service::define_windows_service!(ffi_service_main, scm_service_main);
-
-#[cfg(windows)]
-fn scm_service_main(_: Vec<std::ffi::OsString>) {
-    let _ = dlp_log_debug_service::run_windows_dispatcher();
-}
+mod service;
 
 #[cfg(windows)]
 fn main() {
-    if windows_service::service_dispatcher::start("DlpLogDebugService", ffi_service_main).is_err() {
+    if service::run_scm_service().is_err() {
         eprintln!("service_dispatcher_failed");
     }
 }
