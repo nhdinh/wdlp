@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 17
+open_count: 18
 waived_count: 0
 fixed_count: 1
-total_count: 18
-last_updated: 2026-08-13T16:26:14.385Z
+total_count: 19
+last_updated: 2026-08-14T07:16:37.541Z
 ---
 
 # Broken Windows Ledger
@@ -33,6 +33,7 @@ last_updated: 2026-08-13T16:26:14.385Z
 | 16 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ServiceRestart runtime smoke not executed due to missing runtime token and VM reachability | open |  | 2026-08-12T04:56:47.762Z |  |
 | 17 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ConfigurationCache runtime smoke not executed due to missing runtime token and VM reachability | open |  | 2026-08-12T04:56:49.047Z |  |
 | 18 | 01.2 | unrun-verify | scripts/lab/Invoke-Client01Runtime.ps1 | 360 | End-to-end tracer with -EnrollmentTokenProvider TrustedProvisioning -Apply requires elevated PowerShell and live LAB-DC01/LAB-CLIENT01 VMs; not executed from this shell. | open |  | 2026-08-13T16:26:14.385Z |  |
+| 19 | 01.3 | deviation | crates/dlp-log-debug-service/src/config.rs | 23 | Added required max_tail_lines configuration for the user-selected default tail contract. | open |  | 2026-08-14T07:16:37.541Z |  |
 
 ````json
 [
@@ -250,6 +251,18 @@ last_updated: 2026-08-13T16:26:14.385Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-13T16:26:14.385Z",
+    "resolved_at": null
+  },
+  {
+    "id": 19,
+    "kind": "deviation",
+    "phase": "01.3",
+    "file": "crates/dlp-log-debug-service/src/config.rs",
+    "line": 23,
+    "description": "Added required max_tail_lines configuration for the user-selected default tail contract.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-14T07:16:37.541Z",
     "resolved_at": null
   }
 ]
