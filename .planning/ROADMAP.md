@@ -76,6 +76,27 @@ Plans:
 
 - [ ] 01-21-PLAN.md (Wave 11) — Execute D-19 failure recovery, seal requirement-indexed evidence, and require independent Phase 1 review
 
+### Phase 01.3: Make a background app that run in devices to collect log and provide the result through a HTTP port for easier debugging (INSERTED)
+
+**Goal:** Developers can manually run an independent development-only Windows service on an endpoint and retrieve a bounded, allowlisted log tail over HTTP from trusted lab clients without affecting DLP runtime components.
+**Requirements**: TBD
+**Depends on:** Phase 1
+**Plans:** 3 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 01.3-01-PLAN.md (Wave 1) — Prove the listener-to-file tracer and harden fail-closed config, canonical direct-child authorization, and bounded complete-line tailing
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 01.3-02-PLAN.md (Wave 2) — Complete peer-authorized raw-text HTTP behavior and the isolated gracefully stoppable Windows SCM lifecycle
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 01.3-03-PLAN.md (Wave 3) — Publish the manual ACL/firewall/SCM runbook and verify the reversible LAB-CLIENT01 lifecycle and network boundaries
+
 ### Phase 01.2: DLP_AGENT_ENROLLMENT_TOKEN should be obtained automatically when DlpWindowsService installed (INSERTED)
 
 **Goal:** As a lab operator, I want the endpoint deployment script to obtain the enrollment token automatically from trusted provisioning, so that I can install and start DlpWindowsService without manually copying a short-lived secret.
