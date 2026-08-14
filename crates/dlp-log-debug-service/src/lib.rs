@@ -2,15 +2,13 @@
 
 use std::{
     fmt,
-    fs::{self, File},
-    io::{Read, Seek, SeekFrom},
-    net::SocketAddr,
-    path::{Path, PathBuf},
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
 };
 
 use axum::{
     Router,
-    extract::{ConnectInfo, Query, State},
+    extract::{ConnectInfo, Query, State, rejection::QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
@@ -18,47 +16,70 @@ use axum::{
 use serde::Deserialize;
 use tokio::net::TcpListener;
 
+pub mod config;
+pub mod paths;
+pub mod tail;
+
+pub use config::{
+    AccessMode, ConfigError, DEFAULT_CONFIG_PATH, DEFAULT_MAX_RESPONSE_BYTES,
+    DEFAULT_MAX_TAIL_LINES, DEFAULT_PORT, FileConfig, RuntimeConfig, load_runtime_config,
+};
+pub use paths::{
+    AuthorizedFolders, PathAuthorizationError, authorize_canonical_target, authorize_requested_file,
+};
+pub use tail::{TailReadError, read_bounded_tail};
+
 #[derive(Clone, Debug)]
 pub struct AppState {
-    authorized_folders: Vec<PathBuf>,
+    access_mode: AccessMode,
+    authorized_folders: AuthorizedFolders,
     max_response_bytes: usize,
+    max_tail_lines: usize,
 }
 
 impl AppState {
-    pub fn new(
-        authorized_folders: impl IntoIterator<Item = PathBuf>,
-        max_response_bytes: usize,
-    ) -> Result<Self, ServiceError> {
-        if max_response_bytes == 0 {
-            return Err(ServiceError::InvalidState);
+    pub fn from_runtime_config(config: RuntimeConfig) -> Self {
+        Self {
+            access_mode: config.access_mode,
+            authorized_folders: config.authorized_folders,
+            max_response_bytes: config.max_response_bytes,
+            max_tail_lines: config.max_tail_lines,
         }
-
-        let authorized_folders = authorized_folders
-            .into_iter()
-            .map(|folder| {
-                let canonical = fs::canonicalize(folder).map_err(|_| ServiceError::InvalidState)?;
-                if !canonical.is_dir() {
-                    return Err(ServiceError::InvalidState);
-                }
-                Ok(canonical)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self {
-            authorized_folders,
-            max_response_bytes,
-        })
     }
 
     pub fn loopback_for_test(authorized_folder: PathBuf, max_response_bytes: usize) -> Self {
-        Self::new([authorized_folder], max_response_bytes)
-            .expect("test state must use an existing authorized folder")
+        Self::loopback_for_test_with_tail_limit(
+            authorized_folder,
+            max_response_bytes,
+            DEFAULT_MAX_TAIL_LINES,
+        )
+    }
+
+    pub fn loopback_for_test_with_tail_limit(
+        authorized_folder: PathBuf,
+        max_response_bytes: usize,
+        max_tail_lines: usize,
+    ) -> Self {
+        let authorized_folders = AuthorizedFolders::from_configured_dirs([authorized_folder])
+            .expect("test state must use an existing absolute authorized folder");
+        assert!(max_response_bytes > 0, "test response cap must be positive");
+        assert!(max_tail_lines > 0, "test tail limit must be positive");
+        Self {
+            access_mode: AccessMode::LocalhostOnly,
+            authorized_folders,
+            max_response_bytes,
+            max_tail_lines,
+        }
+    }
+
+    fn permits_peer(&self, peer: IpAddr) -> bool {
+        peer.is_loopback()
+            || matches!(&self.access_mode, AccessMode::RemoteAllowlist(allowed) if allowed.contains(&peer))
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServiceError {
-    InvalidState,
     ListenerFailed,
     ServeFailed,
 }
@@ -66,7 +87,6 @@ pub enum ServiceError {
 impl ServiceError {
     pub const fn stable_code(self) -> &'static str {
         match self {
-            Self::InvalidState => "service_config_invalid",
             Self::ListenerFailed => "listener_failed",
             Self::ServeFailed => "serve_failed",
         }
@@ -83,8 +103,8 @@ impl std::error::Error for ServiceError {}
 
 #[derive(Deserialize)]
 struct LogQuery {
-    path: PathBuf,
-    tail: usize,
+    path: Option<PathBuf>,
+    tail: Option<String>,
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -103,107 +123,48 @@ pub async fn serve_http(listener: TcpListener, state: AppState) -> Result<(), Se
 async fn get_log(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    Query(query): Query<LogQuery>,
+    query: Result<Query<LogQuery>, QueryRejection>,
 ) -> Response {
-    if !peer.ip().is_loopback() {
+    if !state.permits_peer(peer.ip()) {
         return error_response(StatusCode::FORBIDDEN, "untrusted_client");
     }
-    if query.tail == 0 {
+    let Ok(Query(query)) = query else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_tail");
-    }
+    };
+    let Some(path) = query.path else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_path");
+    };
+    // `tail` is optional by contract: omission is the configured maximum, not whole-file mode.
+    let tail = match query.tail {
+        None => state.max_tail_lines,
+        Some(tail) => match tail.parse::<usize>() {
+            Ok(value) if value > 0 && value <= state.max_tail_lines => value,
+            _ => return error_response(StatusCode::BAD_REQUEST, "invalid_tail"),
+        },
+    };
 
-    match authorize_requested_file(&query.path, &state.authorized_folders)
-        .and_then(|path| read_bounded_tail(&path, query.tail, state.max_response_bytes))
-    {
+    let path = match authorize_requested_file(&path, &state.authorized_folders) {
+        Ok(path) => path,
+        Err(PathAuthorizationError::InvalidPath) => {
+            return error_response(StatusCode::BAD_REQUEST, "invalid_path");
+        }
+        Err(PathAuthorizationError::NotFound) => {
+            return error_response(StatusCode::NOT_FOUND, "file_not_found");
+        }
+        Err(PathAuthorizationError::Denied) => {
+            return error_response(StatusCode::FORBIDDEN, "forbidden_path");
+        }
+    };
+    match read_bounded_tail(&path, tail, state.max_response_bytes) {
         Ok(content) => content.into_response(),
-        Err(TracerError::Missing) => error_response(StatusCode::NOT_FOUND, "file_not_found"),
-        Err(TracerError::Denied) => error_response(StatusCode::FORBIDDEN, "forbidden_path"),
-        Err(TracerError::Read) => error_response(StatusCode::INTERNAL_SERVER_ERROR, "read_failed"),
+        Err(TailReadError::Io | TailReadError::InvalidText) => {
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "read_failed")
+        }
     }
 }
 
 fn error_response(status: StatusCode, code: &'static str) -> Response {
     (status, code).into_response()
-}
-
-#[derive(Clone, Copy)]
-enum TracerError {
-    Missing,
-    Denied,
-    Read,
-}
-
-fn authorize_requested_file(
-    path: &Path,
-    authorized_folders: &[PathBuf],
-) -> Result<PathBuf, TracerError> {
-    if !path.is_absolute() {
-        return Err(TracerError::Denied);
-    }
-    let canonical = fs::canonicalize(path).map_err(|_| TracerError::Missing)?;
-    if !canonical.is_file() {
-        return Err(TracerError::Denied);
-    }
-    if authorized_folders
-        .iter()
-        .any(|folder| canonical.parent() == Some(folder.as_path()))
-    {
-        Ok(canonical)
-    } else {
-        Err(TracerError::Denied)
-    }
-}
-
-fn read_bounded_tail(
-    path: &Path,
-    requested_lines: usize,
-    max_bytes: usize,
-) -> Result<String, TracerError> {
-    let mut file = File::open(path).map_err(|_| TracerError::Read)?;
-    let length = file.metadata().map_err(|_| TracerError::Read)?.len();
-    let read_start = length.saturating_sub(max_bytes as u64);
-
-    let starts_at_line_boundary = if read_start == 0 {
-        true
-    } else {
-        file.seek(SeekFrom::Start(read_start - 1))
-            .map_err(|_| TracerError::Read)?;
-        let mut preceding = [0_u8; 1];
-        file.read_exact(&mut preceding)
-            .map_err(|_| TracerError::Read)?;
-        preceding[0] == b'\n'
-    };
-
-    file.seek(SeekFrom::Start(read_start))
-        .map_err(|_| TracerError::Read)?;
-    let mut bytes = Vec::with_capacity(max_bytes.min(length as usize));
-    file.take(max_bytes as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|_| TracerError::Read)?;
-
-    if !starts_at_line_boundary {
-        let Some(first_newline) = bytes.iter().position(|byte| *byte == b'\n') else {
-            return Ok(String::new());
-        };
-        bytes.drain(..=first_newline);
-    }
-
-    let Some(last_newline) = bytes.iter().rposition(|byte| *byte == b'\n') else {
-        return Ok(String::new());
-    };
-    bytes.truncate(last_newline + 1);
-    let text = String::from_utf8(bytes).map_err(|_| TracerError::Read)?;
-    let line_count = text.bytes().filter(|byte| *byte == b'\n').count();
-    if line_count <= requested_lines {
-        return Ok(text);
-    }
-    let skipped_lines = line_count - requested_lines;
-    let start = text
-        .match_indices('\n')
-        .nth(skipped_lines - 1)
-        .map(|(index, _)| index + 1)
-        .unwrap_or(0);
-    Ok(text[start..].to_owned())
 }
 
 #[cfg(windows)]
