@@ -37,7 +37,7 @@ progress:
 | 2026-08-14 | reorder-enrollment-section | Move Enrollment Flow section to precede endpoint deployment and renumber following sections | `.planning/quick/20260814-reorder-enrollment-section/`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
 | 2026-08-14 | append-enrollment-flow | Append dedicated enrollment-flow section to Hyper-V DLP startup guide | `.planning/quick/20260814-append-enrollment-flow/`, `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` |
 | 2026-08-14 | unify-certificate-names | Adopt single kebab-case PEM filename convention across fixtures, code, scripts, config, and docs | `tests/e2e/server_enrollment.rs`, `scripts/lab/*.ps1`, `config/*.example`, `deploy/compose.yaml`, `crates/dlpctl/src/{lib,main}.rs`, `crates/dlp-windows-service/src/service.rs`, `.planning/docs/PEM-KEY-GUIDE.md`, `.planning/docs/ENV-VARS.md` |
-| 2026-08-14 | env-setup-script | Create an interactive PowerShell script that prompts for missing or placeholder DLP environment variables and configures the current session | `.planning/quick/20260814-env-setup-script/`, `scripts/lab/Initialize-DlpEnvironment.ps1`, `config/lab.env.example`, `.gitignore` |
+| 2026-08-14 | env-setup-instructions | Enhance Initialize-DlpEnvironment.ps1 to show step-by-step instructions for obtaining or generating each value at every prompt | `.planning/quick/20260814-env-setup-instructions/`, `scripts/lab/Initialize-DlpEnvironment.ps1` |
 
 ## Current Position
 

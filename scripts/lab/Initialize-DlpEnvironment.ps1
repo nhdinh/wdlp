@@ -3,7 +3,8 @@ param(
     [Parameter()][string]$EnvFile,
     [Parameter()][string]$OutEnvFile,
     [Parameter()][switch]$SkipValidation,
-    [Parameter()][switch]$Force
+    [Parameter()][switch]$Force,
+    [Parameter()][switch]$NoHelp
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,12 +35,19 @@ function Read-DlpValue {
         [Parameter()][string]$Default = '',
         [Parameter()][switch]$Secure,
         [Parameter()][scriptblock]$Validate,
-        [Parameter()][string]$ValidateMessage = 'Value is not valid.'
+        [Parameter()][string]$ValidateMessage = 'Value is not valid.',
+        [Parameter()][string]$HelpText = ''
     )
 
     $current = [Environment]::GetEnvironmentVariable($Name, 'Process')
     if (-not (Test-IsPlaceholder $current)) {
         return $current
+    }
+
+    if (-not $NoHelp -and -not [string]::IsNullOrWhiteSpace($HelpText)) {
+        Write-Host ''
+        Write-Host 'How to obtain this value:' -ForegroundColor DarkCyan
+        Write-Host $HelpText -ForegroundColor DarkGray
     }
 
     $fullPrompt = if (Test-IsPlaceholder $Default) {
@@ -99,6 +107,361 @@ function Invoke-EnvFile {
         if ($Force -or (Test-IsPlaceholder ([Environment]::GetEnvironmentVariable($name, 'Process')))) {
             [Environment]::SetEnvironmentVariable($name, $value, 'Process')
         }
+    }
+}
+
+function Get-HelpText {
+    param([Parameter(Mandatory)][string]$Name)
+
+    switch ($Name) {
+        'DLP_LISTEN_ADDRESS' {
+            return @'
+  Use the lab topology default 0.0.0.0:8443 unless the server should bind elsewhere.
+  Example: 0.0.0.0:8443
+'@
+        }
+        'DLP_DATABASE_URL' {
+            return @'
+  PostgreSQL connection string in the format: postgres://<user>:<password>@<host>:<port>/<db>
+  The password is set when the database user is created (e.g. during LAB-SERVER01 setup).
+  Example: postgres://dlp_server:MyPassword@192.168.50.12:5432/dlp
+'@
+        }
+        'DLP_DATABASE_NAME' {
+            return @'
+  Name of the PostgreSQL database created for DLP.
+  Example: dlp
+'@
+        }
+        'DLP_DATABASE_USER' {
+            return @'
+  PostgreSQL user that owns the DLP database.
+  Example: dlp_server
+'@
+        }
+        'DLP_SERVER_CERT_PEM' {
+            return @'
+  Path to the management server TLS certificate PEM.
+  Generate by signing a CSR with the Phase 1 root CA (see .planning/docs/PEM-KEY-GUIDE.md).
+  Example: C:\dlp\secrets\server-cert.pem
+'@
+        }
+        'DLP_SERVER_KEY_PEM' {
+            return @'
+  Path to the management server TLS private key PEM.
+  Generated alongside DLP_SERVER_CERT_PEM. Keep secret.
+  Example: C:\dlp\secrets\server-key.pem
+'@
+        }
+        'DLP_ADMIN_CA_CERT_PEM' {
+            return @'
+  Path to the administrator CA certificate PEM.
+  This CA signs the provisioning admin certificate used by dlpctl.
+  Example: C:\dlp\secrets\admin-ca.pem
+'@
+        }
+        'DLP_PHASE1_ROOT_CA_CERT_PEM' {
+            return @'
+  Path to the Phase 1 root CA certificate PEM.
+  Generate a self-signed root CA once and reuse it for server TLS and agent pinning.
+  Example: C:\dlp\secrets\phase1-root-ca.pem
+  See .planning/docs/PEM-KEY-GUIDE.md for OpenSSL commands.
+'@
+        }
+        'DLP_DEVICE_ISSUING_CA_CERT_PEM' {
+            return @'
+  Path to the device-issuing CA certificate PEM.
+  This CA issues mTLS client certificates to enrolled endpoints.
+  Example: C:\dlp\secrets\device-issuing-ca.pem
+'@
+        }
+        'DLP_DEVICE_ISSUING_CA_KEY_PEM' {
+            return @'
+  Path to the device-issuing CA private key PEM.
+  The server needs this to issue device certificates during enrollment. Keep secret.
+  Example: C:\dlp\secrets\device-issuing-ca-key.pem
+'@
+        }
+        'DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX' {
+            return @'
+  64-character hexadecimal Ed25519 private seed used to sign configuration bundles.
+  Generate with:
+    -join ((1..32 | ForEach-Object { "{0:x2}" -f (Get-Random -Maximum 256) }))
+  Store only on the management server.
+'@
+        }
+        'DLP_AD_PRIMARY_LDAPS_URL' {
+            return @'
+  LDAP-over-SSL URL of the primary domain controller.
+  Use the hostname, not an IP literal, so TLS hostname verification works.
+  Example: ldaps://LAB-DC01.lab.local:636
+'@
+        }
+        'DLP_AD_SECONDARY_LDAPS_URL' {
+            return @'
+  LDAP-over-SSL URL of the secondary/backup domain controller.
+  Example: ldaps://LAB-DC02.lab.local:636
+'@
+        }
+        'DLP_AD_BASE_DN' {
+            return @'
+  Active Directory base distinguished name.
+  Derive from the DNS domain: lab.local becomes DC=lab,DC=local.
+  Example: DC=lab,DC=local
+'@
+        }
+        'DLP_AD_BIND_DN' {
+            return @'
+  Distinguished name of the AD service account used by the server to query LDAP.
+  Example: CN=dlp-service,OU=Service Accounts,DC=lab,DC=local
+'@
+        }
+        'DLP_AD_BIND_PASSWORD' {
+            return @'
+  Password for the AD service account (DLP_AD_BIND_DN).
+  Set this password when creating the service account in Active Directory.
+'@
+        }
+        'DLP_AD_CA_CERT_PEM' {
+            return @'
+  Path to the AD Certificate Services root CA PEM used to validate LDAPS connections.
+  Export from LAB-DC01: certlm.msc -> Trusted Root CAs -> Export as Base-64 .CER.
+  Example: C:\dlp\secrets\ad-ca.pem
+'@
+        }
+        'DLP_PROVISIONING_ENDPOINT' {
+            return @'
+  HTTPS URL of the trusted-provisioning API.
+  Compose from the server FQDN and fixed path: https://<server>:8443/api/v1/admin/provisioning
+  Example: https://LAB-DC01.lab.local:8443/api/v1/admin/provisioning
+'@
+        }
+        'DLP_PROVISIONING_ROOT_CA_PATH' {
+            return @'
+  Path to the root CA PEM that dlpctl trusts for the provisioning HTTPS connection.
+  Usually the same as DLP_PHASE1_ROOT_CA_CERT_PEM.
+  Example: C:\dlp\secrets\phase1-root-ca.pem
+'@
+        }
+        'DLP_PROVISIONING_ADMIN_CERT_PATH' {
+            return @'
+  Path to the administrator client certificate PEM used by dlpctl for mTLS.
+  Generate by signing a CSR with the admin CA (DLP_ADMIN_CA_CERT_PEM).
+  Example: C:\dlp\secrets\provisioning-admin-cert.pem
+'@
+        }
+        'DLP_PROVISIONING_ADMIN_KEY_PATH' {
+            return @'
+  Path to the private key PEM for the provisioning admin certificate.
+  Generated alongside DLP_PROVISIONING_ADMIN_CERT_PATH. Keep secret.
+  Example: C:\dlp\secrets\provisioning-admin-key.pem
+'@
+        }
+        'DLP_PROVISIONING_AD_OBJECT_GUID' {
+            return @'
+  Hex GUID of the LAB-CLIENT01 computer object in Active Directory.
+  Run on LAB-DC01:
+    (Get-ADComputer -Identity LAB-CLIENT01).ObjectGUID.ToString().Replace("-","").ToLower()
+  Example: 1234567890abcdef1234567890abcdef
+'@
+        }
+        'DLP_PROVISIONING_AD_OBJECT_SID' {
+            return @'
+  Hex SID of the LAB-CLIENT01 computer object in Active Directory.
+  Run on LAB-DC01:
+    $sid = (Get-ADComputer -Identity LAB-CLIENT01).ObjectSID
+    $bytes = New-Object byte[] $sid.BinaryLength
+    $sid.GetBinaryForm($bytes, 0)
+    [BitConverter]::ToString($bytes).Replace("-","").ToLower()
+  Example: 010500000000000515000000...
+'@
+        }
+        'DLP_PROVISIONING_TOKEN_HANDOFF_PATH' {
+            return @'
+  Writable path where dlpctl will write the enrollment token on LAB-DC01.
+  Example: C:\dlp\secrets\LAB-CLIENT01.enrollment-token
+'@
+        }
+        'DLP_PROVISIONING_PREFERRED_DRIVE_LETTER' {
+            return @'
+  Single uppercase drive letter for the virtual protected drive.
+  Choose a letter that is not already in use on LAB-CLIENT01.
+  Example: P
+'@
+        }
+        'DLP_PROVISIONING_DLPCTL_PATH' {
+            return @'
+  Path to the dlpctl.exe binary used for trusted provisioning.
+  Build it from source:
+    cargo build --release -p dlpctl
+  Example: C:\Users\nhdinh\dev\dleakprevention\target\release\dlpctl.exe
+'@
+        }
+        'DLP_PROVISIONING_COMPUTER' {
+            return @'
+  FQDN of the computer to be provisioned.
+  Example: LAB-CLIENT01.lab.local
+'@
+        }
+        'DLP_PROVISIONING_DISK_MODE' {
+            return @'
+  Disk fingerprint source used during trusted provisioning.
+  auto = try SerialNumber first, fall back to PNPDeviceID for virtual disks.
+  Allowed: auto, serial, pnp.
+  Example: auto
+'@
+        }
+        'DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST' {
+            return @'
+  SHA-256 digest of the approved privilege manifest.
+  Compute from config/lab.phase1.example.yaml using:
+    Get-FileHash -Algorithm SHA256 -Path .\config\lab.phase1.example.yaml
+  Must be 64 lowercase hex characters.
+'@
+        }
+        'DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID' {
+            return @'
+  Set to true only in a disposable Hyper-V lab where Win32_DiskDrive.SerialNumber is absent.
+  Production should omit this variable.
+  Example: true
+'@
+        }
+        'DLP_AGENT_ENROLLMENT_TOKEN' {
+            return @'
+  One-time enrollment token for the endpoint agent.
+  For automatic provisioning leave the placeholder and Invoke-Client01Runtime.ps1 will obtain it.
+  For manual enrollment, paste the token returned by the management server.
+'@
+        }
+        'DLP_DEVICE_ID' {
+            return @'
+  Stable identifier for this endpoint.
+  Recommended: use the machine short hostname or asset tag, keeping only [A-Za-z0-9_-].
+  Example: LAB-CLIENT01
+'@
+        }
+        'DLP_SERVER_URL' {
+            return @'
+  Base HTTPS URL the agent uses to reach the management server.
+  Example: https://LAB-DC01.lab.local:8443
+'@
+        }
+        'DLP_ROOT_CA_PEM' {
+            return @'
+  Path to the public root CA PEM the agent pins for TLS validation.
+  Must be the same root that signed the server certificate.
+  Example: C:\dlp\secrets\phase1-root-ca.pem
+'@
+        }
+        'DLP_CONFIGURATION_PUBLIC_KEY_HEX' {
+            return @'
+  64-character lowercase hex Ed25519 public key used to verify signed configuration bundles.
+  Derive from the configuration signing seed, or obtain from the server/provisioning output.
+  Example: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+'@
+        }
+        'DLP_DATA_DIRECTORY' {
+            return @'
+  Directory where the agent stores durable state (DPAPI credential store, etc.).
+  The service account must have write access.
+  Example: C:\ProgramData\DLP\agent
+'@
+        }
+        'DLP_CACHE_DIRECTORY' {
+            return @'
+  Directory where the agent caches signed configuration bundles.
+  Example: C:\ProgramData\DLP\cache
+'@
+        }
+        'DLP_POLL_INTERVAL_SECONDS' {
+            return @'
+  How often the agent polls the server for a new signed configuration bundle.
+  Default: 300 (5 minutes).
+'@
+        }
+        'DLP_HEALTH_INTERVAL_SECONDS' {
+            return @'
+  How often the agent posts a redacted health snapshot to the server.
+  Default: 60 (1 minute).
+'@
+        }
+        'DLP_START_TIMEOUT_SECONDS' {
+            return @'
+  Internal timeout budget for the service start sequence.
+  Default: 30.
+'@
+        }
+        'DLP_STOP_TIMEOUT_SECONDS' {
+            return @'
+  Internal timeout budget for graceful service shutdown.
+  Default: 30.
+'@
+        }
+        'DLP_WINFSP_INTERACTIVE_HOLD_MS' {
+            return @'
+  Delay before exiting when running WinFsp in interactive mode. Use 0 for service runs.
+  Default: 0.
+'@
+        }
+        'DLP_WINFSP_SMOKE_LETTER' {
+            return @'
+  Drive letter used by WinFsp smoke tests.
+  Example: P
+'@
+        }
+        'DLP_VM_ADMIN_USER' {
+            return @'
+  Username with administrator rights on the Hyper-V VMs, used for PowerShell Direct.
+  Example: LAB\Administrator or Administrator
+'@
+        }
+        'DLP_VM_ADMIN_PASSWORD' {
+            return @'
+  Password for DLP_VM_ADMIN_USER.
+'@
+        }
+        'DLP_SERVER01_HOST' {
+            return @'
+  IP address or hostname of LAB-SERVER01 (PostgreSQL host).
+  Example: 192.168.50.12
+'@
+        }
+        'DLP_SERVER01_ADMIN_USER' {
+            return @'
+  Admin username on LAB-SERVER01.
+  Example: admin
+'@
+        }
+        'DLP_SERVER01_ADMIN_PASSWORD' {
+            return @'
+  Admin password on LAB-SERVER01.
+'@
+        }
+        'DLP_SERVER01_SSH_USER' {
+            return @'
+  SSH username on LAB-SERVER01.
+  Example: admin
+'@
+        }
+        'DLP_PKI_DIR' {
+            return @'
+  Local directory where PKI artifacts are generated or stored.
+  Example: C:\Users\nhdinh\dev\dleakprevention\pki
+'@
+        }
+        'DLP_SERVER_HOST' {
+            return @'
+  IP address of LAB-DC01 (the management server host).
+  Example: 192.168.50.10
+'@
+        }
+        'DLP_CONFIGURATION_KEY_ID' {
+            return @'
+  Human-readable label for the active configuration-signing key.
+  Example: phase1-config-signing-key-v1
+'@
+        }
+        default { return '' }
     }
 }
 
@@ -599,7 +962,8 @@ foreach ($entry in $Catalog) {
         -Default $entry.Default `
         -Secure:([bool](Get-EntryProperty $entry 'Secure')) `
         -Validate (Get-EntryProperty $entry 'Validate') `
-        -ValidateMessage (Get-EntryProperty $entry 'ValidateMessage')
+        -ValidateMessage (Get-EntryProperty $entry 'ValidateMessage') `
+        -HelpText (Get-HelpText $entry.Name)
 
     $resolved[$entry.Name] = $value
 
