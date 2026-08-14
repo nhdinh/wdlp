@@ -8,8 +8,8 @@ use std::{
 
 use dlp_log_debug_service::{
     AccessMode, AppState, AuthorizedFolders, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_TAIL_LINES,
-    DEFAULT_PORT, HttpError, authorize_canonical_target, authorize_peer,
-    authorize_requested_file, load_runtime_config, read_bounded_tail, serve_http,
+    DEFAULT_PORT, HttpError, authorize_canonical_target, authorize_peer, authorize_requested_file,
+    load_runtime_config, read_bounded_tail, serve_http,
 };
 use tokio::net::TcpListener;
 
@@ -58,11 +58,15 @@ fn request_log_tail(address: std::net::SocketAddr, path: &Path, tail: Option<&st
 
 fn request(address: SocketAddr, method: &str, target: &str, extra_headers: &[&str]) -> String {
     let mut stream = TcpStream::connect(address).expect("listener should accept TCP");
-    let headers = extra_headers.join("\r\n");
+    let headers = if extra_headers.is_empty() {
+        String::new()
+    } else {
+        format!("{}\r\n", extra_headers.join("\r\n"))
+    };
     stream
         .write_all(
             format!(
-                "{method} {target} HTTP/1.1\r\nHost: localhost\r\n{headers}\r\nConnection: close\r\n\r\n"
+                "{method} {target} HTTP/1.1\r\nHost: localhost\r\n{headers}Connection: close\r\n\r\n"
             )
             .as_bytes(),
         )
@@ -310,19 +314,31 @@ fn peer_authorization_is_transport_only_and_precedes_path_handling() {
     let untrusted: IpAddr = "192.0.2.11".parse().expect("test address should parse");
 
     assert_eq!(
-        authorize_peer(&AccessMode::RemoteAllowlist(vec![trusted]), SocketAddr::from((trusted, 9191))),
+        authorize_peer(
+            &AccessMode::RemoteAllowlist(vec![trusted]),
+            SocketAddr::from((trusted, 9191))
+        ),
         Ok(())
     );
     assert_eq!(
-        authorize_peer(&AccessMode::RemoteAllowlist(vec![trusted]), SocketAddr::from((untrusted, 9191))),
+        authorize_peer(
+            &AccessMode::RemoteAllowlist(vec![trusted]),
+            SocketAddr::from((untrusted, 9191))
+        ),
         Err(HttpError::UntrustedClient)
     );
     assert_eq!(
-        authorize_peer(&AccessMode::LocalhostOnly, SocketAddr::from((untrusted, 9191))),
+        authorize_peer(
+            &AccessMode::LocalhostOnly,
+            SocketAddr::from((untrusted, 9191))
+        ),
         Err(HttpError::UntrustedClient)
     );
     assert_eq!(
-        authorize_peer(&AccessMode::LocalhostOnly, "127.0.0.1:9191".parse().unwrap()),
+        authorize_peer(
+            &AccessMode::LocalhostOnly,
+            "127.0.0.1:9191".parse().unwrap()
+        ),
         Ok(())
     );
 }
@@ -344,20 +360,43 @@ async fn http_errors_are_fixed_plain_text_and_headers_cannot_spoof_the_peer() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("listener should bind");
-    let address = listener.local_addr().expect("listener should have an address");
+    let address = listener
+        .local_addr()
+        .expect("listener should have an address");
     let server = tokio::spawn(serve_http(
         listener,
         AppState::loopback_for_test(allowed.clone(), 1024),
         std::future::pending(),
     ));
 
-    let allowed_target = format!("/logs?path={}&tail=1", percent_encode(&log_path.display().to_string()));
-    let missing_target = format!("/logs?path={}&tail=1", percent_encode(&allowed.join("missing.log").display().to_string()));
-    let denied_target = format!("/logs?path={}&tail=1", percent_encode(&denied_path.display().to_string()));
-    let invalid_text_target = format!("/logs?path={}&tail=1", percent_encode(&invalid_text.display().to_string()));
+    let allowed_target = format!(
+        "/logs?path={}&tail=1",
+        percent_encode(&log_path.display().to_string())
+    );
+    let missing_target = format!(
+        "/logs?path={}&tail=1",
+        percent_encode(&allowed.join("missing.log").display().to_string())
+    );
+    let denied_target = format!(
+        "/logs?path={}&tail=1",
+        percent_encode(&denied_path.display().to_string())
+    );
+    let invalid_text_target = format!(
+        "/logs?path={}&tail=1",
+        percent_encode(&invalid_text.display().to_string())
+    );
     let responses = tokio::task::spawn_blocking(move || {
         vec![
-            request(address, "GET", &allowed_target, &["X-Forwarded-For: 192.0.2.10", "Forwarded: for=192.0.2.10", "X-Client-Certificate: forged"]),
+            request(
+                address,
+                "GET",
+                &allowed_target,
+                &[
+                    "X-Forwarded-For: 192.0.2.10",
+                    "Forwarded: for=192.0.2.10",
+                    "X-Client-Certificate: forged",
+                ],
+            ),
             request(address, "GET", "/logs?path=relative.log&tail=1", &[]),
             request(address, "GET", "/logs?path=/tmp/a&tail=0", &[]),
             request(address, "GET", &missing_target, &[]),
@@ -387,7 +426,10 @@ async fn http_errors_are_fixed_plain_text_and_headers_cannot_spoof_the_peer() {
         let (headers, actual_body) = response
             .split_once("\r\n\r\n")
             .expect("response should contain HTTP headers and a body");
-        assert!(headers.starts_with(&format!("HTTP/1.1 {status}")), "unexpected response: {headers}");
+        assert!(
+            headers.starts_with(&format!("HTTP/1.1 {status}")),
+            "unexpected response: {headers}"
+        );
         assert_eq!(actual_body, body);
         assert!(!headers.contains("x-dlp"));
         assert!(!actual_body.contains("secret.log"));
