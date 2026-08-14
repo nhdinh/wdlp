@@ -5,13 +5,13 @@ milestone_name: milestone
 current_phase: 01.3
 current_phase_name: make-a-background-app-that-run-in-devices-to-collect-log-and
 status: executing
-stopped_at: Completed 01.3-01-PLAN.md
-last_updated: "2026-08-14T07:15:51.995Z"
+stopped_at: Completed 01.3-02-PLAN.md
+last_updated: "2026-08-14T07:30:33.747Z"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -41,10 +41,10 @@ progress:
 ## Current Position
 
 - **Phase:** 01.3 (make-a-background-app-that-run-in-devices-to-collect-log-and) — EXECUTING
-- **Plan:** 2 of 3
+- **Plan:** 3 of 3
 - **Task:** 1 of 1
 - **Status:** Ready to execute
-- **Progress:** [██████░░░░] 63%
+- **Progress:** [███████░░░] 69%
 - **Next plan:** $gsd-plan-phase 01.3
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by token/VM reachability.
 
@@ -74,6 +74,7 @@ progress:
 | Phase 01-first-encrypted-drive-vertical-slice P23 | 45m | 3 tasks | 13 files |
 | Phase 01.1-add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp P01 | 12m | 3 tasks | 3 files |
 | Phase 01.3 P01 | 67m | 2 tasks | 8 files |
+| Phase 01.3 P02 | 8m | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -105,8 +106,8 @@ progress:
 
 **Resume file:** None
 
-**Last session:** 2026-08-14T07:15:51.976Z
-**Stopped at:** Completed 01.3-01-PLAN.md
+**Last session:** 2026-08-14T07:30:33.725Z
+**Stopped at:** Completed 01.3-02-PLAN.md
 
 **Current session:** 2026-08-13
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
@@ -160,6 +161,9 @@ progress:
 - [Phase 01.2]: Validated enrollment token length (<=512) and charset ([A-Za-z0-9_.~/-]) before any persistence to LAB-CLIENT01.
 - [Phase ?]: 01.3-01: Omitted tail uses configured max_tail_lines; explicit values above it return invalid_tail.
 - [Phase ?]: 01.3-01: Invalid config atomically selects localhost-only mode without authorized folders.
+- [Phase ?]: 01.3-02: Authorize only accepted TCP peers via Axum ConnectInfo; forwarding and certificate-style headers are ignored.
+- [Phase ?]: 01.3-02: Preserve Plan 01 tail semantics: omitted tail uses the configured maximum and over-limit input is invalid_tail.
+- [Phase ?]: 01.3-02: SCM pre-binds 0.0.0.0 before Running and maps lifecycle failures to stable nonzero exits.
 
 ### Blockers
 
