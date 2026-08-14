@@ -59,7 +59,9 @@ async fn tracer_serves_one_allowlisted_log_over_http() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("ephemeral listener should bind");
-    let address = listener.local_addr().expect("listener should have an address");
+    let address = listener
+        .local_addr()
+        .expect("listener should have an address");
     let server = tokio::spawn(serve_http(
         listener,
         AppState::loopback_for_test(directory.clone(), 1024),
@@ -75,7 +77,10 @@ async fn tracer_serves_one_allowlisted_log_over_http() {
     let (headers, body) = response
         .split_once("\r\n\r\n")
         .expect("response should contain HTTP headers and a body");
-    assert!(headers.starts_with("HTTP/1.1 200"), "unexpected response: {headers}");
+    assert!(
+        headers.starts_with("HTTP/1.1 200"),
+        "unexpected response: {headers}"
+    );
     assert_eq!(body, "selected-one\nselected-two\n");
     assert!(!body.contains('{'));
     assert!(!body.contains("truncated"));

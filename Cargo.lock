@@ -679,6 +679,17 @@ name = "dlp-domain"
 version = "0.1.0"
 
 [[package]]
+name = "dlp-log-debug-service"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "tokio",
+ "windows-service",
+]
+
+[[package]]
 name = "dlp-policy"
 version = "0.1.0"
 dependencies = [

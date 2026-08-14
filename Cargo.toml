@@ -7,6 +7,7 @@ members = [
     "crates/dlp-storage",
     "crates/dlp-agent-core",
     "crates/dlp-server",
+    "crates/dlp-log-debug-service",
     "crates/dlp-windows-service",
     "crates/dlp-windows-drive",
     "crates/dlpctl",
