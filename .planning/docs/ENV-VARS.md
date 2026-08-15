@@ -1,186 +1,40 @@
-# DLP Windows Endpoint Agent Environment Variables
+# Phase 1 Lab Environment Contract
 
-This document lists every environment variable consumed by the DLP Windows endpoint agent service (`dlp-windows-service.exe`). These values are **runtime-only** secrets and configuration. They are supplied by the operator's secret provider at deployment time and are **never committed to source control**.
+This is the authoritative inventory of the Phase 1 lab environment. It is grounded in `config/*.env.example`, the Rust configuration loaders, and the lab PowerShell runners. Values are process/runtime inputs: do not commit a populated env file or a private key, password, token, or generated certificate.
 
-The service reads all runtime values through environment variables. In the lab, `scripts/lab/Invoke-Client01Runtime.ps1` collects them from the orchestration host, writes `C:\dlp\agent\agent.env` on `LAB-CLIENT01`, and persists the same values into the service registry so the SCM starts the service with them already loaded. When the script is run with `-EnrollmentTokenProvider TrustedProvisioning`, the one-time enrollment token is obtained automatically from LAB-DC01 and injected into the service environment without being written to disk on the orchestration host.
+`Initialize-DlpEnvironment.ps1` reads a strict one-line `NAME=value` env file. Consequently, env files carry **paths** for PEM/key material. A receiving script may accept inline PEM only when this table says so; use inline PEM only in a process environment or script handoff, never in a line-oriented env file.
 
----
+## Names, owners, and representations
 
-## Required Variables
+| Group and names | Consumer / host | Requiredness and defaults | Representation, sensitivity, source |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | Direct `dlp-server` and `dlpctl` consumer on LAB-DC01. | Required by Rust; no default. | PostgreSQL URL, secret; supplied after LAB-SERVER01 provisioning. |
+| `DLP_DATABASE_URL`, `DLP_DATABASE_NAME`, `DLP_DATABASE_USER` | Lab aliases consumed by `Invoke-Dc01Server.ps1`; it maps `DLP_DATABASE_URL` to `DATABASE_URL`. | URL required by the runner; `dlp` and `dlp_server` are lab defaults. | One-line URL/name/user; URL is secret. `DLP_DATABASE_URL` is not a Rust runtime name. |
+| `DLP_LISTEN_ADDRESS` | `dlp-server` on LAB-DC01. | Binary default `0.0.0.0:8080`; lab override `0.0.0.0:8443`. | Host:port, non-secret; selected by topology. |
+| `DLP_SERVER_CERT_PEM`, `DLP_SERVER_KEY_PEM`, `DLP_ADMIN_CA_CERT_PEM`, `DLP_PHASE1_ROOT_CA_CERT_PEM`, `DLP_DEVICE_ISSUING_CA_CERT_PEM`, `DLP_DEVICE_ISSUING_CA_KEY_PEM` | Required path inputs to the server TLS/peer-role configuration on LAB-DC01. | Required; no code defaults. | Existing PEM/key paths in env files; certificate may be an accepted inline-or-path input to the lab deployer, private keys are secret. Produced by the rotation scripts in `scripts/lab/`. |
+| `DLP_TLS_EVENT_LOG_PATH` | Optional server TLS diagnostics. | Optional; code chooses its diagnostic behavior when absent. | Writable path, potentially sensitive diagnostics. |
+| `DLP_AD_PRIMARY_LDAPS_URL`, `DLP_AD_SECONDARY_LDAPS_URL`, `DLP_AD_BASE_DN`, `DLP_AD_BIND_DN`, `DLP_AD_BIND_PASSWORD`, `DLP_AD_CA_CERT_PEM` | AD integration configured by the LAB-DC01 runner. | Required only when AD integration is enabled; no Rust fallback for supplied values. | URLs/DN/path/password; bind password is secret. Export the issuer of the active DC LDAPS certificate for the CA path. |
+| `DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX`, `DLP_CONFIGURATION_KEY_ID` | Server signing setup and endpoint bundle identity. | Seed required for lab signing; key ID lab override `phase1-config-signing-key-v1`. Endpoint binary default is `phase1-config-signer`; both sides must agree. | 64-hex private seed (secret) and identifier (non-secret); generated/owned on LAB-DC01. |
+| `DLP_DEVICE_ID`, `DLP_SERVER_URL`, `DLP_ROOT_CA_PEM`, `DLP_CONFIGURATION_PUBLIC_KEY_HEX`, `DLP_DATA_DIRECTORY`, `DLP_CACHE_DIRECTORY` | Required `dlp-windows-service` configuration on LAB-CLIENT01. | Required; no defaults. | Device ID, HTTPS URL, root certificate, 64-hex public key, writable paths. `DLP_ROOT_CA_PEM` accepts inline certificate PEM or a path in the service; `Invoke-Client01Runtime.ps1` always deploys certificate content then persists `C:\dlp\secrets\phase1-root-ca.pem`. |
+| `DLP_AGENT_ENROLLMENT_TOKEN` | Optional initial enrollment input on LAB-CLIENT01. | Conditional: trusted provisioning obtains it automatically; set it only for manual/offline enrollment. | One-time secret token; do not put it in a committed/env-file template. |
+| `DLP_POLL_INTERVAL_SECONDS`, `DLP_HEALTH_INTERVAL_SECONDS`, `DLP_START_TIMEOUT_SECONDS`, `DLP_STOP_TIMEOUT_SECONDS` | Endpoint service. | Binary defaults are **300/60/60/10** seconds. The older `300/60/30/30` example is not a code default. | Positive integer seconds, non-secret. |
+| `DLP_WINFSP_INTERACTIVE_HOLD_MS`, `DLP_WINFSP_SMOKE_LETTER` | Lab smoke/interactive test inputs, not service configuration. | Optional; use only for the related smoke scenario. | Milliseconds and available drive letter, non-secret. |
+| `DLP_PROVISIONING_ENDPOINT`, `DLP_PROVISIONING_ROOT_CA_PATH`, `DLP_PROVISIONING_ADMIN_CA_CERT_PATH`, `DLP_PROVISIONING_ADMIN_CERT_PATH`, `DLP_PROVISIONING_ADMIN_KEY_PATH`, `DLP_PROVISIONING_TOKEN_HANDOFF_PATH` | `dlpctl` trusted-provisioning call from LAB-DC01/hungdinh-lt. | Required for that flow; the helper derives several values. | HTTPS URL and one-line paths; admin key and token handoff are secret. `_PATH` names are file paths, unlike the PEM-content aliases below. |
+| `DLP_PROVISIONING_ROOT_CA_PEM`, `DLP_PROVISIONING_ADMIN_CERT_PEM`, `DLP_PROVISIONING_ADMIN_KEY_PEM` | Inline-or-path aliases accepted by `Invoke-TrustedProvisioning.ps1`. | Optional compatibility/script inputs; helper materializes paths for `dlpctl`. | Inline PEM or existing path; private key is secret. |
+| `DLP_PROVISIONING_AD_OBJECT_GUID`, `DLP_PROVISIONING_AD_OBJECT_SID`, `DLP_PROVISIONING_PREFERRED_DRIVE_LETTER`, `DLP_PROVISIONING_COMPUTER`, `DLP_PROVISIONING_DISK_MODE`, `DLP_PROVISIONING_DLPCTL_PATH`, `DLP_PROVISIONING_DIAGNOSTIC_PATH` | Provisioning helper/`dlpctl`. | GUID/SID/letter are required for a provision request; computer and disk mode have lab defaults (`LAB-CLIENT01.lab.local`, `lab-only`). | AD object bytes, drive letter, names/paths; diagnostic output can be sensitive. |
+| `DLP_VM_ADMIN_USER`, `DLP_VM_ADMIN_PASSWORD`, `DLP_SERVER01_HOST`, `DLP_SERVER01_ADMIN_USER`, `DLP_SERVER01_ADMIN_PASSWORD`, `DLP_SERVER01_SSH_USER`, `DLP_PKI_DIR`, `DLP_SERVER_HOST` | Orchestration-only inputs to lab scripts; `-Credential` is an alternative to VM user/password vars. | Conditional on the script and supplied credential; lab hosts/paths have documented examples. | Credentials are secret; other values are host/path data. Not consumed by Rust runtime. |
+| `DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST`, `DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID` | Lab orchestration/evidence controls. | Required only by scenarios that demand the privilege-manifest digest; virtual-disk flag is lab-only. | 64-hex digest and boolean, non-secret but integrity relevant. |
 
-These variables must be present before the service can start. If any are missing, the service exits with `service_config_missing` or `service_config_invalid`.
+## Requiredness and precedence
 
-| Variable | Purpose | Format / Validation | Example | Default |
-|----------|---------|---------------------|---------|---------|
-| `DLP_DEVICE_ID` | Stable identifier for this endpoint, used in enrollment, health posts, and audit events. | Non-empty string accepted by `DeviceId::parse`. Avoid spaces, control characters, and shell-sensitive punctuation. Use hostname-derived or assigned identifiers. | `LAB-CLIENT01` | None (required) |
-| `DLP_SERVER_URL` | Base URL of the management server the agent contacts for enrollment, configuration, and health. | Valid HTTPS URL including scheme and port. The agent pins TLS to the root CA in `DLP_ROOT_CA_PEM`. | `https://LAB-DC01:8443` | None (required) |
-| `DLP_ROOT_CA_PEM` | Pinned public root CA used to validate the management server's TLS certificate. | Either the PEM content as a multi-line string starting with `-----BEGIN CERTIFICATE-----`, or an absolute filesystem path to a PEM file. Must be the **public root only**; never the private key. | `-----BEGIN CERTIFICATE-----\nMIIC...` or `C:\dlp\secrets\phase1-root-ca.pem` | None (required) |
-| `DLP_DATA_DIRECTORY` | Directory for durable agent state, including the DPAPI-protected credential store. | Absolute filesystem path. The service creates subdirectories as needed. Must be writable by the service account (`NT AUTHORITY\SYSTEM` in the lab). | `C:\dlp\agent\data` | None (required) |
-| `DLP_CACHE_DIRECTORY` | Directory for the signed configuration cache (`current` + last-known-good). | Absolute filesystem path. Must be writable by the service account. | `C:\dlp\agent\cache` | None (required) |
-| `DLP_CONFIGURATION_PUBLIC_KEY_HEX` | Ed25519 public key used to verify signed configuration bundles. | Exactly 64 lowercase hexadecimal characters representing 32 bytes. | `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef` | None (required) |
+The initializer resolves existing non-placeholder process values first. Without `-Force`, an `-EnvFile` only fills missing/placeholder values; with `-Force` it replaces them. Safe catalog defaults are then used. `-NonInteractive` never calls `Read-Host`: it reports all unresolved required/conditional names in one error. Any embedded `REPLACE_` marker or `<missing>` is unresolved.
 
----
+Use `-OutEnvFile` only for a protected local file: it writes plaintext values and refuses to overwrite an existing path unless `-Force` is supplied. `-Clear` affects only `DLP_*` process variables, supports `-WhatIf`, and never edits User or Machine environment scopes.
 
-## Optional Variables
+## Compatibility and prohibited inputs
 
-| Variable | Purpose | Format / Validation | Example | Default |
-|----------|---------|---------------------|---------|---------|
-| `DLP_CONFIGURATION_KEY_ID` | Human-readable identifier for the configuration signer, recorded with the active bundle. | Any non-empty string. Must match the key ID the server uses when signing bundles. | `phase1-config-signer` | `phase1-config-signer` |
-| `DLP_AGENT_ENROLLMENT_TOKEN` | One-time token used for initial enrollment. In the lab this is automatically obtained when `Invoke-Client01Runtime.ps1` is run with `-EnrollmentTokenProvider TrustedProvisioning`. It remains optional for manual or offline scenarios. | String supplied by the management server's enrollment endpoint. Treat as a secret. | `eyJ...` | None (optional) |
-| `DLP_POLL_INTERVAL_SECONDS` | How often the agent polls the server for a new signed configuration bundle. | Positive integer seconds. | `300` | `300` (5 minutes) |
-| `DLP_HEALTH_INTERVAL_SECONDS` | How often the agent posts a redacted health snapshot to the server. | Positive integer seconds. | `60` | `60` (1 minute) |
-| `DLP_START_TIMEOUT_SECONDS` | Internal timeout budget for the service start sequence. | Positive integer seconds. | `60` | `60` |
-| `DLP_STOP_TIMEOUT_SECONDS` | Internal timeout budget for graceful service shutdown. | Positive integer seconds. | `10` | `10` |
+`DLP_ADMIN_PROVISIONING_KEY` is rejected legacy bearer configuration. Do not reintroduce it: provisioning authenticates with the administrator mTLS certificate/key and the separately trusted administrator CA. `DLP_DATABASE_URL` is an orchestration alias, while `DATABASE_URL` is the direct Rust consumer. Do not substitute `_PEM` values for `_PATH` inputs in an env file.
 
----
+## Acquisition
 
-## Collecting or Creating the Four Required Variables
-
-This section explains how an operator obtains or generates the values that have no safe default.
-
-### `DLP_DEVICE_ID`
-
-Choose a stable, machine-scoped identifier. The service parses it with `DeviceId::parse`, which rejects empty values and most special characters.
-
-Recommended approach:
-
-1. Use the machine's short hostname, an asset tag, or an assigned fleet identifier.
-2. Remove spaces and characters outside `[A-Za-z0-9_-]`.
-3. Keep it consistent across reinstalls of the same machine so the management server recognizes it as the same device.
-
-Example for a lab VM:
-
-```powershell
-$env:DLP_DEVICE_ID = 'LAB-CLIENT01'
-```
-
-### `DLP_SERVER_URL`
-
-This is the HTTPS base URL of the deployed management server.
-
-1. Identify the management server host (in the lab this is `LAB-DC01`).
-2. Identify the listening port (the lab server listens on `8443`).
-3. Combine them as `https://<host>:<port>`.
-
-Example:
-
-```powershell
-$env:DLP_SERVER_URL = 'https://LAB-DC01:8443'
-```
-
-If DNS resolution is unreliable, use the IP address instead of the hostname, but ensure the server's certificate covers that IP or that the operator documents the exception for the lab.
-
-### `DLP_ROOT_CA_PEM`
-
-This is the **public** root certificate of the CA that issued the management server's TLS certificate. The agent uses it to pin TLS and refuses to connect if the server's chain does not anchor here.
-
-How to obtain it:
-
-1. If the lab uses the trusted-provisioning procedure, the root CA PEM is an output of that procedure.
-2. If the server certificate was issued by an internal CA, export the root CA certificate (not the intermediate, not the server certificate, and never the private key).
-3. Save the PEM content to your runtime secret provider.
-
-For step-by-step generation instructions for the whole Phase 1 PKI, see [PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md).
-
-How the service accepts it:
-
-- As a multi-line PEM string in the environment variable, or
-- As an absolute filesystem path. In the lab, `Invoke-Client01Runtime.ps1` writes the PEM to `C:\dlp\secrets\phase1-root-ca.pem` and sets the variable to that path.
-
-Example PEM snippet (synthetic, not a real certificate):
-
-```text
------BEGIN CERTIFICATE-----
-MIICpDCCAYwCCQDU+pQ4nEHXqzANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
-YWItcm9vdENBMB4XDTI2MDEwMTAwMDAwMFoXDTI3MDEwMTAwMDAwMFowFDESMBAG
-A1UEAwwJbGFiLXJvb3RDQTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
-...
------END CERTIFICATE-----
-```
-
-### `DLP_CONFIGURATION_PUBLIC_KEY_HEX`
-
-This is the 32-byte Ed25519 public key that signs configuration bundles. The service expects exactly 64 lowercase hex characters.
-
-How to obtain it:
-
-1. The management server or trusted-provisioning output emits the public key alongside the configuration signing secret.
-2. Convert the raw 32-byte key to lowercase hex. Do not include `0x`, spaces, or newlines.
-3. Store only the **public** key in the runtime secret provider.
-
-Example (synthetic, 64 hex characters):
-
-```powershell
-$env:DLP_CONFIGURATION_PUBLIC_KEY_HEX = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-```
-
-The corresponding private key must remain on the management server or in its HSM/secret store.
-
----
-
-## Runtime-Only vs. Committed Defaults
-
-| Category | Examples | Where It Lives |
-|----------|----------|----------------|
-| Committed / example defaults | Hostnames, key IDs, interval seconds, directory paths | Example config files, documentation, lab topology diagrams |
-| Runtime-only secrets | Certificates, private keys, enrollment tokens, device identity, Ed25519 public key | Runtime secret provider (password manager, HSM, Azure Key Vault, lab orchestration host secrets, etc.) |
-
-A good rule of thumb: if leaking the value would let someone impersonate the device, decrypt data, or bypass TLS pinning, it is runtime-only and must never be committed.
-
-The optional interval and timeout variables can be committed as defaults, but they should still be overridable at deployment time for different environments.
-
----
-
-## Local PowerShell Setup Template
-
-Copy this template into your orchestration host PowerShell session and fill in the placeholder values from your runtime secret provider. This template sets only the required variables; add optional ones as needed.
-
-```powershell
-# Required runtime secrets — replace placeholders with values from your secret provider.
-$env:DLP_DEVICE_ID                    = 'LAB-CLIENT01'
-$env:DLP_SERVER_URL                   = 'https://LAB-DC01:8443'
-$env:DLP_ROOT_CA_PEM                  = '-----BEGIN CERTIFICATE-----...'  # or C:\dlp\secrets\phase1-root-ca.pem
-$env:DLP_DATA_DIRECTORY               = 'C:\dlp\agent\data'
-$env:DLP_CACHE_DIRECTORY              = 'C:\dlp\agent\cache'
-$env:DLP_CONFIGURATION_PUBLIC_KEY_HEX = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-
-# Optional overrides
-$env:DLP_CONFIGURATION_KEY_ID         = 'phase1-config-signer'
-# $env:DLP_AGENT_ENROLLMENT_TOKEN is no longer required here for the automatic
-# trusted-provisioning flow; Invoke-Client01Runtime.ps1 obtains it from LAB-DC01
-# when run with -EnrollmentTokenProvider TrustedProvisioning. Set it only for
-# manual or offline enrollment scenarios.
-$env:DLP_POLL_INTERVAL_SECONDS        = '300'
-$env:DLP_HEALTH_INTERVAL_SECONDS      = '60'
-$env:DLP_START_TIMEOUT_SECONDS        = '60'
-$env:DLP_STOP_TIMEOUT_SECONDS         = '10'
-```
-
-After the variables are set, run the lab deployment script:
-
-```powershell
-$cred = Get-Credential -Message "LAB-CLIENT01 admin credential"
-
-$repoRoot = 'C:\Users\nhdinh\dev\dleakprevention'
-Set-Location $repoRoot
-.\scripts\lab\Invoke-Client01Runtime.ps1 `
-    -CallerMachine    hungdinh-lt `
-    -ExecutionMachine LAB-CLIENT01 `
-    -ProbeMachine     LAB-DC01 `
-    -SecretProvider   Runtime `
-    -Scenario         Tracer `
-    -EnrollmentTokenProvider TrustedProvisioning `
-    -Credential       $cred `
-    -Apply
-```
-
-`Invoke-Client01Runtime.ps1` consumes these variables and persists them into the `DlpWindowsService` environment so the service starts with the correct configuration.
-
----
-
-## Related Docs
-
-- [PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md) — how to obtain or generate the PEM/KEY files used by these variables.
-- `scripts/lab/Invoke-Client01Runtime.ps1` — lab deployment script that consumes these variables.
-- `.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md` — end-to-end lab cold-start walkthrough.
-- `crates/dlp-windows-service/src/service.rs` — service configuration loader that reads these variables.
+Create/export all certificate and key paths through [PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md). The ordered operator workflow is [LAB-SETUP-GUIDE.md](LAB-SETUP-GUIDE.md). `config/lab.env.example` is a names-only starting point, not a secret file.
