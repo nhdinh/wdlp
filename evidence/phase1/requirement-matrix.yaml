@@ -28,8 +28,8 @@
                                             "protocol-contract"
                                         ],
                              "substitute_policy":  "none",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "8c146891-a42d-4e57-8fcb-a62a51fe9683",
+                             "status":  "pass"
                          },
                          {
                              "id":  "WRK-04",
@@ -58,8 +58,8 @@
                                             "device-enrollment"
                                         ],
                              "substitute_policy":  "no mocks or fakes",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "71272216-b313-4527-bb68-49f9c25885be",
+                             "status":  "pass"
                          },
                          {
                              "id":  "SRV-11",
@@ -68,8 +68,8 @@
                                             "postgresql-migration"
                                         ],
                              "substitute_policy":  "SQLite component fixture only; never acceptance",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "8f8cc6c8-5754-4fd7-8214-f071424c1e7e",
+                             "status":  "pass"
                          },
                          {
                              "id":  "SRV-12",
@@ -108,8 +108,8 @@
                                             "device-mtls-dpapi"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "7deb761f-745a-4e3a-bcf9-4dfc22d80595",
+                             "status":  "pass"
                          },
                          {
                              "id":  "AGT-01",
@@ -288,8 +288,8 @@
                                             "enrollment integration"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "8edcc976-c5a2-4553-9927-b72e02805ef2",
+                             "status":  "pass"
                          },
                          {
                              "id":  "TST-08",
