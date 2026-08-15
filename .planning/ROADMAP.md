@@ -62,7 +62,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 01-15-PLAN.md (Wave 8) — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, isolation, sign-out drain, and service-restart behavior
+- [x] 01-15-PLAN.md (Wave 8) — Wire the per-session host, authenticated storage IPC, deterministic drive lifecycle, isolation, sign-out drain, and service-restart behavior
 
 **Wave 9** *(blocked on Wave 8 completion)*
 

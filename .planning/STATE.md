@@ -2,11 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01.3
-current_phase_name: make-a-background-app-that-run-in-devices-to-collect-log-and
+current_phase: 01
+current_phase_name: first-encrypted-drive-vertical-slice
 status: executing
-stopped_at: context exhaustion at 75% (2026-08-14)
-last_updated: "2026-08-14T09:55:19.726Z"
+stopped_at: null
+last_updated: "2026-08-15T15:00:00.000Z"
+last_activity: 2026-08-15
+last_activity_desc: "Completed plan 01-15: per-session host, authenticated storage IPC, drive-letter lifecycle, sign-out drain, and service restart recovery"
 progress:
   total_phases: 4
   completed_phases: 2
@@ -22,7 +24,7 @@ progress:
 - **MVP boundary**: Enroll → signed config → mount → copy → encrypted store → read back → survive restart; policy blocking and toast follow.
 - **Constraints**: Rust for endpoint agent and core domain; PostgreSQL server persistence; Docker Compose server deployment; WinFsp user-mode virtual drive; no kernel-mode filtering or signed driver; safe Rust in portable domain crates.
 
-Last activity: 2026-08-15 - Completed quick task 260815-gi1: review and correct Phase 1 lab setup guidance
+Last activity: 2026-08-15 - Completed plan 01-15: per-session host, authenticated storage IPC, drive-letter lifecycle, sign-out drain, and service restart recovery
 
 ## Quick Tasks Completed
 
@@ -46,13 +48,13 @@ Last activity: 2026-08-15 - Completed quick task 260815-gi1: review and correct 
 
 ## Current Position
 
-- **Phase:** 01.3 (make-a-background-app-that-run-in-devices-to-collect-log-and) — EXECUTING
-- **Plan:** 3 of 3
-- **Task:** 1 of 1
+- **Phase:** 01 (first-encrypted-drive-vertical-slice) — EXECUTING
+- **Plan:** 20 of 21 (next)
+- **Task:** 0 of 1
 - **Status:** Ready to execute
-- **Progress:** [███████░░░] 69%
-- **Next plan:** $gsd-plan-phase 01.3
-- **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by token/VM reachability.
+- **Progress:** [████████░░] 73%
+- **Next plan:** 01-20 WinFsp integrity, disk-full, service-restart, and Windows-reboot recovery
+- **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by VM reachability.
 
 ## Performance Metrics
 
@@ -112,8 +114,8 @@ Last activity: 2026-08-15 - Completed quick task 260815-gi1: review and correct 
 
 **Resume file:** None
 
-**Last session:** 2026-08-14T09:55:19.709Z
-**Stopped at:** context exhaustion at 75% (2026-08-14)
+**Last session:** 2026-08-15T09:34:39.008Z
+**Stopped at:** context exhaustion at 75% (2026-08-15)
 
 **Current session:** 2026-08-13
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
