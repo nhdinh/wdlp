@@ -436,9 +436,9 @@ function Assert-Client01ServerSecretsValid {
     # identical to the orchestrator's resolved values. This catches corruption during
     # secret copy without requiring openssl on the remote VM.
     $expectedHashes = [ordered]@{
-        'server-cert.pem' = (Get-FileHash -Algorithm SHA256 -InputStream ([System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes((Get-Client01SecretValue -Name 'DLP_SERVER_CERT_PEM' -Value $env:DLP_SERVER_CERT_PEM))))).Hash.ToLowerInvariant()
-        'server-key.pem' = (Get-FileHash -Algorithm SHA256 -InputStream ([System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes((Get-Client01SecretValue -Name 'DLP_SERVER_KEY_PEM' -Value $env:DLP_SERVER_KEY_PEM))))).Hash.ToLowerInvariant()
-        'phase1-root-ca.pem' = (Get-FileHash -Algorithm SHA256 -InputStream ([System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes((Get-Client01SecretValue -Name 'DLP_PHASE1_ROOT_CA_CERT_PEM' -Value $env:DLP_PHASE1_ROOT_CA_CERT_PEM))))).Hash.ToLowerInvariant()
+        'server-cert.pem' = (Get-Client01SecretHash -Name 'DLP_SERVER_CERT_PEM' -Value $env:DLP_SERVER_CERT_PEM)
+        'server-key.pem' = (Get-Client01SecretHash -Name 'DLP_SERVER_KEY_PEM' -Value $env:DLP_SERVER_KEY_PEM)
+        'phase1-root-ca.pem' = (Get-Client01SecretHash -Name 'DLP_PHASE1_ROOT_CA_CERT_PEM' -Value $env:DLP_PHASE1_ROOT_CA_CERT_PEM)
     }
 
     Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
@@ -448,7 +448,13 @@ function Assert-Client01ServerSecretsValid {
         $result = [ordered]@{}
         foreach ($name in $ExpectedHashes.Keys) {
             $path = Join-Path $dir $name
-            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sha = [System.Security.Cryptography.SHA256]::Create()
+            try {
+                $bytes = [System.IO.File]::ReadAllBytes($path)
+                $actual = ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+            } finally {
+                $sha.Dispose()
+            }
             $result[$name] = [ordered]@{
                 expected = $ExpectedHashes[$name]
                 actual = $actual
@@ -467,13 +473,13 @@ function Get-Client01SecretHash {
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Value
     )
-    $resolved = Get-Client01SecretValue -Name $Name -Value $Value
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($resolved)
-    $stream = [System.IO.MemoryStream]::new($bytes)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
-        return (Get-FileHash -Algorithm SHA256 -InputStream $stream).Hash.ToLowerInvariant()
+        $resolved = Get-Client01SecretValue -Name $Name -Value $Value
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($resolved)
+        return ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
     } finally {
-        $stream.Dispose()
+        $sha.Dispose()
     }
 }
 
@@ -647,7 +653,13 @@ function Assert-Client01ServerReady {
     $serverHost = $script:Dc01Ip
     $localBinary = Join-Path $RepoRoot 'target/release/dlp-server.exe'
     Assert-Client01 (Test-Path -LiteralPath $localBinary) 'local_server_binary_missing'
-    $localHash = (Get-FileHash -LiteralPath $localBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($localBinary)
+        $localHash = ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
 
     $expectedSecretHashes = [ordered]@{
         'server-cert.pem' = Get-Client01SecretHash -Name 'DLP_SERVER_CERT_PEM' -Value $env:DLP_SERVER_CERT_PEM
@@ -680,7 +692,13 @@ function Assert-Client01ServerReady {
 
         if ($null -ne $proc -and $proc.Path) {
             try {
-                $result.remote_binary_hash = (Get-FileHash -LiteralPath $proc.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+                $sha = [System.Security.Cryptography.SHA256]::Create()
+                try {
+                    $bytes = [System.IO.File]::ReadAllBytes($proc.Path)
+                    $result.remote_binary_hash = ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+                } finally {
+                    $sha.Dispose()
+                }
                 $result.hash_matches = ($result.remote_binary_hash -eq $ExpectedHash)
             } catch { }
         }
@@ -690,7 +708,13 @@ function Assert-Client01ServerReady {
             $path = Join-Path $secretsDir $name
             $expected = $ExpectedSecretHashes[$name]
             $actual = if (Test-Path -LiteralPath $path) {
-                (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+                $sha = [System.Security.Cryptography.SHA256]::Create()
+                try {
+                    $bytes = [System.IO.File]::ReadAllBytes($path)
+                    ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+                } finally {
+                    $sha.Dispose()
+                }
             } else {
                 '<missing>'
             }
@@ -806,7 +830,14 @@ function Install-Client01ProvisioningScript {
     $localHash = Get-Phase1Sha256 $localProvScript
     $remoteHash = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
         param($Path)
-        (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($Path)
+            $hash = $sha.ComputeHash($bytes)
+            return ([System.BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+        } finally {
+            $sha.Dispose()
+        }
     } -ArgumentList @($remoteProvScript)
     if ($localHash -ne $remoteHash) { Stop-Client01 'trusted_provisioning_script_hash_mismatch' }
     Write-Host "TrustedProvisioning: staged Invoke-TrustedProvisioning.ps1 ($remoteHash)"
@@ -971,11 +1002,11 @@ function Invoke-Client01TrustedProvisioning {
 
 function Install-Client01ServiceBinary {
     $localBinary = Join-Path $RepoRoot 'target/release/dlp-windows-service.exe'
-    if (-not (Test-Path -LiteralPath $localBinary)) {
-        Write-Host 'Building dlp-windows-service release binary on hungdinh-lt...'
-        $proc = Start-Process -FilePath 'cargo' -ArgumentList @('build', '--release', '-p', 'dlp-windows-service') -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
-        if ($proc.ExitCode -ne 0) { Stop-Client01 'cargo_build_failed' }
-    }
+    # Always rebuild so a Tracer rerun deploys the current source instead of a
+    # stale release binary left by an earlier lab attempt.
+    Write-Host 'Building dlp-windows-service release binary on hungdinh-lt...'
+    $proc = Start-Process -FilePath 'cargo' -ArgumentList @('build', '--release', '-p', 'dlp-windows-service') -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
+    if ($proc.ExitCode -ne 0) { Stop-Client01 'cargo_build_failed' }
     Assert-Client01 (Test-Path -LiteralPath $localBinary) 'release_binary_missing'
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
@@ -1059,7 +1090,10 @@ function Install-Client01RuntimeSecrets {
         $ErrorActionPreference = 'Stop'
         $envPath = 'C:\dlp\agent\agent.env'
         [System.IO.File]::WriteAllLines($envPath, $EnvLines, (New-Object System.Text.UTF8Encoding($false)))
-    } -ArgumentList @($envLines)
+    # Preserve the complete string array as one positional argument. Without
+    # the unary comma, PowerShell enumerates the list and the remote script's
+    # single parameter receives only DLP_DEVICE_ID.
+    } -ArgumentList (,$envLines.ToArray())
 }
 
 function Install-Client01Service {
@@ -1214,15 +1248,20 @@ function Invoke-Client01ServiceInstall {
 }
 
 function Invoke-Client01Tracer {
+    $targetComputer = 'LAB-CLIENT01.lab.local'
     $enrollmentToken = $null
     if ($EnrollmentTokenProvider -eq 'TrustedProvisioning') {
+        if ($env:DLP_DEVICE_ID -cne $targetComputer) {
+            Write-Host "Tracer: canonicalizing DLP_DEVICE_ID from '$($env:DLP_DEVICE_ID)' to '$targetComputer' to match trusted provisioning."
+            $env:DLP_DEVICE_ID = $targetComputer
+        }
         if (Test-Client01CredentialPresent) {
             Write-Host 'Tracer: existing DPAPI credential found on LAB-CLIENT01; skipping trusted provisioning.'
         } else {
             $approvedDigest = Get-ApprovedPrivilegeManifestDigest
             $enrollmentToken = Invoke-Client01TrustedProvisioning `
                 -PrivilegeManifestDigest $approvedDigest `
-                -TargetComputer 'LAB-CLIENT01.lab.local' `
+                -TargetComputer $targetComputer `
                 -PreferredDriveLetter 'P'
         }
     }
