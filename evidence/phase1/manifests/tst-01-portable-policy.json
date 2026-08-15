@@ -17,7 +17,7 @@
   "verification_tier": "portable_automation",
   "substitute": "none",
   "deviation": {"state": "none"},
-  "raw_artifacts": [{"uri": "target/phase1-evidence/tst-01-policy.log", "sha256": "90126f9bcaf92943136b94ae60bb5fe15dbce2334c39608dca78b16a50fd9180", "accessible": true}],
+  "raw_artifacts": [{"uri": "target/phase1-evidence/tst-01-policy.log", "sha256": "567cbd23b9d49f43816295c58e9c502fc4c70b5739c771ce378d9b9627f646b0", "accessible": true}],
   "retention": {"deadline_utc": "2027-08-10T00:00:00Z", "hold": false, "state": "retained"},
   "redaction_scan": "passed",
   "self_contained": false,
