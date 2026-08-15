@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 status: executing
-stopped_at: Completed 01-17-PLAN.md
-last_updated: "2026-08-15T15:47:15.712Z"
+stopped_at: Completed 01.2-01-PLAN.md
+last_updated: "2026-08-15T15:53:15.970Z"
 last_activity: 2026-08-15
 last_activity_desc: "Completed plan 01-20: WinFsp integrity, disk-full, service-restart, and Windows-reboot recovery"
 progress:
@@ -49,7 +49,7 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 ## Current Position
 
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — EXECUTING
-- **Plan:** 18 of 21 (next)
+- **Plan:** 19 of 21 (next)
 - **Task:** 0 of 2
 - **Status:** Ready to execute
 - **Progress:** [████████░░] 81%
@@ -85,6 +85,7 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 | Phase 01.3 P02 | 8m | 2 tasks | 6 files |
 | Phase 01.1-add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp P01 | 18min | 3 tasks | 3 files |
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 20m | 3 tasks | 7 files |
+| Phase 01.2-dlp-agent-enrollment-token-should-be-obtained-automatically P01 | 90m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -116,8 +117,8 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 
 **Resume file:** None
 
-**Last session:** 2026-08-15T15:47:15.695Z
-**Stopped at:** Completed 01-17-PLAN.md
+**Last session:** 2026-08-15T15:53:15.952Z
+**Stopped at:** Completed 01.2-01-PLAN.md
 
 **Current session:** 2026-08-13
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
@@ -177,6 +178,10 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 - [Phase ?]: Kept example env-var lines in HYPERV-DLP-STARTUP-GUIDE.md as quick reminder while deferring collection instructions to ENV-VARS.md
 - [Phase ?]: Documented DLP_ROOT_CA_PEM as accepting inline PEM content or a filesystem path
 - [Phase ?]: Added session-config variables to ENV-VARS.md to satisfy must-have that every consumed service variable is documented
+- [Phase ?]: [Phase 01.2]: Retained Manual as the default EnrollmentTokenProvider so existing operator workflows continue unchanged.
+- [Phase ?]: [Phase 01.2]: Made token cleanup the default after successful enrollment; only retain with -RetainEnrollmentToken for explicit troubleshooting.
+- [Phase ?]: [Phase 01.2]: Validated enrollment token length (<=512) and charset ([A-Za-z0-9_.~/-]) before any persistence to LAB-CLIENT01.
+- [Phase ?]: [Phase 01.2]: Replaced Get-FileHash with direct [System.Security.Cryptography.SHA256] calls because the Git-Bash-launched Windows PowerShell session could not auto-import Microsoft.PowerShell.Utility.
 
 ### Blockers
 
