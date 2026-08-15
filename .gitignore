@@ -3,3 +3,4 @@
 config/*.env.local
 .env
 *.env.local
+/tmp/

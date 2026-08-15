@@ -93,6 +93,14 @@ Validates certificate/key pairs, chains, extensions, expiration, hostname, and r
 .\scripts\lab\Verify-DlpLabCertificates.ps1 -ServerHostname 'LAB-DC01.lab.local'
 ```
 
+### New-DlpPhase1RootCa.ps1
+
+Creates the Phase 1 HTTPS root CA for a new lab. This is a first-time initialization command; replacing the root requires regenerating the server certificate and redeploying endpoint trust anchors.
+
+```powershell
+.\scripts\lab\New-DlpPhase1RootCa.ps1 -OutputDirectory C:\dlp\secrets
+```
+
 ### Rotate-DlpDeviceIssuingCa.ps1
 
 Generates or rotates the device-issuing CA used to issue endpoint mTLS certificates.
@@ -167,6 +175,8 @@ Deletes a device's enrollment authority row from PostgreSQL.
 Builds `dlp-server.exe`, deploys it to `LAB-DC01`, installs secrets, and runs scenarios.
 
 **When to use:** Starting or verifying the management server.
+
+With `-SecretProvider Runtime`, set `DLP_DATABASE_URL`, `DLP_SERVER_CERT_PEM`, `DLP_SERVER_KEY_PEM`, `DLP_ADMIN_CA_CERT_PEM`, `DLP_PHASE1_ROOT_CA_CERT_PEM`, `DLP_DEVICE_ISSUING_CA_CERT_PEM`, `DLP_DEVICE_ISSUING_CA_KEY_PEM`, and `DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX`. `TrustedProvisioning` and `All` also require the provisioning mTLS inputs and AD/LDAPS inputs listed in [ENV-VARS.md](../../.planning/docs/ENV-VARS.md). Do **not** set the obsolete `DLP_ADMIN_PROVISIONING_KEY`; the runner neither requires nor deploys that legacy bearer secret.
 
 **Example:**
 

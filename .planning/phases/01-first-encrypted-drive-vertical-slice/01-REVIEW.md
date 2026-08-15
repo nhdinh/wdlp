@@ -1,6 +1,6 @@
 ---
 phase: 01-first-encrypted-drive-vertical-slice
-reviewed: 2026-08-15T00:00:00Z
+reviewed: 2026-08-15T02:42:33Z
 depth: standard
 files_reviewed: 68
 files_reviewed_list:
@@ -74,109 +74,129 @@ files_reviewed_list:
   - tests/windows/Test-DlpLogDebugRunbookSyntax.ps1
 findings:
   critical: 7
-  warning: 6
+  warning: 5
   info: 0
-  total: 13
+  total: 12
 status: issues_found
 ---
 
 # Phase 01: Code Review Report
 
-**Reviewed:** 2026-08-15T00:00:00Z
-**Depth:** standard (with cross-file call-path tracing)
+**Reviewed:** 2026-08-15T02:42:33Z
+**Depth:** standard (with requested cross-file call-path tracing)
 **Files Reviewed:** 68
 **Status:** issues_found
 
 ## Summary
 
-All 68 scoped files were reviewed, including the server-to-agent enrollment, TLS, configuration-cache, DPAPI, log-service, and lab-provisioning call paths. The implementation has ship-blocking authorization and secret-custody failures. Passing unit tests do not exercise the production directory, database, certificate, or deployment authority paths (`cargo test -p dlp-agent-core -p dlp-server -p dlp-log-debug-service -p dlpctl -p dlp-windows-service`: 89 passed).
+The re-review confirms that the iteration fixed the shipped debug-service example configuration, but the remaining findings are still present. The highest-risk paths are production provisioning, enrollment, TLS administrator authorization, on-disk secret custody, and log-file authorization. Test suites pass, but their route fixtures bypass the production directory, repository, and certificate-issuance paths.
+
+Verification performed: `cargo test -p dlp-agent-core -p dlp-server -p dlp-log-debug-service -p dlpctl -p dlp-windows-service` (90 passed); all scoped PowerShell source files parse successfully.
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01 [BLOCKER]: Production provisioning never performs directory corroboration
+### CR-01 [BLOCKER]: Production provisioning never corroborates the directory record
 
-**File:** `crates/dlp-server/src/lib.rs:128-174, 216-250`; `crates/dlp-server/src/enrollment.rs:201-225`; `crates/dlp-server/src/routes.rs:266-309`
-**Issue:** `RuntimeDirectory` is an empty marker trait and is never passed to `AdminProvisioningService`. The route persists caller-supplied GUID, SID, and fingerprint without an LDAP lookup or two-controller comparison; `LdapDirectoryVerifier::corroborate_computer` has no production caller.
-**Fix:** Make the directory-verifier trait expose corroboration, inject it into provisioning, derive AD attributes from two matching LDAPS results, and fail closed on lookup failure.
+**File:** `crates/dlp-server/src/lib.rs:128-174, 216-250`; `crates/dlp-server/src/enrollment.rs:201-226`; `crates/dlp-server/src/routes.rs:266-303`
 
-### CR-02 [BLOCKER]: Replacement enrollment cannot provide its required active serial
+**Issue:** `RuntimeDirectory` is an empty marker trait and is not supplied to `AdminProvisioningService`. Consequently, the provisioning route persists the administrator client's request-supplied fingerprint, GUID, and SID without an LDAP lookup or two-controller comparison. `LdapDirectoryVerifier::corroborate_computer` has no production call path. A trusted-but-overbroad administrator certificate can therefore mint an enrollment token for an arbitrary device identity and observation.
 
-**File:** `crates/dlp-windows-service/src/service.rs:159-173`
-**Issue:** A failed credential check invokes `EnrollmentCoordinator::startup(..., None)`, while `PgAuthorityRepository::consume_and_activate` requires the active serial to replace an existing credential. Expired or damaged credentials therefore cannot renew, and a decryptable blob is treated as existing without profile verification.
-**Fix:** Validate and load the prior credential, send its serial for replacement, and provide a separately authenticated recovery/re-provisioning path for unrecoverable credentials.
+**Fix:** Give the injected directory port a corroboration operation; invoke it in `AdminProvisioningService`, construct the authority record only from two matching LDAPS results, and reject missing/unavailable directory providers before issuing a token.
 
-### CR-03 [BLOCKER]: DPAPI credential custody fails open before ACL protection
+### CR-02 [BLOCKER]: Replacement enrollment cannot provide the required active serial
 
-**File:** `crates/dlp-windows-service/src/credential.rs:175-247, 311-505`; `scripts/lab/Invoke-Client01Runtime.ps1:1073-1083`
-**Issue:** The credential directory and temporary file are created with inherited access, then hardened only after rename. Missing service-SID discovery silently skips both enforcement and validation; the installer never enables a service SID. A local principal can copy a machine-DPAPI blob before hardening and decrypt it under machine scope.
-**Fix:** Configure the service SID at installation, fail closed if it cannot be resolved, create the directory and temporary file with SYSTEM/service-SID-only DACLs before writing, and validate directory and file DACLs on every use.
+**File:** `crates/dlp-windows-service/src/service.rs:159-173`; `crates/dlp-server/src/repository.rs:152-168`
 
-### CR-04 [BLOCKER]: Any certificate under the administrator CA receives administrator authority
+**Issue:** When local credential validation fails, `ensure_credential` calls `EnrollmentCoordinator::startup(..., None)`. The repository requires `prior_serial` to equal the active serial, so a damaged or expired stored credential cannot be renewed. The service becomes permanently unable to recover through its advertised enrollment flow.
 
-**File:** `crates/dlp-server/src/tls.rs:174-210, 449-494`
-**Issue:** Administrator identity is determined from issuer-subject text after a chain is accepted. There is no administrator EKU, constrained SAN/subject, exact-anchor key pin, allowlist, or directory role mapping before `AuthenticatedAdmin` authorizes provisioning.
-**Fix:** Define and validate a dedicated administrator client-certificate profile against the exact anchor, then map only an allowlisted identity or directory role to administrator capability.
+**Fix:** Validate and load the prior credential before renewal, pass its serial when appropriate, and define a separate authenticated reprovisioning flow for cases where the serial cannot be recovered.
 
-### CR-05 [BLOCKER]: Log authorization has a check-to-open path race
+### CR-03 [BLOCKER]: DPAPI credential custody is writable/readable before protection and fails open without a service SID
+
+**File:** `crates/dlp-windows-service/src/credential.rs:175-205, 320-324, 387-391`; `scripts/lab/Invoke-Client01Runtime.ps1:1072-1094`
+
+**Issue:** The credential directory and temporary file are created using inherited ACLs, then the final path is hardened only after the write and rename. Further, missing service-SID discovery returns success from both ACL enforcement and validation, while installation never configures a service SID. Machine-scope DPAPI lets another local principal decrypt a copied blob, so the pre-hardening interval exposes the private key.
+
+**Fix:** Enable/configure the service SID during installation, fail closed if it cannot be resolved, and create both the directory and temporary file with protected SYSTEM/service-SID DACLs before writing. Validate the complete DACL (not only ownership) for directory and file on every use.
+
+### CR-04 [BLOCKER]: Every non-device leaf under the administrator CA is an administrator
+
+**File:** `crates/dlp-server/src/tls.rs:174-210, 449-494`; `crates/dlp-server/src/routes.rs:189-203`
+
+**Issue:** The handshake trusts the configured administrator CA, then assigns administrator capability solely when the leaf's issuer subject text matches that CA's subject. There is no administrator EKU, SAN/subject profile, exact-anchor key/DER pin, or identity allowlist/role mapping. Any certificate issued by that CA that is not recognized as a device leaf can call provisioning.
+
+**Fix:** Define a dedicated administrator client-certificate profile and validate it against the exact configured trust anchor, then authorize only an allowlisted identity or directory-backed administrator role.
+
+### CR-05 [BLOCKER]: Log authorization has a check-to-open race
 
 **File:** `crates/dlp-log-debug-service/src/paths.rs:56-65`; `crates/dlp-log-debug-service/src/http.rs:168-176`; `crates/dlp-log-debug-service/src/tail.rs:22-40`
-**Issue:** The service canonicalizes and authorizes one pathname, then reopens it in `read_bounded_tail`. A writer able to replace that file with a reparse point/symlink between the two operations can disclose a file outside the allowlist.
-**Fix:** Open once with platform APIs that reject reparse-point traversal, validate the opened handle's identity and parent, and read through that same handle.
 
-### CR-06 [BLOCKER]: Agent enrollment token is persisted and emitted in diagnostics
+**Issue:** The service canonicalizes and authorizes a pathname, then opens that pathname later in `read_bounded_tail`. A local actor able to replace it with a reparse point/symlink between those operations can cause a trusted remote client to receive a file outside the configured folder.
 
-**File:** `scripts/lab/Invoke-Client01Runtime.ps1:1042-1058, 1108-1123, 1145-1166`
-**Issue:** The one-time enrollment token is written to `C:\dlp\agent\agent.env`, persisted in the service registry environment, then the full file is copied into `$diag.env_file` and printed when service start fails. No restrictive DACL is applied. An unprivileged local reader or anyone receiving deployment diagnostics can race the intended endpoint and redeem the token with its own CSR.
-**Fix:** Do not place enrollment tokens in a readable env file or service registry. Use a short-lived SYSTEM/service-SID-only secret file or protected runtime provider, redact diagnostics, and remove the token before starting the service.
+**Fix:** Open once with platform APIs that reject reparse traversal, validate the opened handle's final identity/parent, and read through that same handle rather than reopening by path.
 
-### CR-07 [BLOCKER]: Management-server deployment writes private keys and credentials with inherited ACLs
+### CR-06 [BLOCKER]: The enrollment token is persisted and leaked through diagnostics
 
-**File:** `scripts/lab/Invoke-Dc01Server.ps1:353-361, 384-402`; `scripts/lab/Invoke-Client01Runtime.ps1:423-431, 512-529`
-**Issue:** Deployment creates `C:\dlp\secrets` and `C:\dlp\server\server.env` without setting DACLs, then writes the device-issuing CA private key, server private key, AD bind password, database URL, and configuration signing seed. On a fresh directory these inherit broad parent permissions, exposing material that can issue device certificates or sign policy.
-**Fix:** Create these directories with protected SYSTEM/service-account-only DACLs before any writes, set restrictive ACLs on each secret file, and verify the ACLs before launching the server. Keep secrets out of diagnosable env files where possible.
+**File:** `scripts/lab/Invoke-Client01Runtime.ps1:1042-1058, 1088-1094, 1122-1129, 1164-1167`
+
+**Issue:** The one-time token is placed in `C:\dlp\agent\agent.env`, copied to the service registry `Environment` value, and emitted verbatim in start-failure diagnostics. Neither the file nor the registry value is restricted here. A local reader, or anyone who receives deployment diagnostics, can redeem the token with their own CSR before the intended endpoint does.
+
+**Fix:** Use a short-lived SYSTEM/service-SID-only runtime secret file/provider, never copy the token into registry environment values, redact or omit the env file from diagnostics, and delete the handoff material before starting the service.
+
+### CR-07 [BLOCKER]: Deployment writes server private keys and credentials with inherited ACLs
+
+**File:** `scripts/lab/Invoke-Dc01Server.ps1:352-361, 398-402`; `scripts/lab/Invoke-Client01Runtime.ps1:1020-1029`
+
+**Issue:** Deployment creates `C:\dlp\secrets` and the server env file without first applying protected DACLs, then writes the device-issuing CA private key, server key, database URL, AD bind password, and configuration-signing seed. On a fresh directory, inherited ACLs can expose material that issues device certificates or signs policy.
+
+**Fix:** Create protected secret directories before any write, apply and verify least-privilege DACLs on every secret/env file, and run the server under the explicitly authorized service identity.
 
 ## Warnings
 
-### WR-01 [WARNING]: Cached configuration is trusted after restart without signature verification
+### WR-01 [WARNING]: Cached configurations are accepted after restart without verification
 
-**File:** `crates/dlp-agent-core/src/config_cache.rs:177-226`
-**Issue:** `current_bundle` and `lkg_bundle` deserialize a pointed bundle and compare only its digest. They do not invoke `ConfigurationVerifier` or re-check key ID, signature, audience, schema, or monotonic version; a local replacement can become current after restart.
-**Fix:** Require the verifier and expected device/version state for reads and repeat the complete activation validation before returning persisted bundles.
+**File:** `crates/dlp-agent-core/src/config_cache.rs:176-226`
 
-### WR-02 [WARNING]: Existing credentials are not validated for binding or validity
+**Issue:** `current_bundle` and `lkg_bundle` only deserialize the referenced bytes and compare the embedded digest to the filename pointer. They do not verify the signature, signer key ID, audience, schema, or monotonic version. A local replacement of pointer/staging state can reactivate an old signed configuration after restart.
 
-**File:** `crates/dlp-windows-service/src/service.rs:164-184`
-**Issue:** Any decryptable non-empty blob chooses `Existing`. It does not validate certificate chain, private-key match, client EKU, URI SAN/device binding, or expiry before building the mTLS client.
-**Fix:** Parse and validate the stored credential against the configured root, device ID, private key, EKU, and validity interval before accepting it.
+**Fix:** Require the configured `ConfigurationVerifier` and expected device/version state for cache reads, and run the full activation validation before returning persisted bundles.
 
-### WR-03 [WARNING]: Enrollment response chain validation trusts a textual subject
+### WR-02 [WARNING]: A decryptable credential is treated as usable without profile validation
 
-**File:** `crates/dlp-agent-core/src/client.rs:270-363`
-**Issue:** `validate_device_chain` accepts a chain when any certificate subject text equals the configured root's subject. It neither verifies signatures nor pins root DER/public-key material.
-**Fix:** Use rustls/WebPKI path validation anchored to the configured root and check client EKU, URI SAN, validity, and CSR-public-key binding.
+**File:** `crates/dlp-windows-service/src/service.rs:159-184`; `crates/dlp-windows-service/src/credential.rs:235-247`
 
-### WR-04 [WARNING]: Enrollment route tests bypass production authority and issuance paths
+**Issue:** `validate_protection` checks only that the DPAPI blob decodes to a non-empty private key. It does not validate the device ID, private-key/certificate match, chain, client EKU, URI SAN, expiry, or even the file ACL. The service consequently selects `Existing` for an invalid identity and only fails later during network activity.
 
-**File:** `tests/e2e/server_enrollment.rs:99-107, 368-443`; `crates/dlp-server/src/routes.rs:410-443`
-**Issue:** Route tests use a placeholder CSR and `RouteState::for_test()`, whose enrollment and provisioning services always succeed. They cannot detect database token consumption, issuance, replacement, directory authority, or client parsing regressions.
-**Fix:** Add isolated router-to-client integration tests using a real PKI fixture and transactional repository, covering initial enrollment, replacement, revocation, and invalid chains.
+**Fix:** Parse and validate the stored credential against the configured root, device ID, key match, EKU, SAN, validity period, and expected serial before choosing `EnrollmentMode::Existing`.
 
-### WR-05 [WARNING]: TLS readiness evidence disables certificate validation
+### WR-03 [WARNING]: Enrollment-chain validation trusts only a textual root subject
 
-**File:** `scripts/lab/Invoke-Dc01Server.ps1:560-580, 611-629`; `scripts/lab/Invoke-Client01Runtime.ps1:1236-1255`
-**Issue:** Readiness probes install `TrustAllCertsPolicy`, accepting every certificate failure while reporting validated TLS evidence. An untrusted, expired, or hostname-mismatched endpoint passes.
-**Fix:** Trust or pin the Phase 1 root, probe a DNS-SAN hostname, remove the permissive policy, and add negative trust/name tests.
+**File:** `crates/dlp-agent-core/src/client.rs:270-356`
 
-### WR-06 [WARNING]: The shipped debug-service example always falls back to localhost-only mode
+**Issue:** `validate_device_chain` accepts a response when any certificate in the PEM bundle has the same subject text as the configured root. It does not verify certificate signatures or pin the root DER/public key; a forged chain with a copied subject is accepted as long as the leaf profile looks plausible.
 
-**File:** `crates/dlp-log-debug-service/config.example.json:1-7`; `crates/dlp-log-debug-service/src/config.rs:45-64`
-**Issue:** `FileConfig` requires `max_tail_lines`, but the example omits it. Parsing consequently fails and `load_runtime_config` silently uses an empty-folder localhost-only fallback instead of the documented allowlist configuration.
-**Fix:** Add a positive `max_tail_lines` field to the example and test that the example itself parses into `RuntimeConfig`.
+**Fix:** Use WebPKI/rustls path validation anchored to the configured root DER, then verify the leaf's client profile, exact URI SAN, validity, and CSR public-key binding.
+
+### WR-04 [WARNING]: Enrollment tests do not exercise the production authority or issuance path
+
+**File:** `tests/e2e/server_enrollment.rs:84-122, 350-444`; `crates/dlp-server/src/routes.rs:41-50, 410-442`
+
+**Issue:** The tests assert source-code strings or run `RouteState::for_test()`, whose enrollment and provisioning services always succeed with a placeholder CSR. They cannot detect regressions in token consumption, database activation/revocation, certificate issuance, directory corroboration, or client-side chain validation.
+
+**Fix:** Add a router-to-client integration suite with real PKI fixtures and a transactional PostgreSQL test database, covering initial enrollment, replacement, revocation, invalid CSR/chain, and directory disagreement.
+
+### WR-05 [WARNING]: TLS readiness evidence explicitly disables certificate validation
+
+**File:** `scripts/lab/Invoke-Dc01Server.ps1:560-580, 611-629`; `scripts/lab/Invoke-Client01Runtime.ps1:1233-1255`
+
+**Issue:** The readiness probes install `TrustAllCertsPolicy`, which accepts all trust, expiry, and hostname failures, while emitting evidence that describes the connection as validated TLS. A man-in-the-middle or misconfigured endpoint therefore passes the evidence gate.
+
+**Fix:** Trust/pin the Phase 1 root, probe a DNS-SAN hostname rather than an IP address, remove `TrustAllCertsPolicy`, and add negative trust and hostname checks.
 
 ---
 
-_Reviewed: 2026-08-15T00:00:00Z_
+_Reviewed: 2026-08-15T02:42:33Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_

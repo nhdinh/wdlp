@@ -27,17 +27,18 @@ The Phase 1 root does **not** sign the administrator or device-issuing CAs. The 
 Use the rotation scripts from `scripts/lab/` on the protected orchestration host. They generate temporary extension files under the selected secrets directory and remove them after signing:
 
 ```powershell
+.\scripts\lab\New-DlpPhase1RootCa.ps1 -OutputDirectory C:\dlp\secrets
 .\scripts\lab\Rotate-DlpAdminCa.ps1 -OutputDirectory C:\dlp\secrets
 .\scripts\lab\Rotate-DlpDeviceIssuingCa.ps1 -OutputDirectory C:\dlp\secrets
 .\scripts\lab\Rotate-DlpServerCert.ps1 -OutputDirectory C:\dlp\secrets
-.\scripts\lab\Verify-DlpLabCertificates.ps1
+.\scripts\lab\Verify-DlpLabCertificates.ps1 -SecretsDirectory C:\dlp\secrets -ServerHostname LAB-DC01.lab.local
 ```
 
-Pass `-Force` only when intentionally rotating existing lab material. The verifier checks headers, key pairs, CA/basic constraints, EKU roles, SAN/hostname expectations, and the chains that really exist: server to Phase 1 root and provisioning administrator to administrator CA.
+Run `New-DlpPhase1RootCa.ps1` only for first-time setup. Pass `-Force` only when intentionally replacing or rotating existing lab material; replacing the Phase 1 root requires regenerating the server certificate and redeploying the endpoint trust anchor. The verifier checks headers, key pairs, CA/basic constraints, leaf key usages and EKU roles, DNS SAN/hostname expectations, and the chains that really exist: server to Phase 1 root and provisioning administrator to administrator CA. Pass the same directory to `-SecretsDirectory` when it is not the default.
 
 ## Equivalent OpenSSL profiles
 
-The following manual commands are equivalent to the scripts. `$Secrets` must already be a protected local directory.
+The following manual commands produce the same certificate profiles as the scripts. `$Secrets` must already be a protected local directory. On Windows PowerShell 5.1, prefer the scripts because they write OpenSSL configuration files as UTF-8 without a byte-order mark.
 
 ### Phase 1 root and server leaf
 
@@ -120,6 +121,53 @@ $deviceCaExt | Set-Content -Path "$Secrets\device-issuing-ca-ext.cnf" -Encoding 
 openssl req -x509 -new -nodes -key "$Secrets\device-issuing-ca-key.pem" -sha256 -days 3650 `
   -subj '/CN=device-issuing-ca/O=DLP Lab' -config "$Secrets\device-issuing-ca-ext.cnf" -extensions v3_ca -out "$Secrets\device-issuing-ca.pem"
 ```
+
+### AD/LDAPS CA (`ad-ca.pem`)
+
+The DLP certificate-generation scripts do **not** create `ad-ca.pem`. It belongs to the Active Directory LDAPS trust chain, not to the DLP administrator PKI. Obtain it from the CA that issued the active LDAPS certificates on `LAB-DC01` and `LAB-DC02`; do not copy or rename `admin-ca.pem`.
+
+On each domain controller, inspect the active certificate that supports TLS server authentication:
+
+```powershell
+Get-ChildItem Cert:\LocalMachine\My |
+  Where-Object {
+    $_.HasPrivateKey -and
+    $_.EnhancedKeyUsageList.ObjectId -contains '1.3.6.1.5.5.7.3.1'
+  } |
+  Format-List Subject, Issuer, Thumbprint, NotAfter
+```
+
+The certificate's `Issuer` identifies the issuing CA certificate to export. On the domain controller:
+
+1. Run `certlm.msc`.
+2. Find that CA certificate under **Trusted Root Certification Authorities > Certificates** or **Intermediate Certification Authorities > Certificates**.
+3. Select **All Tasks > Export**, do not export a private key, and choose **Base-64 encoded X.509 (.CER)**.
+4. Save the exported public certificate and transfer it securely to `C:\dlp\secrets\ad-ca.pem` on the machine from which `Invoke-Dc01Server.ps1` will run. Base-64 X.509 certificate content is PEM content even if the export wizard originally gives it a `.cer` extension.
+
+If both domain controllers use the same issuing CA, one exported certificate is sufficient. If they use different issuers, or validation requires an intermediate CA, concatenate the required public CA certificates into one PEM bundle:
+
+```powershell
+Get-Content C:\dlp\secrets\lab-dc01-issuer.pem,
+            C:\dlp\secrets\lab-dc02-issuer.pem |
+  Set-Content C:\dlp\secrets\ad-ca.pem -Encoding ascii
+```
+
+Verify the resulting certificate or bundle, then set the runner input in the same PowerShell session used to start the server:
+
+```powershell
+openssl crl2pkcs7 -nocrl -certfile C:\dlp\secrets\ad-ca.pem |
+  openssl pkcs7 -print_certs -noout
+
+$env:DLP_AD_CA_CERT_PEM = 'C:\dlp\secrets\ad-ca.pem'
+```
+
+For a protected local environment file used by `Initialize-DlpEnvironment.ps1`, add the equivalent one-line entry:
+
+```dotenv
+DLP_AD_CA_CERT_PEM=C:\dlp\secrets\ad-ca.pem
+```
+
+`Invoke-Dc01Server.ps1` reads the path on the calling machine, copies the certificate content into the LAB-DC01 secret directory, and configures the server to use it when validating LDAPS connections.
 
 ## Names and assignments
 

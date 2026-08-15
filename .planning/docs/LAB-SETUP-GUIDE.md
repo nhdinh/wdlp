@@ -56,11 +56,14 @@ Use exactly one of these patterns:
 Use the separate Phase 1 root, administrator CA, device-issuing CA, and AD LDAPS issuer exactly as documented in [PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md). The recommended lab commands are:
 
 ```powershell
+.\scripts\lab\New-DlpPhase1RootCa.ps1 -OutputDirectory C:\dlp\secrets
 .\scripts\lab\Rotate-DlpAdminCa.ps1 -OutputDirectory C:\dlp\secrets
 .\scripts\lab\Rotate-DlpDeviceIssuingCa.ps1 -OutputDirectory C:\dlp\secrets
 .\scripts\lab\Rotate-DlpServerCert.ps1 -OutputDirectory C:\dlp\secrets
-.\scripts\lab\Verify-DlpLabCertificates.ps1 -ServerHostname LAB-DC01.lab.local
+.\scripts\lab\Verify-DlpLabCertificates.ps1 -SecretsDirectory C:\dlp\secrets -ServerHostname LAB-DC01.lab.local
 ```
+
+`New-DlpPhase1RootCa.ps1` is a first-time initialization command, not a routine rotation step. Do not use `-Force` unless you intend to replace the HTTPS trust root and redeploy every dependent certificate and endpoint trust anchor.
 
 Export the issuer of the active DC LDAPS certificate to `ad-ca.pem`; creating an unrelated standalone root does not configure a DC for LDAPS. Use the reference for the correct `_PATH` versus `_PEM` aliases and file ownership. The endpoint runner accepts `DLP_ROOT_CA_PEM` as inline **certificate** PEM or a path, but deploys the certificate bytes and persists `C:\dlp\secrets\phase1-root-ca.pem` on LAB-CLIENT01.
 
@@ -78,7 +81,18 @@ The current migration set has three files: `202608070001_walking_skeleton.sql`, 
 
 ## 5. Start and check the management server
 
-Supply a credential or the documented VM credential variables, then run a server scenario. `Invoke-Dc01Server.ps1` has scenarios `Tracer`, `PostgresFresh`, `PostgresRepeat`, `MigrationFailure`, `ConcurrentStart`, `ReadinessConcurrency`, `TrustedProvisioning`, and `All`.
+Supply a credential or the documented VM credential variables, then run a server scenario. With `-SecretProvider Runtime`, every scenario requires these values in the calling PowerShell process:
+
+- `DLP_DATABASE_URL`
+- `DLP_SERVER_CERT_PEM` and `DLP_SERVER_KEY_PEM`
+- `DLP_ADMIN_CA_CERT_PEM`
+- `DLP_PHASE1_ROOT_CA_CERT_PEM`
+- `DLP_DEVICE_ISSUING_CA_CERT_PEM` and `DLP_DEVICE_ISSUING_CA_KEY_PEM`
+- `DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX`
+
+The `TrustedProvisioning` and `All` scenarios additionally require `DLP_PROVISIONING_ROOT_CA_PEM`, `DLP_PROVISIONING_ADMIN_CERT_PEM`, `DLP_PROVISIONING_ADMIN_KEY_PEM`, and the six `DLP_AD_*` LDAPS settings documented in [ENV-VARS.md](ENV-VARS.md). `DLP_ADMIN_PROVISIONING_KEY` is an obsolete bearer secret: do not create or set it. Current provisioning uses administrator mTLS credentials instead.
+
+`Invoke-Dc01Server.ps1` has scenarios `Tracer`, `PostgresFresh`, `PostgresRepeat`, `MigrationFailure`, `ConcurrentStart`, `ReadinessConcurrency`, `TrustedProvisioning`, and `All`.
 
 ```powershell
 $cred = Get-Credential -Message 'LAB-DC01 administrator credential'

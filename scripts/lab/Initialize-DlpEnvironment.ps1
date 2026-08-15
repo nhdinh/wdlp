@@ -36,6 +36,7 @@ function Read-DlpValue {
         [Parameter(Mandatory)][string]$Prompt,
         [Parameter()][string]$Default = '',
         [Parameter()][switch]$Secure,
+        [Parameter()][switch]$AllowEmpty,
         [Parameter()][scriptblock]$Validate,
         [Parameter()][string]$ValidateMessage = 'Value is not valid.',
         [Parameter()][string]$HelpText = '',
@@ -51,9 +52,9 @@ function Read-DlpValue {
         if (Test-IsPlaceholder $Default) {
             return $null
         }
-        if ($Validate -and -not $SkipValidation -and -not (& $Validate $Default)) {
-            return $null
-        }
+        # Catalog defaults are trusted setup targets. Several are paths to
+        # certificates or binaries created by later setup steps, so requiring
+        # them to exist here would make first-time initialization impossible.
         return $Default
     }
 
@@ -64,23 +65,35 @@ function Read-DlpValue {
     }
 
     $fullPrompt = if (Test-IsPlaceholder $Default) {
-        "[$Name] $Prompt`: "
+        if ($AllowEmpty) {
+            "[$Name] $Prompt [optional: press Enter for automatic provisioning]`: "
+        } else {
+            "[$Name] $Prompt`: "
+        }
     } else {
         "[$Name] $Prompt [default: $Default]`: "
     }
 
     while ($true) {
+        $acceptedDefault = $false
         if ($Secure) {
             $secureValue = Read-Host -Prompt $fullPrompt -AsSecureString
             $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureValue))
             if ([string]::IsNullOrWhiteSpace($plain) -and -not (Test-IsPlaceholder $Default)) {
                 $plain = $Default
+                $acceptedDefault = $true
             }
         } else {
             $plain = Read-Host -Prompt $fullPrompt
             if ([string]::IsNullOrWhiteSpace($plain) -and -not (Test-IsPlaceholder $Default)) {
                 $plain = $Default
+                $acceptedDefault = $true
             }
+        }
+
+        if ($AllowEmpty -and [string]::IsNullOrWhiteSpace($plain)) {
+            Write-Host "Skipping ${Name}; trusted provisioning will obtain it when the endpoint runner starts." -ForegroundColor DarkGray
+            return $null
         }
 
         if (Test-IsPlaceholder $plain) {
@@ -88,7 +101,11 @@ function Read-DlpValue {
             continue
         }
 
-        if ($Validate -and -not $SkipValidation) {
+        if ($acceptedDefault) {
+            Write-Host "Using default for ${Name}: $Default" -ForegroundColor DarkGray
+        }
+
+        if (-not $acceptedDefault -and $Validate -and -not $SkipValidation) {
             $valid = & $Validate $plain
             if (-not $valid) {
                 $message = if ($ValidateMessage) { $ValidateMessage } else { 'Value is not valid.' }
@@ -290,10 +307,11 @@ function Get-HelpText {
             return @'
   Hex SID of the LAB-CLIENT01 computer object in Active Directory.
   Run on LAB-DC01:
-    $sid = (Get-ADComputer -Identity LAB-CLIENT01).ObjectSID
-    $bytes = New-Object byte[] $sid.BinaryLength
+    $sid = (Get-ADComputer -Identity LAB-CLIENT01).SID
+    if ($null -eq $sid) { throw "LAB-CLIENT01 SID was not returned by Active Directory." }
+    $bytes = [byte[]]::new($sid.BinaryLength)
     $sid.GetBinaryForm($bytes, 0)
-    [BitConverter]::ToString($bytes).Replace("-","").ToLower()
+    [BitConverter]::ToString($bytes).Replace("-","").ToLowerInvariant()
   Example: 010500000000000515000000...
 '@
         }
@@ -334,9 +352,17 @@ function Get-HelpText {
         }
         'DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST' {
             return @'
-  SHA-256 digest of the approved privilege manifest.
-  Compute from config/lab.phase1.example.yaml using:
-    Get-FileHash -Algorithm SHA256 -Path .\config\lab.phase1.example.yaml
+  Approval digest embedded in the unique 01-13 privilege manifest.
+  On LAB-DC01, read it from the deployed server configuration:
+    $configPath = 'C:\dlp\server\config\lab.phase1.example.yaml'
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { throw "Missing deployed configuration: $configPath" }
+    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $manifest = @($config.privilege_manifests | Where-Object { $_.plan_id -eq '01-13' })
+    if ($manifest.Count -ne 1) { throw "Expected exactly one 01-13 privilege manifest; found $($manifest.Count)." }
+    $digest = [string]$manifest[0].approval_digest
+    if ($digest -notmatch '^[A-Fa-f0-9]{64}$') { throw "The 01-13 approval_digest is not 64 hexadecimal characters." }
+    $digest.ToLowerInvariant()
+  Do not use Get-FileHash on the whole configuration file; that produces a different digest.
   Must be 64 lowercase hex characters.
 '@
         }
@@ -349,9 +375,27 @@ function Get-HelpText {
         }
         'DLP_AGENT_ENROLLMENT_TOKEN' {
             return @'
-  One-time enrollment token for the endpoint agent.
-  For automatic provisioning leave the placeholder and Invoke-Client01Runtime.ps1 will obtain it.
-  For manual enrollment, paste the token returned by the management server.
+  Preferred automatic flow (do this for a normal first-time installation):
+    1. Press Enter at this prompt. Do not type the REPLACE_ placeholder.
+    2. Finish the remaining environment prompts on hungdinh-lt.
+    3. From the repository root on hungdinh-lt, run:
+         $cred = Get-Credential -Message 'LAB-CLIENT01 administrator credential'
+         .\scripts\lab\Invoke-Client01Runtime.ps1 `
+           -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ProbeMachine LAB-DC01 `
+           -SecretProvider Runtime -Scenario ServiceInstall `
+           -EnrollmentTokenProvider TrustedProvisioning -Credential $cred -Apply
+    The runner invokes trusted provisioning on LAB-DC01, receives the short-lived
+    one-time token through the authenticated PowerShell session, installs it on
+    LAB-CLIENT01, and removes it after successful enrollment. You do not obtain,
+    display, copy, or save the token yourself.
+
+  Manual/troubleshooting flow only:
+    Run Invoke-Dc01Server.ps1 with -Scenario TrustedProvisioning in the SAME
+    PowerShell process on hungdinh-lt. That runner places the returned token in
+    $env:DLP_AGENT_ENROLLMENT_TOKEN without printing it. Then run
+    Invoke-Client01Runtime.ps1 with -EnrollmentTokenProvider Manual in that same
+    process. Never put this token in a committed env file, console transcript,
+    ticket, or chat. It is single-use and short-lived.
 '@
         }
         'DLP_DEVICE_ID' {
@@ -376,9 +420,24 @@ function Get-HelpText {
         }
         'DLP_CONFIGURATION_PUBLIC_KEY_HEX' {
             return @'
-  64-character lowercase hex Ed25519 public key used to verify signed configuration bundles.
-  Derive from the configuration signing seed, or obtain from the server/provisioning output.
-  Example: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  Ed25519 public key paired with the server's DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX.
+  Derive it on hungdinh-lt from the SAME protected process environment used to
+  deploy LAB-DC01. Never paste the private signing seed into this prompt.
+
+  From the repository root on hungdinh-lt:
+    1. Confirm the private seed is already loaded into the current process:
+         if ($env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX -notmatch '^[A-Fa-f0-9]{64}$') { throw 'Load the 64-hex server signing seed first.' }
+    2. Build the derivation command:
+         cargo build --release -p dlpctl
+    3. Derive and validate the public key without displaying the private seed:
+         $publicKey = (& .\target\release\dlpctl.exe configuration-public-key).Trim()
+         if ($LASTEXITCODE -ne 0 -or $publicKey -notmatch '^[a-f0-9]{64}$') { throw 'Public-key derivation failed.' }
+         $publicKey
+    4. Copy only the displayed $publicKey value into this prompt.
+
+  DLP_CONFIGURATION_KEY_ID must match on server and endpoint. The lab value is
+  phase1-config-signing-key-v1. When the signing seed changes, derive and deploy
+  the new public key before accepting configurations signed with the new seed.
 '@
         }
         'DLP_DATA_DIRECTORY' {
@@ -789,6 +848,7 @@ $Catalog = @(
         Prompt = 'Enrollment token for the endpoint agent'
         Default = 'REPLACE_WITH_TOKEN_FROM_PROVISIONING'
         Secure = $true
+        AllowEmpty = $true
     },
     [pscustomobject]@{
         Group = 'Agent runtime'
@@ -1011,6 +1071,7 @@ foreach ($entry in $Catalog) {
         -Prompt $entry.Prompt `
         -Default $entry.Default `
         -Secure:([bool](Get-EntryProperty $entry 'Secure')) `
+        -AllowEmpty:([bool](Get-EntryProperty $entry 'AllowEmpty')) `
         -Validate (Get-EntryProperty $entry 'Validate') `
         -ValidateMessage (Get-EntryProperty $entry 'ValidateMessage') `
         -HelpText (Get-HelpText $entry.Name) `
