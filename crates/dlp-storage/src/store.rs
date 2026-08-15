@@ -430,6 +430,36 @@ impl LocalEncryptedStore {
     pub(crate) fn preserve_integrity_evidence(&self, file: &FileId) -> Result<(), StorageError> {
         self.preserve_evidence_directory(&self.file_dir(file), "IntegrityFailure")
     }
+
+    pub(crate) fn preserve_namespace_integrity_evidence(&self) -> Result<(), StorageError> {
+        let source = self.namespace_path();
+        if !source.exists() {
+            return Ok(());
+        }
+        let evidence_root = self.root.join("evidence");
+        fs::create_dir_all(&evidence_root).map_err(map_io)?;
+        let evidence_id = format!("e-{:020}", NEXT_EVIDENCE.fetch_add(1, Ordering::Relaxed));
+        let evidence_dir = evidence_root.join(&evidence_id);
+        fs::create_dir(&evidence_dir).map_err(map_io)?;
+        let bytes = fs::read(&source).map_err(map_io)?;
+        let target = evidence_dir.join("r-00000000000000000001");
+        fs::write(&target, &bytes).map_err(map_io)?;
+        let digest = Sha256::digest(&bytes);
+        let mut diagnostics = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(evidence_root.join("diagnostics.log"))
+            .map_err(map_io)?;
+        diagnostics
+            .write_all(
+                format!(
+                    "integrity opaque={evidence_id} record=encrypted digest={digest:x} code=NamespaceIntegrityFailure\n"
+                )
+                .as_bytes(),
+            )
+            .map_err(map_io)?;
+        diagnostics.sync_all().map_err(map_io)
+    }
     fn cleanup_unreferenced_staging(
         &self,
         file: &FileId,
@@ -993,20 +1023,35 @@ impl LocalEncryptedStore {
         if !target.exists() {
             return Ok(());
         }
-        let record = self.read_record(&target)?;
+        let raw = fs::read(&target).map_err(map_io)?;
+        let record = match EncryptedRecordV1::decode(&raw) {
+            Ok(record) => record,
+            Err(_) => {
+                let _ = self.preserve_namespace_integrity_evidence();
+                return Err(StorageError::IntegrityFailure);
+            }
+        };
         if record.format_version != FORMAT_VERSION_V1
             || record.store_id != self.identity.store_id().to_wire()
             || record.file_id != "namespace-index"
             || record.record_kind != RecordKind::Manifest
             || record.chunk_index != 0
         {
+            let _ = self.preserve_namespace_integrity_evidence();
             return Err(StorageError::IntegrityFailure);
         }
         let cipher = RecordCipher::from_store_key(&self.key);
-        let plaintext = record.open(&cipher)?;
+        let plaintext = match record.open(&cipher) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                let _ = self.preserve_namespace_integrity_evidence();
+                return Err(StorageError::IntegrityFailure);
+            }
+        };
         let text = std::str::from_utf8(&plaintext).map_err(|_| StorageError::IntegrityFailure)?;
         let mut lines = text.lines();
         if lines.next() != Some("dlp-namespace/v1") {
+            let _ = self.preserve_namespace_integrity_evidence();
             return Err(StorageError::IntegrityFailure);
         }
         for line in lines {
@@ -1018,6 +1063,7 @@ impl LocalEncryptedStore {
                         .insert((*key).to_owned(), (*display).to_owned())
                         .is_some()
                     {
+                        let _ = self.preserve_namespace_integrity_evidence();
                         return Err(StorageError::IntegrityFailure);
                     }
                 }
@@ -1036,10 +1082,14 @@ impl LocalEncryptedStore {
                         )
                         .is_some()
                     {
+                        let _ = self.preserve_namespace_integrity_evidence();
                         return Err(StorageError::IntegrityFailure);
                     }
                 }
-                _ => return Err(StorageError::IntegrityFailure),
+                _ => {
+                    let _ = self.preserve_namespace_integrity_evidence();
+                    return Err(StorageError::IntegrityFailure);
+                }
             }
         }
         self.namespace_generation = record.generation;
