@@ -127,6 +127,7 @@ pub struct LdapDirectoryAdapter {
 }
 
 impl LdapDirectoryAdapter {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         primary_ldaps_url: impl Into<String>,
         secondary_ldaps_url: impl Into<String>,
