@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 status: executing
-stopped_at: null
-last_updated: "2026-08-15T16:00:00.000Z"
+stopped_at: Completed 01.1-01-PLAN.md
+last_updated: "2026-08-15T15:21:39.183Z"
 last_activity: 2026-08-15
 last_activity_desc: "Completed plan 01-20: WinFsp integrity, disk-full, service-restart, and Windows-reboot recovery"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 16
-  completed_plans: 11
+  completed_plans: 13
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -49,10 +49,10 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 ## Current Position
 
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — EXECUTING
-- **Plan:** 16 of 21 (next)
+- **Plan:** 17 of 21 (next)
 - **Task:** 0 of 2
 - **Status:** Ready to execute
-- **Progress:** [█████████░] 82%
+- **Progress:** [████████░░] 81%
 - **Next plan:** 01-16 production-provider encrypted-drive vertical slice and D-16/D-17/D-18 matrix
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by VM reachability.
 
@@ -83,6 +83,7 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 | Phase 01.1-add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp P01 | 12m | 3 tasks | 3 files |
 | Phase 01.3 P01 | 67m | 2 tasks | 8 files |
 | Phase 01.3 P02 | 8m | 2 tasks | 6 files |
+| Phase 01.1-add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp P01 | 18min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -114,8 +115,8 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 
 **Resume file:** None
 
-**Last session:** 2026-08-15T09:34:39.008Z
-**Stopped at:** context exhaustion at 75% (2026-08-15)
+**Last session:** 2026-08-15T15:21:39.166Z
+**Stopped at:** Completed 01.1-01-PLAN.md
 
 **Current session:** 2026-08-13
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
@@ -172,6 +173,9 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 - [Phase ?]: 01.3-02: Authorize only accepted TCP peers via Axum ConnectInfo; forwarding and certificate-style headers are ignored.
 - [Phase ?]: 01.3-02: Preserve Plan 01 tail semantics: omitted tail uses the configured maximum and over-limit input is invalid_tail.
 - [Phase ?]: 01.3-02: SCM pre-binds 0.0.0.0 before Running and maps lifecycle failures to stable nonzero exits.
+- [Phase ?]: Kept example env-var lines in HYPERV-DLP-STARTUP-GUIDE.md as quick reminder while deferring collection instructions to ENV-VARS.md
+- [Phase ?]: Documented DLP_ROOT_CA_PEM as accepting inline PEM content or a filesystem path
+- [Phase ?]: Added session-config variables to ENV-VARS.md to satisfy must-have that every consumed service variable is documented
 
 ### Blockers
 
