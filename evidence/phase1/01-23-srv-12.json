@@ -1,0 +1,63 @@
+{
+  "schema_version": "phase1-evidence/v1",
+  "evidence_id": "33333333-3333-3333-3333-333333333333",
+  "requirement_id": "SRV-12",
+  "check_id": "server-readiness",
+  "status": "pass",
+  "observed_utc": "2026-08-15T18:26:59Z",
+  "clock_offset_seconds": 0,
+  "commit_id": "e18bafe66b5fee0f798f468588f12c643329d054",
+  "target_machine": "hungdinh-lt",
+  "target_role": "developer_orchestrator",
+  "procedure_version": 1,
+  "identity": {
+    "kind": "source_only",
+    "operator": "Hung Dinh"
+  },
+  "environment_fingerprint": {
+    "machine_identity": "hungdinh-lt",
+    "role": "developer_orchestrator",
+    "os_build": "Windows 11 Pro 10.0.26200",
+    "dependency_versions": "cargo 1.97.0, rustc 1.97.0, sqlx 0.9.0, axum 0.8.9",
+    "service_config_digest": "1bdf7f552250285b28567680b445dfa77630d628fcc2febdf46ffa0e8af2eaa4",
+    "test_tool_versions": "cargo test, cargo clippy",
+    "domain_network_identity": "source-only; PostgreSQL and TLS material supplied by environment",
+    "baseline_id": "phase1-evidence/v1",
+    "binary_hashes": "not_built_source_only"
+  },
+  "expected_result": "Production startup constructs all concrete providers from runtime configuration, validates them, runs PostgreSQL migrations, and only then binds the TLS listener; missing providers prevent startup.",
+  "actual_result": "ProductionProviders::from_environment loads directory, PostgreSQL pool, certificate issuer, configuration signer, repositories, services, and TLS paths; validate_providers rejects any missing provider; source tests pass.",
+  "verification_tier": "portable_automation",
+  "substitute": "none",
+  "deviation": {
+    "state": "none",
+    "description": ""
+  },
+  "raw_artifacts": [
+    {
+      "uri": "crates/dlp-server/src/lib.rs",
+      "sha256": "1bdf7f552250285b28567680b445dfa77630d628fcc2febdf46ffa0e8af2eaa4",
+      "accessible": true
+    },
+    {
+      "uri": "crates/dlp-server/src/main.rs",
+      "sha256": "109ec7a6951c3926321b1843862c92f8b1ddf1cd47369b9c21749403e4cc5a0e",
+      "accessible": true
+    },
+    {
+      "uri": "config/server.env.example",
+      "sha256": "30d497ea601394179f2343c4fb0d81a1927e4ccd34192a36e3510872d511f5c2",
+      "accessible": true
+    }
+  ],
+  "retention": {
+    "deadline_utc": "2026-09-15T18:26:59Z",
+    "hold": true,
+    "state": "retained"
+  },
+  "redaction_scan": "passed",
+  "self_contained": false,
+  "dependency_digests": {
+    "crates/dlp-server/src/lib.rs": "1bdf7f552250285b28567680b445dfa77630d628fcc2febdf46ffa0e8af2eaa4"
+  }
+}

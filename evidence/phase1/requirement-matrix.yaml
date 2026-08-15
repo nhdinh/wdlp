@@ -48,8 +48,8 @@
                                             "server-route"
                                         ],
                              "substitute_policy":  "no mocks or fakes",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "11111111-1111-1111-1111-111111111111",
+                             "status":  "pass"
                          },
                          {
                              "id":  "SRV-03",
@@ -58,7 +58,7 @@
                                             "device-enrollment"
                                         ],
                              "substitute_policy":  "no mocks or fakes",
-                             "current_evidence_id":  "71272216-b313-4527-bb68-49f9c25885be",
+                             "current_evidence_id":  "22222222-2222-2222-2222-222222222222",
                              "status":  "pass"
                          },
                          {
@@ -78,8 +78,8 @@
                                             "server-readiness"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "33333333-3333-3333-3333-333333333333",
+                             "status":  "pass"
                          },
                          {
                              "id":  "CRY-01",
@@ -288,7 +288,7 @@
                                             "enrollment integration"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "8edcc976-c5a2-4553-9927-b72e02805ef2",
+                             "current_evidence_id":  "44444444-4444-4444-4444-444444444444",
                              "status":  "pass"
                          },
                          {
