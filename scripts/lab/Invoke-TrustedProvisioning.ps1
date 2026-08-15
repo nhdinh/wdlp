@@ -116,13 +116,25 @@ function New-ProtectedProvisioningDirectory {
     return $path
 }
 
+function Assert-DomainTimeSkew([string]$ComputerName) {
+    # w32tm is the Windows Time service diagnostic tool. A single stripchart
+    # sample against the authoritative DC reports the local clock offset. Fail
+    # closed if the tool is unavailable or the offset cannot be parsed.
+    $output = @(w32tm /stripchart /computer:$ComputerName /samples:1 /dataonly 2>&1)
+    $line = $output | Select-Object -Last 1
+    if ($line -notmatch '([\+\-]?\d+\.?\d*)\s*s') {
+        Stop-TrustedProvisioning 'domain_time_skew'
+    }
+    $offset = [math]::Abs([double]$matches[1])
+    Assert-TrustedProvisioning ($offset -le 300) 'domain_time_skew'
+}
+
 # All guards run before directory or remote-CIM access.
 Assert-TrustedProvisioning ($env:COMPUTERNAME -eq 'LAB-DC01' -and $ExecutionMachine -eq 'LAB-DC01') 'execution_machine_denied'
 Assert-TrustedProvisioning ($TargetComputer -eq 'LAB-CLIENT01.lab.local') 'target_denied'
 Assert-TrustedProvisioning ($PrivilegeManifestDigest -eq $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST) 'privilege_manifest_denied'
 Assert-ProvisioningMaterialPresent
-$domainTime = (Get-Date).ToUniversalTime()
-Assert-TrustedProvisioning ([math]::Abs(((Get-Date).ToUniversalTime() - $domainTime).TotalSeconds) -le 300) 'domain_time_skew'
+Assert-DomainTimeSkew -ComputerName 'LAB-DC01.lab.local'
 
 $primary = Get-ADComputer -Server 'LAB-DC01.lab.local' -Identity 'LAB-CLIENT01' -Properties Enabled,ObjectGUID,DNSHostName
 $secondary = Get-ADComputer -Server 'LAB-DC02.lab.local' -Identity 'LAB-CLIENT01' -Properties Enabled,ObjectGUID,DNSHostName
