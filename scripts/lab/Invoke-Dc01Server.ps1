@@ -310,6 +310,18 @@ function Install-Dc01ServerBinary {
     $remoteBinary = 'C:\dlp\server\dlp-server.exe'
     Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $localBinary -DestinationPath $remoteBinary
 
+    # Deploy dlpctl so trusted provisioning can invoke it on LAB-DC01 without
+    # requiring the tool to be on the VM's PATH.
+    $localDlpctl = Join-Path $RepoRoot 'target/release/dlpctl.exe'
+    if (-not (Test-Path -LiteralPath $localDlpctl)) {
+        Write-Host 'Building dlpctl release binary on hungdinh-lt...'
+        $proc = Start-Process -FilePath 'cargo' -ArgumentList @('build', '--release', '-p', 'dlpctl') -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { Stop-Dc01 'cargo_build_dlpctl_failed' }
+    }
+    Assert-Dc01 (Test-Path -LiteralPath $localDlpctl) 'release_dlpctl_binary_missing'
+    $remoteDlpctl = 'C:\dlp\server\dlpctl.exe'
+    Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $localDlpctl -DestinationPath $remoteDlpctl
+
     # Deploy the trusted-provisioning helper so it can be invoked from LAB-DC01.
     $localProvScript = Join-Path $RepoRoot 'scripts/lab/Invoke-TrustedProvisioning.ps1'
     $remoteProvScript = 'C:\dlp\server\scripts\lab\Invoke-TrustedProvisioning.ps1'
@@ -645,6 +657,9 @@ function Invoke-TrustedProvisioningScenario {
     Assert-RuntimeProvisioningSecretsPresent
     $digest = Get-ApprovedPrivilegeManifestDigest
     $provisioningAdminCa = Resolve-PemContent -Name 'DLP_ADMIN_CA_CERT_PEM' -Value $env:DLP_ADMIN_CA_CERT_PEM
+    $provisioningRootCa = Resolve-PemContent -Name 'DLP_PROVISIONING_ROOT_CA_PEM' -Value $env:DLP_PROVISIONING_ROOT_CA_PEM
+    $provisioningAdminCert = Resolve-PemContent -Name 'DLP_PROVISIONING_ADMIN_CERT_PEM' -Value $env:DLP_PROVISIONING_ADMIN_CERT_PEM
+    $provisioningAdminKey = Resolve-PemContent -Name 'DLP_PROVISIONING_ADMIN_KEY_PEM' -Value $env:DLP_PROVISIONING_ADMIN_KEY_PEM
 
     # Ensure server is running so dlpctl can POST the provisioning request.
     Start-Dc01Server -WaitForReady
@@ -657,8 +672,9 @@ function Invoke-TrustedProvisioningScenario {
         $env:DLP_PROVISIONING_ROOT_CA_PEM = $ProvisioningRootCa
         $env:DLP_PROVISIONING_ADMIN_CERT_PEM = $ProvisioningAdminCert
         $env:DLP_PROVISIONING_ADMIN_KEY_PEM = $ProvisioningAdminKey
+        $env:DLP_PROVISIONING_DLPCTL_PATH = 'C:\dlp\server\dlpctl.exe'
         & scripts/lab/Invoke-TrustedProvisioning.ps1 -ExecutionMachine LAB-DC01 -TargetComputer $Target -PrivilegeManifestDigest $Digest -PreferredDriveLetter $PreferredLetter -AdminCaPem $ProvisioningAdminCa
-    } -ArgumentList @($digest, 'LAB-CLIENT01.lab.local', 'P', $env:DLP_PROVISIONING_ROOT_CA_PEM, $env:DLP_PROVISIONING_ADMIN_CERT_PEM, $env:DLP_PROVISIONING_ADMIN_KEY_PEM, $provisioningAdminCa)
+    } -ArgumentList @($digest, 'LAB-CLIENT01.lab.local', 'P', $provisioningRootCa, $provisioningAdminCert, $provisioningAdminKey, $provisioningAdminCa)
 
     $result = $resultJson | ConvertFrom-Json
 
