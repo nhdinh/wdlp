@@ -8,7 +8,7 @@
 
 ## Overview
 
-LAB-SERVER01 hosts the DLP management server's PostgreSQL database natively. This replaces the earlier Docker Compose deployment model for the database tier. The management server (LAB-DC01) and developer orchestration host (hungdinh-lt) connect to this database over the lab network.
+LAB-SERVER01 hosts the DLP management server's PostgreSQL database natively. This replaces the earlier Docker Compose deployment model for the database tier. The management server runs on LAB-DC01, while LAB-DC01 and the developer orchestration host (hungdinh-lt) connect to this database over the lab network.
 
 ## Network Placement
 
@@ -23,7 +23,7 @@ The runtime-only secret provider supplies the following values. They are never c
 | Secret | Purpose |
 |--------|---------|
 | `DLP_DATABASE_URL` | Full PostgreSQL connection string for the `dlp` database. Example: `postgres://dlp_server:<password>@192.168.50.12:5432/dlp` |
-| `DLP_SERVER_HOST` | Management server hostname/IP used by probes. Currently `192.168.50.12` while LAB-SERVER01 co-hosts initial services; update when the management server moves to LAB-DC01. |
+| `DLP_SERVER_HOST` | Management server hostname/IP used by probes: `LAB-DC01` (`192.168.50.10`), not the PostgreSQL host. |
 
 ## PostgreSQL Configuration
 
@@ -72,3 +72,9 @@ Expected result after all three Phase 1 migrations: `3`.
 - Docker and Docker Compose are no longer used for the Phase 1 database tier.
 - The `deploy/compose.yaml` file remains as a reference for container-based deployments but is not exercised in this lab.
 - All database evidence for Plan 01-13 is collected against this native PostgreSQL instance, not a local SQLite or containerized substitute.
+
+## Related Documentation
+
+- [README.md](README.md) — documentation front door and ownership map.
+- [HYPERV-DLP-STARTUP-GUIDE.md](HYPERV-DLP-STARTUP-GUIDE.md) — daily database and management-server startup sequence.
+- [LAB-SETUP-GUIDE.md](LAB-SETUP-GUIDE.md) — complete first-time lab setup sequence.

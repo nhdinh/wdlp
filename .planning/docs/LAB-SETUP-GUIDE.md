@@ -2,6 +2,8 @@
 
 This guide walks through setting up the Phase 1 Windows Data Leakage Prevention (DLP) lab from scratch. It assumes the Hyper-V VMs already exist; if you need VM start/stop/cold-start commands, see [.planning/docs/HYPERV-VM-START-GUIDE.md](HYPERV-VM-START-GUIDE.md). For day-to-day boot and service startup after setup is complete, see [.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md](HYPERV-DLP-STARTUP-GUIDE.md).
 
+Use the [.planning/docs/README.md](README.md) ownership map to choose the canonical specialist guide, and [scripts/README.md](../../scripts/README.md) to distinguish supported script entrypoints from lab helpers and evidence support.
+
 > **Security note:** All secrets (certificates, private keys, passwords, enrollment tokens) are runtime-only. They must never be committed to source control. Use a password manager, HSM, or the interactive setup script to supply them.
 
 ## Lab Topology
@@ -376,7 +378,7 @@ For the independent `DlpLogDebugService` diagnostic runbook, see [.planning/docs
 
 ## 10. Lab Scripts Inventory
 
-See `scripts/lab/README.md` for a summary of every script, its prerequisites, and example invocations.
+See [scripts/lab/README.md](../../scripts/lab/README.md) for a summary of every script, its prerequisites, invocation role, and example invocations.
 
 ## 11. Related Documentation
 
@@ -386,5 +388,5 @@ See `scripts/lab/README.md` for a summary of every script, its prerequisites, an
 - [.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md](HYPERV-DLP-STARTUP-GUIDE.md) — daily cold-start and service startup.
 - [.planning/docs/HYPERV-VM-START-GUIDE.md](HYPERV-VM-START-GUIDE.md) — Hyper-V VM power management.
 - [.planning/docs/DLP-LOG-DEBUG-SERVICE.md](DLP-LOG-DEBUG-SERVICE.md) — development-only log debugger.
-- [.planning/STATE.md](STATE.md) — current project state and blockers.
-- [.planning/WINDOWS.md](WINDOWS.md) — broken-windows ledger.
+- [.planning/STATE.md](../STATE.md) — current project state and blockers.
+- [.planning/WINDOWS.md](../WINDOWS.md) — broken-windows ledger.

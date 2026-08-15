@@ -2,6 +2,8 @@
 
 Step-by-step PowerShell commands for booting the Phase 1 DLP lab environment on Hyper-V VMs and bringing up the PostgreSQL database, management server, and endpoint agent service.
 
+**Scope:** Daily operating startup after the lab has been provisioned. For first-time provisioning, follow [LAB-SETUP-GUIDE.md](LAB-SETUP-GUIDE.md); for the complete documentation ownership map, see [README.md](README.md).
+
 > **Lab topology:**
 > - `hungdinh-lt` — developer orchestration host (where you run these commands).
 > - `LAB-SERVER01` (`192.168.50.12`) — native PostgreSQL database server (Ubuntu Server; managed via SSH).
@@ -570,15 +572,16 @@ Invoke-Command -VMName 'LAB-CLIENT01' -Credential $cred -ScriptBlock {
 
 ## Related Docs
 
-- `.planning/docs/DLP-LOG-DEBUG-SERVICE.md` - development-only independent log debugger lifecycle and troubleshooting; it is not part of endpoint deployment.
-
-- `.planning/docs/ENV-VARS.md` — canonical reference for DLP Windows agent runtime environment variables.
-- `.planning/docs/PEM-KEY-GUIDE.md` — how to obtain or generate the PEM/KEY files used by the lab.
-- `.planning/docs/HYPERV-VM-START-GUIDE.md` — generic Hyper-V VM start/cold-start reference.
-- `.planning/docs/LAB-SERVER01-SETUP.md` — PostgreSQL setup on `LAB-SERVER01`.
-- `scripts/lab/Invoke-Dc01Server.ps1` — management-server orchestration.
-- `scripts/lab/Invoke-Client01Runtime.ps1` — endpoint agent service deployment on `LAB-CLIENT01`.
-- `scripts/lab/Invoke-Phase1EnvironmentReconcile.ps1` — developer-host cleanup.
-- `tests/windows/Invoke-AgentServiceSmoke.ps1` — endpoint agent smoke tests.
-- `.planning/STATE.md` — current lab environment status.
-- `.planning/WINDOWS.md` — broken-windows ledger (open stubs / unrun verification).
+- [README.md](README.md) — documentation front door and ownership map.
+- [LAB-SETUP-GUIDE.md](LAB-SETUP-GUIDE.md) — first-time provisioning sequence.
+- [DLP-LOG-DEBUG-SERVICE.md](DLP-LOG-DEBUG-SERVICE.md) — development-only independent log debugger lifecycle and troubleshooting; it is not part of endpoint deployment.
+- [ENV-VARS.md](ENV-VARS.md) — canonical reference for DLP Windows agent runtime environment variables.
+- [PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md) — how to obtain or generate the PEM/KEY files used by the lab.
+- [HYPERV-VM-START-GUIDE.md](HYPERV-VM-START-GUIDE.md) — generic Hyper-V VM start/cold-start reference.
+- [LAB-SERVER01-SETUP.md](LAB-SERVER01-SETUP.md) — PostgreSQL setup on `LAB-SERVER01`.
+- [scripts/lab/Invoke-Dc01Server.ps1](../../scripts/lab/Invoke-Dc01Server.ps1) — management-server orchestration.
+- [scripts/lab/Invoke-Client01Runtime.ps1](../../scripts/lab/Invoke-Client01Runtime.ps1) — endpoint agent service deployment on `LAB-CLIENT01`.
+- [scripts/lab/Invoke-Phase1EnvironmentReconcile.ps1](../../scripts/lab/Invoke-Phase1EnvironmentReconcile.ps1) — developer-host cleanup.
+- [tests/windows/Invoke-AgentServiceSmoke.ps1](../../tests/windows/Invoke-AgentServiceSmoke.ps1) — endpoint agent smoke tests.
+- [STATE.md](../STATE.md) — current lab environment status.
+- [WINDOWS.md](../WINDOWS.md) — broken-windows ledger (open stubs / unrun verification).

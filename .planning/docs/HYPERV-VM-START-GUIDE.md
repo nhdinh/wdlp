@@ -256,5 +256,8 @@ Start-VM -Name "LAB-CLIENT01" -ComputerName "HV-LAB01" -Credential (Get-Credenti
 
 ## Related Project Docs
 
-- `.planning/docs/LAB-SERVER01-SETUP.md` — server provisioning steps
-- `.planning/STATE.md` — current lab environment status
+- [README.md](README.md) — documentation front door and ownership map.
+- [LAB-SETUP-GUIDE.md](LAB-SETUP-GUIDE.md) — first-time DLP lab provisioning.
+- [HYPERV-DLP-STARTUP-GUIDE.md](HYPERV-DLP-STARTUP-GUIDE.md) — daily DLP service startup after the VMs are running.
+- [LAB-SERVER01-SETUP.md](LAB-SERVER01-SETUP.md) — PostgreSQL host provisioning and migration verification.
+- [STATE.md](../STATE.md) — current lab environment status.
