@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-SERVER01', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart', 'SignInMount', 'LetterRetrySignOutRestart')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart', 'SignInMount', 'LetterRetrySignOutRestart', 'WinFspIntegrityRecovery')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -277,6 +277,55 @@ function Invoke-LetterRetrySignOutRestart {
     Assert-Phase1 ($smoke -match "'LetterRetrySignOutRestart'") 'service session smoke test lacks LetterRetrySignOutRestart scenario'
 }
 
+function Invoke-WinFspIntegrityRecovery {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'WinFspIntegrityRecovery verifier must run on hungdinh-lt'
+
+    $installer = Get-Content -LiteralPath (Join-Path $repoRoot 'tests/windows/Install-WinFsp.ps1') -Raw
+    Assert-Phase1 ($installer -match '\$CallerMachine') 'WinFsp installer must accept CallerMachine'
+    Assert-Phase1 ($installer -match '\$ExecutionMachine') 'WinFsp installer must accept ExecutionMachine'
+    Assert-Phase1 ($installer -match "ValidateSet\('LAB-CLIENT01'\)") 'WinFsp installer must restrict execution to LAB-CLIENT01'
+    Assert-Phase1 ($installer -match 'Write-Blocker') 'WinFsp installer must record blockers when the endpoint is unreachable'
+    Assert-Phase1 ($installer -match 'winfsp-2\.1\.25156\.msi') 'WinFsp installer must pin the approved 2.1 x64 package'
+    Assert-Phase1 ($installer -match '073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a') 'WinFsp installer must pin the approved SHA-256'
+    Assert-Phase1 ($installer -match 'Navimatics') 'WinFsp installer must verify the official Authenticode signer'
+
+    $smoke = Get-Content -LiteralPath (Join-Path $repoRoot 'tests/windows/Invoke-ServiceSessionSmoke.ps1') -Raw
+    Assert-Phase1 ($smoke -match "'WinFspServiceRestartReboot'") 'session smoke lacks WinFspServiceRestartReboot scenario'
+    Assert-Phase1 ($smoke -match "'CorruptAuthenticatedContent'") 'session smoke lacks CorruptAuthenticatedContent scenario'
+    Assert-Phase1 ($smoke -match "'CorruptSensitiveMetadata'") 'session smoke lacks CorruptSensitiveMetadata scenario'
+    Assert-Phase1 ($smoke -match "'BackingStoreDiskFull'") 'session smoke lacks BackingStoreDiskFull scenario'
+    Assert-Phase1 ($smoke -match 'STATUS_INTEGRITY_FAILURE') 'session smoke must assert STATUS_INTEGRITY_FAILURE'
+    Assert-Phase1 ($smoke -match 'STATUS_DISK_FULL') 'session smoke must assert STATUS_DISK_FULL'
+    Assert-Phase1 ($smoke -match '0xC000003E') 'session smoke must assert exact integrity NTSTATUS'
+    Assert-Phase1 ($smoke -match '0xC000007F') 'session smoke must assert exact disk-full NTSTATUS'
+    Assert-Phase1 ($smoke -match 'Write-Evidence') 'session smoke must publish evidence records'
+
+    $mounted = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-drive/tests/mounted_smoke.rs') -Raw
+    Assert-Phase1 ($mounted -match 'corrupt_authenticated_content_returns_integrity_failure_and_preserves_evidence') 'mounted smoke lacks corrupt content test'
+    Assert-Phase1 ($mounted -match 'corrupt_sensitive_metadata_denies_mount_and_preserves_evidence') 'mounted smoke lacks corrupt metadata test'
+    Assert-Phase1 ($mounted -match 'backing_store_disk_full_returns_no_space_and_preserves_baseline_hash') 'mounted smoke lacks disk-full test'
+    Assert-Phase1 ($mounted -match 'skip_if_winfsp_unavailable') 'mounted smoke must skip gracefully when WinFsp is absent'
+    Assert-Phase1 ($mounted -match 'STATUS_INTEGRITY_FAILURE') 'mounted smoke must reference STATUS_INTEGRITY_FAILURE'
+    Assert-Phase1 ($mounted -match 'StorageError::NoSpace') 'mounted smoke must reference StorageError::NoSpace'
+
+    $status = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-drive/src/status.rs') -Raw
+    Assert-Phase1 ($status -match 'STATUS_INTEGRITY_FAILURE' -and $status -match '0xC000_003E') 'status mapping lacks exact STATUS_INTEGRITY_FAILURE'
+    Assert-Phase1 ($status -match 'STATUS_DISK_FULL' -and $status -match '0xC000_007F') 'status mapping lacks exact STATUS_DISK_FULL'
+
+    $store = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-storage/src/store.rs') -Raw
+    Assert-Phase1 ($store -match 'preserve_namespace_integrity_evidence') 'store lacks namespace integrity evidence preservation'
+    Assert-Phase1 ($store -match 'DurabilityFaultPoint::BeforePointerReplace') 'store lacks NoSpace pointer-publication fault seam'
+
+    $recovery = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-storage/src/recovery.rs') -Raw
+    Assert-Phase1 ($recovery -match 'preserve_integrity_evidence') 'recovery lacks integrity evidence preservation'
+
+    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $approval = @($config.privilege_approvals | Where-Object { $_.plan_id -eq '01-20' })
+    Assert-Phase1 ($approval.Count -eq 1) '01-20 privilege approval is missing or duplicate'
+    Assert-Phase1 ($approval[0].decision -eq 'approve-listed-digests') '01-20 approval decision is invalid'
+    Assert-Phase1 ($approval[0].manifest_digest -eq '0699b0e3dab91f85da5e5e3d354fe909e7fd6a33424b9e34c02a4d37b1bfc465') '01-20 approval digest does not bind the approved manifest'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
@@ -296,6 +345,7 @@ switch ($Scenario) {
     'ServiceRestart' { Invoke-ServiceRestart }
     'SignInMount' { Invoke-SignInMount }
     'LetterRetrySignOutRestart' { Invoke-LetterRetrySignOutRestart }
+    'WinFspIntegrityRecovery' { Invoke-WinFspIntegrityRecovery }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json

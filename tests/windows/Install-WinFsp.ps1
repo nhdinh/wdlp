@@ -1,7 +1,38 @@
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory)][string]$CallerMachine,
+    [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$ExecutionMachine
+)
 
 $ErrorActionPreference = 'Stop'
+
+function Write-Blocker {
+    param([Parameter(Mandatory)][string]$Reason)
+    $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $blockerPath = Join-Path $repoRoot 'evidence/phase1/attempts'
+    New-Item -ItemType Directory -Force -Path $blockerPath | Out-Null
+    $id = [guid]::NewGuid().ToString()
+    $record = [pscustomobject]@{
+        schema_version    = 'phase1-evidence/v1'
+        evidence_id       = $id
+        plan_id           = '01-20'
+        scenario          = 'InstallWinFsp'
+        status            = 'blocked'
+        execution_machine = $ExecutionMachine
+        caller_machine    = $CallerMachine
+        actual_result     = $Reason
+        utc               = (Get-Date -Format 'o')
+    }
+    $path = Join-Path $blockerPath "winfsp-install-${id}.json"
+    $record | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $path -Encoding UTF8
+    Write-Warning "RUNTIME BLOCKER: $Reason (recorded at $path)"
+}
+
+if ($ExecutionMachine -ne $env:COMPUTERNAME) {
+    Write-Blocker -Reason "${ExecutionMachine} is not the local machine (${CallerMachine}); WinFsp installation must run interactively on the endpoint"
+    return
+}
+
 $installerUrl = 'https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi'
 $expectedSha256 = '073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a'
 $installer = Join-Path $env:TEMP 'winfsp-2.1.25156-x64.msi'

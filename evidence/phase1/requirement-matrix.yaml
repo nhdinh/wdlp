@@ -88,8 +88,8 @@
                                             "aead-store"
                                         ],
                              "substitute_policy":  "deterministic portable faults only",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "b7a9c8e3-4d2f-4e8b-9c1a-3f5e7d9b0a2c",
+                             "status":  "pass"
                          },
                          {
                              "id":  "CRY-02",
