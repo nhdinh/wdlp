@@ -203,6 +203,15 @@ None - no external service configuration required.
 ## Auth Gates
 None.
 
+## Self-Check: PASSED
+
+- `01-20-SUMMARY.md` exists.
+- `evidence/phase1/manifests/cry-01-aead-store-integrity.json` exists.
+- Commits `d13581d`, `7cc2c8a`, `6a4295e`, `971518c`, `82e8ea0`, `3c2b9f8` are present.
+- `cargo test --locked -p dlp-windows-drive --test mounted_smoke` passed (4 skipped).
+- `cargo test --locked -p dlp-storage --test integrity` passed (6 passed).
+- `scripts/verify-phase1-evidence.ps1 -Scenario WinFspIntegrityRecovery` passed.
+
 ---
 *Phase: 01-first-encrypted-drive-vertical-slice*
 *Completed: 2026-08-15*
