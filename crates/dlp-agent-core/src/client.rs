@@ -340,18 +340,34 @@ fn validate_device_chain(
 
     let roots = rustls_pemfile::certs(&mut trusted_root_pem.as_bytes())
         .map_err(|_| ClientError::InvalidTrustAnchor)?;
-    let root_subject = roots
-        .first()
-        .and_then(|root_der| parse_x509_certificate(root_der.as_slice()).ok())
-        .map(|(_, root)| root.subject().to_string())
-        .ok_or(ClientError::InvalidTrustAnchor)?;
-    let root_in_chain = certs.iter().any(|cert| {
-        parse_x509_certificate(cert.as_slice())
-            .ok()
-            .map(|(_, cert)| cert.subject().to_string())
-            .is_some_and(|subject| subject == root_subject)
+    if roots.is_empty() {
+        return Err(ClientError::InvalidTrustAnchor);
+    }
+
+    // The enrollment response is leaf -> device-issuing CA -> public HTTPS
+    // root. The Phase 1 root is deliberately not the device leaf's issuer.
+    // Verify the real device chain and require the returned public root to be
+    // byte-for-byte one of the locally pinned anchors; matching a subject name
+    // alone is not proof of identity.
+    let issuer_der = certs.get(1).ok_or(ClientError::ProfileRejected)?;
+    let issuer = parse_x509_certificate(issuer_der.as_slice())
+        .map_err(|_| ClientError::ProfileRejected)?
+        .1;
+    if !issuer.is_ca() || leaf.issuer() != issuer.subject() {
+        return Err(ClientError::ProfileRejected);
+    }
+    leaf.verify_signature(Some(issuer.public_key()))
+        .map_err(|_| ClientError::ProfileRejected)?;
+    issuer
+        .verify_signature(Some(issuer.public_key()))
+        .map_err(|_| ClientError::ProfileRejected)?;
+
+    let pinned_root_in_chain = certs.iter().skip(2).any(|returned| {
+        roots
+            .iter()
+            .any(|trusted| returned.as_slice() == trusted.as_slice())
     });
-    if !root_in_chain {
+    if !pinned_root_in_chain {
         return Err(ClientError::ProfileRejected);
     }
 

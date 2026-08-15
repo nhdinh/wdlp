@@ -80,9 +80,7 @@ impl HealthSnapshot {
                 let version = pointers.current_version.map(|v| v.to_string());
                 (state.into(), version)
             }
-            Err(CacheError::CorruptPointer | CacheError::MissingBundle) => {
-                ("corrupt".into(), None)
-            }
+            Err(CacheError::CorruptPointer | CacheError::MissingBundle) => ("corrupt".into(), None),
             Err(_) => ("error".into(), None),
         };
 

@@ -113,7 +113,11 @@ fn stable_sid_digest(sid: &UserSid) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(sid.to_wire().as_bytes());
     // Store IDs must be ASCII alphanumeric/hyphen/underscore and <= 128 chars.
-    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()[..64].to_owned()
+    digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()[..64]
+        .to_owned()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -230,7 +234,7 @@ impl SessionTokenProvider for WtsSessionTokenProvider {
 #[cfg(windows)]
 pub fn active_session_ids() -> Vec<u32> {
     use windows::Win32::System::RemoteDesktop::{
-        WTSFreeMemory, WTSEnumerateSessionsW, WTS_SESSION_INFOW, WTS_CONNECTSTATE_CLASS,
+        WTS_CONNECTSTATE_CLASS, WTS_SESSION_INFOW, WTSEnumerateSessionsW, WTSFreeMemory,
     };
     unsafe {
         let mut info: *mut WTS_SESSION_INFOW = std::ptr::null_mut();
@@ -274,8 +278,7 @@ pub fn token_user_sid(token: &PrimaryToken) -> Result<UserSid, SessionError> {
         use windows::Win32::{
             Foundation::LocalFree,
             Security::{
-                Authorization::ConvertSidToStringSidW,
-                GetTokenInformation, TOKEN_USER, TokenUser,
+                Authorization::ConvertSidToStringSidW, GetTokenInformation, TOKEN_USER, TokenUser,
             },
         };
         let mut size = 0u32;
@@ -299,12 +302,12 @@ pub fn token_user_sid(token: &PrimaryToken) -> Result<UserSid, SessionError> {
             let mut string_sid = windows::core::PWSTR::null();
             ConvertSidToStringSidW(user.User.Sid, &mut string_sid)
                 .map_err(|_| SessionError::TokenUnavailable)?;
-            let len = (0..)
-                .find(|i| *string_sid.0.add(*i) == 0)
-                .unwrap_or(0);
+            let len = (0..).find(|i| *string_sid.0.add(*i) == 0).unwrap_or(0);
             let slice = std::slice::from_raw_parts(string_sid.0, len);
             let text = String::from_utf16(slice).map_err(|_| SessionError::TokenUnavailable)?;
-            let _ = LocalFree(Some(windows::Win32::Foundation::HLOCAL(string_sid.0 as *mut _)));
+            let _ = LocalFree(Some(windows::Win32::Foundation::HLOCAL(
+                string_sid.0 as *mut _,
+            )));
             UserSid::parse(text).map_err(|_| SessionError::InvalidIdentity)
         }
     }
@@ -700,10 +703,7 @@ mod tests {
     }
 
     impl SessionTokenProvider for FakeTokenProvider {
-        fn primary_token(
-            &self,
-            session_id: u32,
-        ) -> Option<(PrimaryToken, UserSid)> {
+        fn primary_token(&self, session_id: u32) -> Option<(PrimaryToken, UserSid)> {
             if session_id == 0 {
                 return None;
             }

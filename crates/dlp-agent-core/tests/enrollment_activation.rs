@@ -101,10 +101,7 @@ fn truncate(bytes: &[u8]) -> Vec<u8> {
     bytes.iter().copied().take(bytes.len() / 2).collect()
 }
 
-fn assert_pointers_unchanged(
-    cache: &ConfigurationCache,
-    expected: &CachePointers,
-) {
+fn assert_pointers_unchanged(cache: &ConfigurationCache, expected: &CachePointers) {
     let actual = cache.load_pointers().expect("load pointers");
     assert_eq!(&actual, expected, "cache pointers should not have changed");
 }
@@ -120,7 +117,10 @@ fn higher_valid_bundle_becomes_current_and_prior_becomes_lkg() {
     let outcome = cache
         .stage_verify_activate(&first, &verifier)
         .expect("activate first");
-    assert!(matches!(outcome, ActivationOutcome::Activated { version: 1, .. }));
+    assert!(matches!(
+        outcome,
+        ActivationOutcome::Activated { version: 1, .. }
+    ));
 
     let pointers_after_first = cache.load_pointers().expect("load pointers");
     assert_eq!(pointers_after_first.current_version, Some(1));
@@ -130,12 +130,18 @@ fn higher_valid_bundle_becomes_current_and_prior_becomes_lkg() {
     let outcome = cache
         .stage_verify_activate(&second, &verifier)
         .expect("activate second");
-    assert!(matches!(outcome, ActivationOutcome::Activated { version: 2, .. }));
+    assert!(matches!(
+        outcome,
+        ActivationOutcome::Activated { version: 2, .. }
+    ));
 
     let pointers_after_second = cache.load_pointers().expect("load pointers");
     assert_eq!(pointers_after_second.current_version, Some(2));
     assert_eq!(pointers_after_second.lkg_version, Some(1));
-    assert_eq!(pointers_after_second.lkg_digest, pointers_after_first.current_digest);
+    assert_eq!(
+        pointers_after_second.lkg_digest,
+        pointers_after_first.current_digest
+    );
 
     let current = cache.current_bundle().expect("current").expect("present");
     assert_eq!(current.envelope().payload(), "allow-pdf-and-docx");
@@ -180,7 +186,10 @@ fn tampered_bundle_preserves_prior_pointers() {
     let (_, mut tampered) = signed_bundle(&device_id(TEST_DEVICE), 2, "block", &signer);
     corrupt_byte(&mut tampered);
     let result = cache.stage_verify_activate(&tampered, &verifier);
-    assert!(matches!(result, Err(CacheError::InvalidSignature | CacheError::InvalidContentHash)));
+    assert!(matches!(
+        result,
+        Err(CacheError::InvalidSignature | CacheError::InvalidContentHash)
+    ));
     assert_pointers_unchanged(&cache, &baseline);
 }
 
@@ -200,7 +209,10 @@ fn wrong_key_bundle_preserves_prior_pointers() {
 
     let (_, wrong_key) = signed_bundle(&device_id(TEST_DEVICE), 2, "block", &untrusted);
     let result = cache.stage_verify_activate(&wrong_key, &verifier);
-    assert!(matches!(result, Err(CacheError::InvalidSignature | CacheError::WrongKeyId)));
+    assert!(matches!(
+        result,
+        Err(CacheError::InvalidSignature | CacheError::WrongKeyId)
+    ));
     assert_pointers_unchanged(&cache, &baseline);
 }
 
@@ -258,17 +270,14 @@ fn wrong_audience_preserves_prior_pointers() {
     let signer = signer(TEST_KEY_ID, [7; 32]);
     let verifier = verifier(&signer);
 
-    let (_, valid) = signed_bundle(
-        &device_id(TEST_DEVICE), 1, "allow", &signer);
+    let (_, valid) = signed_bundle(&device_id(TEST_DEVICE), 1, "allow", &signer);
     cache
         .stage_verify_activate(&valid, &verifier)
         .expect("activate valid");
     let baseline = cache.load_pointers().expect("load pointers");
 
-    let (_, other_device_bundle) = signed_bundle(
-        &device_id(OTHER_DEVICE), 2, "block", &signer);
-    let result = cache.stage_verify_activate(
-        &other_device_bundle, &verifier);
+    let (_, other_device_bundle) = signed_bundle(&device_id(OTHER_DEVICE), 2, "block", &signer);
+    let result = cache.stage_verify_activate(&other_device_bundle, &verifier);
     assert!(matches!(result, Err(CacheError::WrongAudience)));
     assert_pointers_unchanged(&cache, &baseline);
 }
@@ -280,19 +289,19 @@ fn truncated_bundle_preserves_prior_pointers() {
     let signer = signer(TEST_KEY_ID, [7; 32]);
     let verifier = verifier(&signer);
 
-    let (_, valid) = signed_bundle(
-        &device_id(TEST_DEVICE), 1, "allow", &signer);
+    let (_, valid) = signed_bundle(&device_id(TEST_DEVICE), 1, "allow", &signer);
     cache
         .stage_verify_activate(&valid, &verifier)
         .expect("activate valid");
     let baseline = cache.load_pointers().expect("load pointers");
 
-    let (_, full) = signed_bundle(
-        &device_id(TEST_DEVICE), 2, "block", &signer);
+    let (_, full) = signed_bundle(&device_id(TEST_DEVICE), 2, "block", &signer);
     let truncated = truncate(&full);
-    let result = cache.stage_verify_activate(
-        &truncated, &verifier);
-    assert!(matches!(result, Err(CacheError::InvalidWireFormat | CacheError::InvalidSignature)));
+    let result = cache.stage_verify_activate(&truncated, &verifier);
+    assert!(matches!(
+        result,
+        Err(CacheError::InvalidWireFormat | CacheError::InvalidSignature)
+    ));
     assert_pointers_unchanged(&cache, &baseline);
 }
 
@@ -303,28 +312,35 @@ fn equal_or_lower_version_preserves_prior_pointers() {
     let signer = signer(TEST_KEY_ID, [7; 32]);
     let verifier = verifier(&signer);
 
-    let (_, first) = signed_bundle(
-        &device_id(TEST_DEVICE), 2, "allow", &signer);
+    let (_, first) = signed_bundle(&device_id(TEST_DEVICE), 2, "allow", &signer);
     cache
         .stage_verify_activate(&first, &verifier)
         .expect("activate first");
     let baseline = cache.load_pointers().expect("load pointers");
 
-    let (_, equal) = signed_bundle(
-        &device_id(TEST_DEVICE), 2, "block", &signer);
-    let result = cache.stage_verify_activate(
-        &equal, &verifier);
+    let (_, equal) = signed_bundle(&device_id(TEST_DEVICE), 2, "block", &signer);
+    let result = cache.stage_verify_activate(&equal, &verifier);
     assert!(
-        matches!(result, Err(CacheError::StaleVersion { received: 2, active: 2 })),
+        matches!(
+            result,
+            Err(CacheError::StaleVersion {
+                received: 2,
+                active: 2
+            })
+        ),
         "equal version should be rejected"
     );
 
-    let (_, lower) = signed_bundle(
-        &device_id(TEST_DEVICE), 1, "block", &signer);
-    let result = cache.stage_verify_activate(
-        &lower, &verifier);
+    let (_, lower) = signed_bundle(&device_id(TEST_DEVICE), 1, "block", &signer);
+    let result = cache.stage_verify_activate(&lower, &verifier);
     assert!(
-        matches!(result, Err(CacheError::StaleVersion { received: 1, active: 2 })),
+        matches!(
+            result,
+            Err(CacheError::StaleVersion {
+                received: 1,
+                active: 2
+            })
+        ),
         "lower version should be rejected"
     );
 
@@ -338,8 +354,7 @@ fn interrupted_download_preserves_prior_pointers() {
     let signer = signer(TEST_KEY_ID, [7; 32]);
     let verifier = verifier(&signer);
 
-    let (_, valid) = signed_bundle(
-        &device_id(TEST_DEVICE), 1, "allow", &signer);
+    let (_, valid) = signed_bundle(&device_id(TEST_DEVICE), 1, "allow", &signer);
     cache
         .stage_verify_activate(&valid, &verifier)
         .expect("activate valid");
@@ -354,13 +369,13 @@ fn interrupted_download_preserves_prior_pointers() {
 #[test]
 fn concurrent_activations_select_greatest_version_without_cross_linking() {
     let tmp = TempDir::new();
-    let cache = Arc::new(ConfigurationCache::open(tmp.path(), device_id(TEST_DEVICE)).expect("open cache"));
+    let cache =
+        Arc::new(ConfigurationCache::open(tmp.path(), device_id(TEST_DEVICE)).expect("open cache"));
     let trusted_signer = signer(TEST_KEY_ID, [7; 32]);
     let trusted_verifier = verifier(&trusted_signer);
 
     // Pre-activate version 1 so there is an LKG to potentially corrupt.
-    let (_, first) = signed_bundle(
-        &device_id(TEST_DEVICE), 1, "allow", &trusted_signer);
+    let (_, first) = signed_bundle(&device_id(TEST_DEVICE), 1, "allow", &trusted_signer);
     cache
         .stage_verify_activate(&first, &trusted_verifier)
         .expect("activate first");
@@ -376,7 +391,11 @@ fn concurrent_activations_select_greatest_version_without_cross_linking() {
         let barrier = Arc::clone(&barrier);
         handles.push(thread::spawn(move || {
             let (_, bytes) = signed_bundle(
-                &device_id(TEST_DEVICE), version, &format!("policy-{version}"), &thread_signer);
+                &device_id(TEST_DEVICE),
+                version,
+                &format!("policy-{version}"),
+                &thread_signer,
+            );
             barrier.wait();
             cache.stage_verify_activate(&bytes, &thread_verifier)
         }));
@@ -403,7 +422,11 @@ fn concurrent_activations_select_greatest_version_without_cross_linking() {
     );
 
     let pointers = cache.load_pointers().expect("load pointers");
-    assert_eq!(pointers.current_version, Some(6), "greatest version must win");
+    assert_eq!(
+        pointers.current_version,
+        Some(6),
+        "greatest version must win"
+    );
     assert!(
         pointers.lkg_version.is_some(),
         "LKG must be set after at least one activation"
@@ -424,14 +447,13 @@ fn restart_validates_current_and_lkg_independently() {
     let verifier = verifier(&signer);
 
     {
-        let cache = ConfigurationCache::open(tmp.path(), device_id(TEST_DEVICE)).expect("open cache");
-        let (_, first) = signed_bundle(
-            &device_id(TEST_DEVICE), 1, "allow", &signer);
+        let cache =
+            ConfigurationCache::open(tmp.path(), device_id(TEST_DEVICE)).expect("open cache");
+        let (_, first) = signed_bundle(&device_id(TEST_DEVICE), 1, "allow", &signer);
         cache
             .stage_verify_activate(&first, &verifier)
             .expect("activate first");
-        let (_, second) = signed_bundle(
-            &device_id(TEST_DEVICE), 2, "allow-pdf", &signer);
+        let (_, second) = signed_bundle(&device_id(TEST_DEVICE), 2, "allow-pdf", &signer);
         cache
             .stage_verify_activate(&second, &verifier)
             .expect("activate second");
@@ -457,14 +479,13 @@ fn restart_ignores_unreferenced_staging() {
     let verifier = verifier(&signer);
 
     {
-        let cache = ConfigurationCache::open(tmp.path(), device_id(TEST_DEVICE)).expect("open cache");
-        let (_, first) = signed_bundle(
-            &device_id(TEST_DEVICE), 1, "allow", &signer);
+        let cache =
+            ConfigurationCache::open(tmp.path(), device_id(TEST_DEVICE)).expect("open cache");
+        let (_, first) = signed_bundle(&device_id(TEST_DEVICE), 1, "allow", &signer);
         cache
             .stage_verify_activate(&first, &verifier)
             .expect("activate first");
-        let (_, second) = signed_bundle(
-            &device_id(TEST_DEVICE), 2, "allow-pdf", &signer);
+        let (_, second) = signed_bundle(&device_id(TEST_DEVICE), 2, "allow-pdf", &signer);
         cache
             .stage_verify_activate(&second, &verifier)
             .expect("activate second");
@@ -472,7 +493,11 @@ fn restart_ignores_unreferenced_staging() {
 
     // Drop an extra staged file that was never selected.
     let orphan = [0u8; 32];
-    fs::write(tmp.path().join("staging").join(hex_encode(&orphan)), b"orphan").expect("write orphan");
+    fs::write(
+        tmp.path().join("staging").join(hex_encode(&orphan)),
+        b"orphan",
+    )
+    .expect("write orphan");
 
     let cache = ConfigurationCache::open(tmp.path(), device_id(TEST_DEVICE)).expect("reopen cache");
     let _ = cache.clean_staging(&cache.load_pointers().expect("load pointers"));
@@ -492,8 +517,11 @@ fn restart_ignores_unreferenced_staging() {
 
 #[test]
 fn agent_http_client_refuses_poll_without_device_mtls() {
-    let client = AgentHttpClient::bootstrap("https://server.example", "-----BEGIN CERTIFICATE-----\nMIIB")
-        .expect("valid bootstrap");
+    let client = AgentHttpClient::bootstrap(
+        "https://server.example",
+        "-----BEGIN CERTIFICATE-----\nMIIB",
+    )
+    .expect("valid bootstrap");
     assert!(!client.uses_device_mtls());
 
     struct FakeTransport(Vec<u8>);
@@ -506,7 +534,10 @@ fn agent_http_client_refuses_poll_without_device_mtls() {
     let mut transport = FakeTransport(vec![1, 2, 3]);
     let result = client.poll_configuration(&mut transport);
     assert!(
-        matches!(result, Err(dlp_agent_core::ClientError::MissingDeviceCredential)),
+        matches!(
+            result,
+            Err(dlp_agent_core::ClientError::MissingDeviceCredential)
+        ),
         "poll without device mTLS must fail"
     );
 }
@@ -520,19 +551,12 @@ fn health_snapshot_reports_active_bundle_version() {
     let signer = signer(TEST_KEY_ID, [7; 32]);
     let verifier = verifier(&signer);
 
-    let snapshot = HealthSnapshot::from_cache(
-        "0.1.0",
-        "running",
-        "not_mounted",
-        &cache,
-        None,
-        None,
-    );
+    let snapshot =
+        HealthSnapshot::from_cache("0.1.0", "running", "not_mounted", &cache, None, None);
     assert_eq!(snapshot.config_state, "unconfigured");
     assert!(snapshot.active_bundle_version.is_none());
 
-    let (_, valid) = signed_bundle(
-        &device_id(TEST_DEVICE), 3, "allow", &signer);
+    let (_, valid) = signed_bundle(&device_id(TEST_DEVICE), 3, "allow", &signer);
     cache
         .stage_verify_activate(&valid, &verifier)
         .expect("activate");
@@ -548,7 +572,10 @@ fn health_snapshot_reports_active_bundle_version() {
     assert_eq!(snapshot.config_state, "active");
     assert_eq!(snapshot.active_bundle_version, Some("3".to_owned()));
     assert_eq!(snapshot.last_successful_contact, Some(1_700_000_000));
-    assert_eq!(snapshot.diagnostic, Some(RedactedDiagnostic::ConfigurationRejected));
+    assert_eq!(
+        snapshot.diagnostic,
+        Some(RedactedDiagnostic::ConfigurationRejected)
+    );
 }
 
 fn hex_encode(bytes: &[u8; 32]) -> String {

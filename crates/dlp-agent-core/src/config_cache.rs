@@ -42,7 +42,10 @@ impl std::fmt::Display for CacheError {
             Self::WrongAudience => write!(formatter, "configuration audience mismatch"),
             Self::WrongKeyId => write!(formatter, "configuration key identifier mismatch"),
             Self::StaleVersion { received, active } => {
-                write!(formatter, "configuration version {received} is not newer than {active}")
+                write!(
+                    formatter,
+                    "configuration version {received} is not newer than {active}"
+                )
             }
             Self::IoFailure => write!(formatter, "cache I/O failure"),
             Self::CorruptPointer => write!(formatter, "cache pointer corrupt"),
@@ -191,13 +194,11 @@ impl ConfigurationCache {
     /// Removes unreferenced staged bundles. Called automatically after activation;
     /// exposed for tests and restart cleanup.
     pub fn clean_staging(&self, pointers: &CachePointers) -> Result<(), CacheError> {
-        let referenced: std::collections::HashSet<[u8; 32]> = [
-            pointers.current_digest,
-            pointers.lkg_digest,
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        let referenced: std::collections::HashSet<[u8; 32]> =
+            [pointers.current_digest, pointers.lkg_digest]
+                .into_iter()
+                .flatten()
+                .collect();
 
         let entries = fs::read_dir(self.root.join("staging")).map_err(|_| CacheError::IoFailure)?;
         for entry in entries {
@@ -260,11 +261,7 @@ impl ConfigurationCache {
         deserialize_pointers(&bytes)
     }
 
-    fn write_pointers(
-        &self,
-        pointers: &CachePointers,
-        generation: u64,
-    ) -> Result<(), CacheError> {
+    fn write_pointers(&self, pointers: &CachePointers, generation: u64) -> Result<(), CacheError> {
         let bytes = serialize_pointers(pointers, generation);
         let path = self.pointers_path();
         let temp = self.temp_pointers_path();
@@ -324,7 +321,10 @@ pub fn deserialize_signed_configuration(bytes: &[u8]) -> Result<SignedConfigurat
     if format_version != WIRE_FORMAT_VERSION {
         return Err(CacheError::InvalidWireFormat);
     }
-    let _api_version = reader.read_u16()?;
+    let api_version = reader.read_u16()?;
+    if api_version != dlp_protocol::API_VERSION_V1 {
+        return Err(CacheError::InvalidWireFormat);
+    }
     let schema_version = reader.read_u16()?;
     if schema_version != dlp_protocol::CONFIGURATION_SCHEMA_VERSION_V1 {
         return Err(CacheError::UnsupportedSchema);
@@ -341,8 +341,14 @@ pub fn deserialize_signed_configuration(bytes: &[u8]) -> Result<SignedConfigurat
     let device_id = DeviceId::parse(&device_id).map_err(|_| CacheError::InvalidWireFormat)?;
     let bundle_version =
         BundleVersion::parse(&bundle_version).map_err(|_| CacheError::InvalidWireFormat)?;
-    let envelope = ConfigurationEnvelopeV1::new(schema_version, device_id, bundle_version, issued_at, payload)
-        .map_err(|_| CacheError::InvalidWireFormat)?;
+    let envelope = ConfigurationEnvelopeV1::new(
+        schema_version,
+        device_id,
+        bundle_version,
+        issued_at,
+        payload,
+    )
+    .map_err(|_| CacheError::InvalidWireFormat)?;
 
     // Validate that the embedded digest matches the envelope it claims to protect.
     let envelope_digest: [u8; 32] = Sha256::digest(envelope.canonical_bytes()).into();
@@ -450,10 +456,7 @@ impl<'a> ByteReader<'a> {
         if self.remaining() < 2 {
             return Err(CacheError::InvalidWireFormat);
         }
-        let value = u16::from_be_bytes([
-            self.bytes[self.position],
-            self.bytes[self.position + 1],
-        ]);
+        let value = u16::from_be_bytes([self.bytes[self.position], self.bytes[self.position + 1]]);
         self.position += 2;
         Ok(value)
     }
@@ -590,17 +593,28 @@ mod tests {
     }
 
     #[test]
+    fn decoder_rejects_an_unsupported_api_version() {
+        let signer = test_signer();
+        let (_, mut bytes) = signed_bundle(&test_device(), 1, "allow", &signer);
+        bytes[1..3].copy_from_slice(&2_u16.to_be_bytes());
+        assert_eq!(
+            deserialize_signed_configuration(&bytes),
+            Err(CacheError::InvalidWireFormat)
+        );
+    }
+
+    #[test]
     fn activate_valid_bundle_selects_current_with_no_lkg() {
-        let tmp = std::env::temp_dir().join(format!(
-            "dlp-cache-test-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("dlp-cache-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         let cache = ConfigurationCache::open(&tmp, test_device()).expect("open cache");
         let signer = test_signer();
         let (_, bytes) = signed_bundle(&test_device(), 1, "allow", &signer);
-        let verifier = ConfigurationVerifier::from_public_key_bytes(signer.key_id(), signer.public_key_bytes())
-            .expect("valid verifier");
+        let verifier = ConfigurationVerifier::from_public_key_bytes(
+            signer.key_id(),
+            signer.public_key_bytes(),
+        )
+        .expect("valid verifier");
 
         let outcome = cache
             .stage_verify_activate(&bytes, &verifier)
@@ -609,7 +623,9 @@ mod tests {
             outcome,
             ActivationOutcome::Activated {
                 version: 1,
-                digest: *signed_bundle(&test_device(), 1, "allow", &signer).0.content_digest()
+                digest: *signed_bundle(&test_device(), 1, "allow", &signer)
+                    .0
+                    .content_digest()
             }
         );
 

@@ -48,7 +48,9 @@ impl From<ClientError> for EnrollmentError {
             | ClientError::InvalidTrustAnchor
             | ClientError::TlsConfiguration
             | ClientError::NetworkUnavailable => Self::TransportDenied,
-            ClientError::RequestDenied | ClientError::ConfigurationFetchFailed => Self::TransportDenied,
+            ClientError::RequestDenied | ClientError::ConfigurationFetchFailed => {
+                Self::TransportDenied
+            }
             ClientError::InvalidResponse => Self::InvalidResponse,
             ClientError::ProfileRejected => Self::ProfileRejected,
             ClientError::MissingDeviceCredential => Self::CredentialUnavailable,
@@ -121,12 +123,8 @@ pub trait EnrollmentTransport {
 }
 
 pub trait EnrollmentCredentialStore {
-    fn load_credential(
-        &self) -> Result<EnrollmentCredential, EnrollmentError>;
-    fn save_credential(
-        &self,
-        credential: &EnrollmentCredential,
-    ) -> Result<(), EnrollmentError>;
+    fn load_credential(&self) -> Result<EnrollmentCredential, EnrollmentError>;
+    fn save_credential(&self, credential: &EnrollmentCredential) -> Result<(), EnrollmentError>;
 }
 
 pub struct EnrollmentCoordinator<T, S> {
@@ -171,9 +169,8 @@ impl<T: EnrollmentTransport, S: EnrollmentCredentialStore> EnrollmentCoordinator
         token: &str,
         prior_serial: Option<&[u8]>,
     ) -> Result<ValidatedDeviceIdentity, EnrollmentError> {
-        let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256,
-        )
-        .map_err(|_| EnrollmentError::CsrGeneration)?;
+        let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)
+            .map_err(|_| EnrollmentError::CsrGeneration)?;
         let params = CertificateParams::new(Vec::<String>::new())
             .map_err(|_| EnrollmentError::CsrGeneration)?;
         let mut csr = params
@@ -249,18 +246,9 @@ mod tests {
         saved: std::sync::Mutex<Option<EnrollmentCredential>>,
     }
     impl EnrollmentCredentialStore for Store {
-        fn load_credential(
-            &self,
-        ) -> Result<EnrollmentCredential, EnrollmentError> {
+        fn load_credential(&self) -> Result<EnrollmentCredential, EnrollmentError> {
             if self.usable {
-                Ok(EnrollmentCredential::new(
-                    "device-01",
-                    vec![1],
-                    "chain",
-                    vec![1],
-                    30,
-                )
-                .unwrap())
+                Ok(EnrollmentCredential::new("device-01", vec![1], "chain", vec![1], 30).unwrap())
             } else {
                 Err(EnrollmentError::CredentialUnavailable)
             }
@@ -318,7 +306,7 @@ mod tests {
                     "single-use".into(),
                     None
                 )
-            .unwrap(),
+                .unwrap(),
             EnrollmentMode::Existing
         );
     }

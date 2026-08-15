@@ -7,8 +7,8 @@
 
 use crate::credential::{CredentialStore, DpapiCredentialStore};
 use crate::session::{
-    active_session_ids, MountAttempt, SessionConfig, SessionEvent, SessionMonitor, SystemClock,
-    WtsSessionTokenProvider,
+    MountAttempt, SessionConfig, SessionEvent, SessionMonitor, SystemClock,
+    WtsSessionTokenProvider, active_session_ids,
 };
 use dlp_agent_core::{
     AgentConfigurationTransport, AgentHttpClient, ConfigurationCache, EnrollmentCoordinator,
@@ -137,12 +137,19 @@ impl ServiceContext {
             .load_pointers()
             .map_err(|_| ServiceStartError::CacheLoadFailed)?;
 
-        let bootstrap_client = AgentHttpClient::bootstrap(&config.server_url, &config.phase1_root_ca_pem)
-            .map_err(|_| ServiceStartError::ConfigInvalid)?;
+        let bootstrap_client =
+            AgentHttpClient::bootstrap(&config.server_url, &config.phase1_root_ca_pem)
+                .map_err(|_| ServiceStartError::ConfigInvalid)?;
 
         let mode = match Self::ensure_credential(&config, &bootstrap_client, &credential_store) {
             Ok(mode) => mode,
-            Err(_) => return Err(ServiceStartError::EnrollmentFailed),
+            Err(error) => {
+                service_log(
+                    "ERROR",
+                    format!("enrollment initialization failed: {error}"),
+                );
+                return Err(ServiceStartError::EnrollmentFailed);
+            }
         };
 
         let client = Self::client_with_identity(&credential_store, bootstrap_client)
@@ -171,10 +178,13 @@ impl ServiceContext {
             return Err(dlp_agent_core::EnrollmentError::CredentialUnavailable);
         };
         // A damaged credential can still retain the serial that authorizes its
-        // replacement.  Passing that serial preserves the server's active-
+        // replacement. Passing that serial preserves the server's active-
         // credential check instead of making recovery impossible whenever the
         // local protection validation fails.
-        let prior_serial = store.load().ok().map(|credential| credential.serial().to_vec());
+        let prior_serial = store
+            .load()
+            .ok()
+            .map(|credential| credential.serial().to_vec());
         let mut coordinator =
             EnrollmentCoordinator::new((*bootstrap_client).clone(), store.clone());
         coordinator.startup(config.device_id.clone(), token, prior_serial.as_deref())
@@ -204,7 +214,9 @@ pub fn startup_state(has_usable_credential: bool) -> ServiceState {
 /// Formats a redacted drive-state string from the session monitor snapshot.
 /// Contains no SIDs, paths, keys, or content; only drive letter and state.
 fn drive_state(mounts: &Arc<Mutex<Vec<MountAttempt>>>) -> String {
-    let guard = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let guard = mounts
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if guard.is_empty() {
         return "not_mounted".into();
     }
@@ -528,9 +540,8 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
         ));
         service_log("INFO", "service status set to Running");
 
-        let handle = runtime.spawn_blocking(move || {
-            run_service_loop(context, shutdown_rx, mount_snapshot)
-        });
+        let handle =
+            runtime.spawn_blocking(move || run_service_loop(context, shutdown_rx, mount_snapshot));
         let _ = runtime.block_on(handle);
         runtime.shutdown_timeout(Duration::from_secs(10));
 
@@ -584,8 +595,14 @@ fn load_service_config() -> Result<ServiceConfig, ServiceStartError> {
         .and_then(|v| DeviceId::parse(&v).map_err(|_| ServiceStartError::ConfigInvalid))?;
     let server_url =
         std::env::var("DLP_SERVER_URL").map_err(|_| ServiceStartError::ConfigMissing)?;
-    let phase1_root_ca_pem =
+    let phase1_root_ca_value =
         std::env::var("DLP_ROOT_CA_PEM").map_err(|_| ServiceStartError::ConfigMissing)?;
+    let phase1_root_ca_pem = if phase1_root_ca_value.contains("BEGIN CERTIFICATE") {
+        phase1_root_ca_value
+    } else {
+        std::fs::read_to_string(&phase1_root_ca_value)
+            .map_err(|_| ServiceStartError::ConfigInvalid)?
+    };
     let data_directory = std::env::var("DLP_DATA_DIRECTORY")
         .map_err(|_| ServiceStartError::ConfigMissing)
         .map(PathBuf::from)?;
