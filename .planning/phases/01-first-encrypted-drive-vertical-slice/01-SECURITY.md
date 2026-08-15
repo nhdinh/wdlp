@@ -1,12 +1,13 @@
 ---
 phase: 01
 slug: first-encrypted-drive-vertical-slice
-status: verified
+status: draft
 # threats_open = count of OPEN threats at or above workflow.security_block_on severity (the blocking gate)
-threats_open: 0
+threats_open: 19
 asvs_level: 1
 block_on: high
 created: 2026-08-15
+updated: 2026-08-15
 ---
 
 # Phase 01 — Security
@@ -46,18 +47,18 @@ created: 2026-08-15
 | T-01-14-04 | Information disclosure | diagnostics/evidence | high | mitigate | Stable codes/digests only and machine-specific marker scans for secrets, raw serials, paths, and protected content. | closed |
 | T-01-14-05 | Elevation/Repudiation | privileged enrollment changes | high | mitigate | Separate digest-bound 01-14 manifest, role guard, baseline/apply/verify/remove, cleanup, and immutable Plan 01-17 evidence. | closed |
 | T-01-14-SC | Tampering | dependency graph | high | mitigate | Preserve the approved Cargo.lock and reject any unaudited dependency change. | closed |
-| T-01-15-01 | Spoofing/Elevation | session identity | high | accept | TokenUser-derived immutable session/SID, idempotent actors, no caller identity/store selector, adjacent/empty/concurrency tests. | accepted risk |
-| T-01-15-02 | Spoofing/Elevation | storage IPC | high | accept | Service-owned DACL plus connecting SID/session/PID/generation validation and bounded versioned messages. | accepted risk |
-| T-01-15-03 | Information disclosure | per-SID key/store | high | accept | Random DEK, machine-DPAPI wrapper, service-only ACL, zeroization, and marker scans. | accepted risk |
-| T-01-15-04 | Tampering/Denial of service | sign-out/restart | high | accept | Atomic draining, reject opens, 30-second bound, cancellation/unmount/resource disposal, and authenticated recovery before remount. | accepted risk |
-| T-01-15-05 | Information disclosure | health/evidence | medium | accept | Stable codes/opaque digests and machine-tagged marker scans; no raw SID, path, key, or content. | accepted risk — below high threshold |
-| T-01-15-06 | Elevation/Repudiation | privileged session changes | high | accept | Separate digest-bound 01-15 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates. | accepted risk |
-| T-01-16-01 | Spoofing/Repudiation | machine provenance | high | accept | Role-guarded commands and required execution machine in every attempt. | accepted risk |
-| T-01-16-02 | Spoofing/Elevation | production trust chain | high | accept | No fixture providers and negative fingerprint, DC, CSR, cert, revocation, TLS, bundle, and IPC cases. | accepted risk |
-| T-01-16-03 | Tampering/Information disclosure | encrypted-store result | high | accept | Hash equality, unique markers, authenticate-before-copy, corruption denial, and non-vacuous scans. | accepted risk |
-| T-01-16-04 | Information disclosure | evidence/logs | high | accept | Strict sanitized schema, forbidden-field/marker scan, runtime-only secrets, and no protected payload bytes. | accepted risk |
-| T-01-16-05 | Denial of service | large/application matrix | medium | accept | Bounded manifest, per-case timeout/cleanup, deterministic retry, and isolated test-file cleanup. | accepted risk — below high threshold |
-| T-01-16-06 | Elevation | matrix mutations | high | accept | Separate digest-bound 01-16 approval, baseline, role allowlist, idempotent apply/verify/remove, cleanup, and pinned tools. | accepted risk |
+| T-01-15-01 | Spoofing/Elevation | session identity | high | mitigate | TokenUser-derived immutable session/SID, idempotent actors, no caller identity/store selector, adjacent/empty/concurrency tests. | open |
+| T-01-15-02 | Spoofing/Elevation | storage IPC | high | mitigate | Service-owned DACL plus connecting SID/session/PID/generation validation and bounded versioned messages. | open |
+| T-01-15-03 | Information disclosure | per-SID key/store | high | mitigate | Random DEK, machine-DPAPI wrapper, service-only ACL, zeroization, and marker scans. | open |
+| T-01-15-04 | Tampering/Denial of service | sign-out/restart | high | mitigate | Atomic draining, reject opens, 30-second bound, cancellation/unmount/resource disposal, and authenticated recovery before remount. | open |
+| T-01-15-05 | Information disclosure | health/evidence | medium | mitigate | Stable codes/opaque digests and machine-tagged marker scans; no raw SID, path, key, or content. | open — below high threshold |
+| T-01-15-06 | Elevation/Repudiation | privileged session changes | high | mitigate | Separate digest-bound 01-15 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates. | open |
+| T-01-16-01 | Spoofing/Repudiation | machine provenance | high | mitigate | Role-guarded commands and required execution machine in every attempt. | open |
+| T-01-16-02 | Spoofing/Elevation | production trust chain | high | mitigate | No fixture providers and negative fingerprint, DC, CSR, cert, revocation, TLS, bundle, and IPC cases. | open |
+| T-01-16-03 | Tampering/Information disclosure | encrypted-store result | high | mitigate | Hash equality, unique markers, authenticate-before-copy, corruption denial, and non-vacuous scans. | open |
+| T-01-16-04 | Information disclosure | evidence/logs | high | mitigate | Strict sanitized schema, forbidden-field/marker scan, runtime-only secrets, and no protected payload bytes. | open |
+| T-01-16-05 | Denial of service | large/application matrix | medium | mitigate | Bounded manifest, per-case timeout/cleanup, deterministic retry, and isolated test-file cleanup. | open — below high threshold |
+| T-01-16-06 | Elevation | matrix mutations | high | mitigate | Separate digest-bound 01-16 approval, baseline, role allowlist, idempotent apply/verify/remove, cleanup, and pinned tools. | open |
 | T-01-17-01 | Spoofing/Repudiation | evidence identity/provenance | high | mitigate | Schema-required evidence ID, authenticated operator/automation identity, machine role, procedure/build/environment fingerprints, and immutable hashes. | closed |
 | T-01-17-02 | Tampering | matrix and attempt history | high | mitigate | Schema validation, immutable attempts, prior/superseded links, dependency-aware staleness, raw-artifact hash/access checks, and sealed matrix digest. | closed |
 | T-01-17-03 | Information disclosure | publication/archive | high | mitigate | Field allowlist, source redaction, forbidden-marker scanning, controlled raw storage, and no secret-bearing commands or committed payloads. | closed |
@@ -68,22 +69,22 @@ created: 2026-08-15
 | T-01-18-02 | Spoofing | configuration transport | high | mitigate | Consume only Plan 01-14 device mTLS with ordinary server identity validation and no bearer fallback. | closed |
 | T-01-18-03 | Information disclosure | diagnostics/evidence | high | mitigate | Stable codes and digests only, machine-specific redaction scans, and Plan 01-17 publication gates. | closed |
 | T-01-18-04 | Elevation/Repudiation | service-data cache changes | high | mitigate | Separate digest-bound 01-18 manifest, LAB-CLIENT01 role guard, baseline/apply/verify/remove, cleanup, and immutable evidence. | closed |
-| T-01-18-SC | Tampering | existing dependency graph | high | accept | Preserve the approved Cargo.lock sources/versions and run slopcheck before accepting any dependency change; no new package is authorized. | accepted risk |
+| T-01-18-SC | Tampering | existing dependency graph | high | mitigate | Preserve the approved Cargo.lock sources/versions and run slopcheck before accepting any dependency change; no new package is authorized. | open |
 | T-01-19-01 | Spoofing | fingerprint collector | high | mitigate | Documented Windows API sources, exact normalization, server-side confirmation, missing/sentinel rejection, and no agent-selected identity. | closed |
 | T-01-19-02 | Denial of service | SCM lifecycle | medium | mitigate | Accurate pending states, bounded stop/shutdown, last-usable state retention, and force-kill/restart checks. | closed |
 | T-01-19-03 | Information disclosure | diagnostics | high | mitigate | Stable redacted codes and marker scans across health, logs, evidence, and configuration. | closed |
 | T-01-19-04 | Elevation/Repudiation | privileged service changes | high | mitigate | Separate digest-bound 01-19 manifest, role guard, baseline/apply/verify/remove, cleanup, and immutable Plan 01-17 evidence. | closed |
 | T-01-19-SC | Tampering | dependency graph | high | mitigate | Preserve the approved Cargo.lock and reject any unaudited dependency change. | closed |
-| T-01-20-01 | Tampering/Information disclosure | corruption mapping | high | accept | Separate content/metadata corruption, authenticate before copy, exact integrity status, encrypted evidence preservation, and zero-plaintext checks. | accepted risk |
-| T-01-20-02 | Tampering/Denial of service | disk-full publication | high | accept | Injected NoSpace before pointer publication, exact disk-full status, baseline-hash readback, and no mixed generation. | accepted risk |
+| T-01-20-01 | Tampering/Information disclosure | corruption mapping | high | mitigate | Separate content/metadata corruption, authenticate before copy, exact integrity status, encrypted evidence preservation, and zero-plaintext checks. | open |
+| T-01-20-02 | Tampering/Denial of service | disk-full publication | high | mitigate | Injected NoSpace before pointer publication, exact disk-full status, baseline-hash readback, and no mixed generation. | open |
 | T-01-20-03 | Tampering | restart/reboot recovery | high | mitigate | Authenticate credential, current/LKG, selected pointer, manifest, and chunks before remount. | closed |
 | T-01-20-04 | Tampering | WinFsp runtime provenance | high | mitigate | Prior package approval, pinned installer hash, Authenticode verification, LAB-CLIENT01 guard, and delay-load helper only. | closed |
-| T-01-20-05 | Elevation/Repudiation | privileged runtime/evidence | high | accept | Separate digest-bound 01-20 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates. | accepted risk |
-| T-01-21-01 | Tampering/Repudiation | abrupt-loss harness | high | accept | Guest durability barrier, hungdinh-lt host-side hard-off, no graceful guest event, post-boot hash/provenance capture. | accepted risk |
-| T-01-21-02 | Spoofing/Repudiation | machine/tier provenance | high | accept | Role-guarded execution machine, verification-tier and substitute checks in `verify-phase1.ps1`. | accepted risk |
-| T-01-21-03 | Information disclosure | evidence bundle | high | accept | Allowlisted schema, forbidden-field and non-vacuous marker scans, runtime-only secrets, and sealed digest. | accepted risk |
-| T-01-21-04 | Repudiation/Tampering | independent review | high | accept | Authenticated independent identity, matrix digest, current/superseded attempts, deviation policy, artifact integrity, and retention/hold validation. | accepted risk |
-| T-01-21-05 | Elevation | final mutations | high | accept | Separate digest-bound 01-21 privilege approval, baseline, strict machine allowlist, idempotent apply/verify/remove, cleanup, and pinned tooling. | accepted risk |
+| T-01-20-05 | Elevation/Repudiation | privileged runtime/evidence | high | mitigate | Separate digest-bound 01-20 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates. | open |
+| T-01-21-01 | Tampering/Repudiation | abrupt-loss harness | high | mitigate | Guest durability barrier, hungdinh-lt host-side hard-off, no graceful guest event, post-boot hash/provenance capture. | open |
+| T-01-21-02 | Spoofing/Repudiation | machine/tier provenance | high | mitigate | Role-guarded execution machine, verification-tier and substitute checks in `verify-phase1.ps1`. | open |
+| T-01-21-03 | Information disclosure | evidence bundle | high | mitigate | Allowlisted schema, forbidden-field and non-vacuous marker scans, runtime-only secrets, and sealed digest. | open |
+| T-01-21-04 | Repudiation/Tampering | independent review | high | mitigate | Authenticated independent identity, matrix digest, current/superseded attempts, deviation policy, artifact integrity, and retention/hold validation. | open |
+| T-01-21-05 | Elevation | final mutations | high | mitigate | Separate digest-bound 01-21 privilege approval, baseline, strict machine allowlist, idempotent apply/verify/remove, cleanup, and pinned tooling. | open |
 | T-01-22-01 | Spoofing/Tampering | authority repository | high | mitigate | PostgreSQL constraints, row locks, token digest/expiry, exact fingerprint and AD identity, no production in-memory adapter. | closed |
 | T-01-22-02 | Spoofing | CSR/certificate issuance | high | mitigate | CSR signature verification and fixed CA:false, digitalSignature, clientAuth, URI-SAN, serial, and 30-day profile. | closed |
 | T-01-22-03 | Tampering | replacement transaction | high | mitigate | One SQL transaction for token consumption, prior revocation, new activation, and rollback on every failure. | closed |
@@ -105,27 +106,8 @@ created: 2026-08-15
 
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
-| R-01-01 | T-01-15-01 | Session/identity harness and adjacent/empty/concurrency tests are not yet implemented in this phase; accepted as residual risk pending Phase 2 session hardening. | user | 2026-08-15 |
-| R-01-02 | T-01-15-02 | Service-owned named-pipe IPC with SID/session/PID/generation validation is not yet implemented; accepted as residual risk pending Phase 2 IPC hardening. | user | 2026-08-15 |
-| R-01-03 | T-01-15-03 | Per-SID random DEK + DPAPI wrapper implementation is incomplete; accepted as residual risk pending Phase 2 key-custody work. | user | 2026-08-15 |
-| R-01-04 | T-01-15-04 | Atomic sign-out/restart draining, 30-second bound, and authenticated remount recovery are not yet implemented; accepted as residual risk pending Phase 2 lifecycle work. | user | 2026-08-15 |
-| R-01-05 | T-01-15-05 | Session-scoped health redaction is not yet implemented; non-blocking medium severity; accepted as residual risk. | user | 2026-08-15 |
-| R-01-06 | T-01-15-06 | Separate digest-bound 01-15 privilege manifest and evidence gates are not yet implemented; accepted as residual risk pending Phase 2. | user | 2026-08-15 |
-| R-01-07 | T-01-16-01 | Vertical-slice matrix harness with per-attempt role guard is not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-08 | T-01-16-02 | Negative production-trust-chain fixture suite is not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-09 | T-01-16-03 | End-to-end encrypted-store result integrity harness is not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-10 | T-01-16-04 | Strict sanitized schema and forbidden-field scans for vertical-slice evidence are not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-11 | T-01-16-05 | Bounded manifest timeout/cleanup/retry for large application matrix is not yet implemented; non-blocking medium severity; accepted as residual risk. | user | 2026-08-15 |
-| R-01-12 | T-01-16-06 | Separate digest-bound 01-16 approval and baseline are not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-13 | T-01-18-SC | `slopcheck` dependency gate is not yet implemented; Cargo.lock preservation and `--locked` verification are in place. | user | 2026-08-15 |
-| R-01-14 | T-01-20-01 | End-to-end corruption mapping scenario harness is not yet implemented; source-level corruption tests exist in `mounted_smoke.rs`. | user | 2026-08-15 |
-| R-01-15 | T-01-20-02 | Injected NoSpace disk-full scenario harness is not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-16 | T-01-20-05 | Separate digest-bound 01-20 manifest and evidence gates are not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-17 | T-01-21-01 | Guest abrupt-loss harness with host-side hard-off is not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-18 | T-01-21-02 | `verify-phase1.ps1` with verification-tier and substitute checks is not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-19 | T-01-21-03 | Abrupt-loss evidence bundle with non-vacuous marker scans is not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-20 | T-01-21-04 | Authenticated independent review of sealed matrix digest is not yet implemented; accepted as residual risk. | user | 2026-08-15 |
-| R-01-21 | T-01-21-05 | Separate digest-bound 01-21 privilege approval and strict machine allowlist are not yet implemented; accepted as residual risk. | user | 2026-08-15 |
+
+No accepted risks. All previously reviewed gaps are documented as open threats in the Threat Register.
 
 *Accepted risks do not resurface in future audit runs.*
 
@@ -135,15 +117,22 @@ created: 2026-08-15
 
 | Audit Date | Threats Total | Closed | Open (blocking) | Open (non-blocking) | Accepted | Run By |
 |------------|---------------|--------|-----------------|---------------------|----------|--------|
-| 2026-08-15 | 62 | 41 | 19 | 2 | 21 | gsd-security-auditor (opus) |
+| 2026-08-15 | 62 | 41 | 19 | 2 | 0 | gsd-security-auditor (opus) |
 
 ---
 
 ## Sign-Off
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
-- [x] Accepted risks documented in Accepted Risks Log
-- [x] `threats_open: 0` confirmed
-- [x] `status: verified` set in frontmatter
+- [ ] Accepted risks documented in Accepted Risks Log
+- [x] `threats_open: 19` confirmed
+- [x] `status: draft` set in frontmatter
 
-**Approval:** verified 2026-08-15
+**Approval:** draft — 19 blocking threats remain open. Phase advancement blocked until `threats_open: 0`.
+
+---
+
+## Remediation Routing
+
+- Fix mitigations then re-run: `/gsd-secure-phase 01`
+- Or document accepted risks in SECURITY.md and re-run.
