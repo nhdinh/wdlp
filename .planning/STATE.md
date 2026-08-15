@@ -22,6 +22,8 @@ progress:
 - **MVP boundary**: Enroll → signed config → mount → copy → encrypted store → read back → survive restart; policy blocking and toast follow.
 - **Constraints**: Rust for endpoint agent and core domain; PostgreSQL server persistence; Docker Compose server deployment; WinFsp user-mode virtual drive; no kernel-mode filtering or signed driver; safe Rust in portable domain crates.
 
+Last activity: 2026-08-15 - Completed quick task 260815-dti: consolidate docs in .planning/docs and scripts in ./scripts
+
 ## Quick Tasks Completed
 
 | Date | Slug | Summary | Artifacts |
@@ -39,6 +41,7 @@ progress:
 | 2026-08-14 | unify-certificate-names | Adopt single kebab-case PEM filename convention across fixtures, code, scripts, config, and docs | `tests/e2e/server_enrollment.rs`, `scripts/lab/*.ps1`, `config/*.example`, `deploy/compose.yaml`, `crates/dlpctl/src/{lib,main}.rs`, `crates/dlp-windows-service/src/service.rs`, `.planning/docs/PEM-KEY-GUIDE.md`, `.planning/docs/ENV-VARS.md` |
 | 2026-08-14 | env-setup-instructions | Enhance Initialize-DlpEnvironment.ps1 to show step-by-step instructions for obtaining or generating each value at every prompt | `.planning/quick/20260814-env-setup-instructions/`, `scripts/lab/Initialize-DlpEnvironment.ps1` |
 | 2026-08-14 | lab-setup-guide | Comprehensive DLP lab setup guide and scripts inventory | `.planning/docs/LAB-SETUP-GUIDE.md`, `scripts/lab/README.md`, `.planning/quick/20260814-lab-setup-guide/` |
+| 2026-08-15 | consolidate-docs-in-planning-docs-and-sc | Consolidate docs in `.planning/docs` and scripts in `scripts` | `.planning/quick/260815-dti-consolidate-docs-in-planning-docs-and-sc/`, `.planning/docs/README.md`, `scripts/README.md` |
 
 ## Current Position
 
