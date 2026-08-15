@@ -6,9 +6,9 @@ current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 status: executing
 stopped_at: null
-last_updated: "2026-08-15T15:00:00.000Z"
+last_updated: "2026-08-15T16:00:00.000Z"
 last_activity: 2026-08-15
-last_activity_desc: "Completed plan 01-15: per-session host, authenticated storage IPC, drive-letter lifecycle, sign-out drain, and service restart recovery"
+last_activity_desc: "Completed plan 01-20: WinFsp integrity, disk-full, service-restart, and Windows-reboot recovery"
 progress:
   total_phases: 4
   completed_phases: 2
@@ -24,7 +24,7 @@ progress:
 - **MVP boundary**: Enroll → signed config → mount → copy → encrypted store → read back → survive restart; policy blocking and toast follow.
 - **Constraints**: Rust for endpoint agent and core domain; PostgreSQL server persistence; Docker Compose server deployment; WinFsp user-mode virtual drive; no kernel-mode filtering or signed driver; safe Rust in portable domain crates.
 
-Last activity: 2026-08-15 - Completed plan 01-15: per-session host, authenticated storage IPC, drive-letter lifecycle, sign-out drain, and service restart recovery
+Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, service-restart, and Windows-reboot recovery
 
 ## Quick Tasks Completed
 
@@ -49,11 +49,11 @@ Last activity: 2026-08-15 - Completed plan 01-15: per-session host, authenticate
 ## Current Position
 
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — EXECUTING
-- **Plan:** 20 of 21 (next)
-- **Task:** 0 of 1
+- **Plan:** 16 of 21 (next)
+- **Task:** 0 of 2
 - **Status:** Ready to execute
-- **Progress:** [████████░░] 73%
-- **Next plan:** 01-20 WinFsp integrity, disk-full, service-restart, and Windows-reboot recovery
+- **Progress:** [█████████░] 82%
+- **Next plan:** 01-16 production-provider encrypted-drive vertical slice and D-16/D-17/D-18 matrix
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by VM reachability.
 
 ## Performance Metrics

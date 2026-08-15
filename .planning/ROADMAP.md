@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 8/11 plans executed source-complete
+**Plans**: 9/11 plans executed source-complete
 
 Plans:
 **Wave 1**
@@ -66,7 +66,7 @@ Plans:
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
-- [ ] 01-20-PLAN.md (Wave 9) — Revalidate real WinFsp integrity denial, disk-full last-commit preservation, service restart, and Windows reboot on LAB-CLIENT01
+- [x] 01-20-PLAN.md (Wave 9) — Revalidate real WinFsp integrity denial, disk-full last-commit preservation, service restart, and Windows reboot on LAB-CLIENT01
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
@@ -182,7 +182,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 8/11 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 9/11 | In Progress|  |
 | 1.1. Add env-var docs | 1/1 | Complete | 2026-08-13 |
 | 1.2. Automatic enrollment token acquisition | 1/1 | Complete | 2026-08-13 |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
