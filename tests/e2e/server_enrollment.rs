@@ -49,19 +49,25 @@ fn ensure_phase1_pki_fixtures() -> std::path::PathBuf {
         let ca_key_pem = fs::read_to_string(fixture_dir.join("device-issuing-ca-key.pem"))
             .expect("device issuing CA key");
         let ca_key = KeyPair::from_pem(&ca_key_pem).expect("parse device CA key");
-        let issuer = rcgen::Issuer::from_ca_cert_pem(&ca_cert_pem, ca_key)
-            .expect("parse device CA issuer");
+        let issuer =
+            rcgen::Issuer::from_ca_cert_pem(&ca_cert_pem, ca_key).expect("parse device CA issuer");
 
         let device_key = KeyPair::generate().expect("generate device key");
-        let mut params = CertificateParams::new(vec!["device-01.lab.local".into()])
-            .expect("device cert params");
+        let mut params =
+            CertificateParams::new(vec!["device-01.lab.local".into()]).expect("device cert params");
         params.distinguished_name = DistinguishedName::new();
-        params.distinguished_name.push(DnType::CommonName, "device-01");
+        params
+            .distinguished_name
+            .push(DnType::CommonName, "device-01");
         params.subject_alt_names.push(SanType::URI(
             rcgen::string::Ia5String::try_from("urn:dlp:device:device-01").expect("valid URI SAN"),
         ));
-        params.key_usages.push(rcgen::KeyUsagePurpose::DigitalSignature);
-        params.extended_key_usages.push(rcgen::ExtendedKeyUsagePurpose::ClientAuth);
+        params
+            .key_usages
+            .push(rcgen::KeyUsagePurpose::DigitalSignature);
+        params
+            .extended_key_usages
+            .push(rcgen::ExtendedKeyUsagePurpose::ClientAuth);
         let device_cert = params
             .signed_by(&device_key, &issuer)
             .expect("sign device cert");
@@ -195,16 +201,23 @@ async fn mtls_routes_bind_signed_configuration_and_health_to_the_active_device()
     )
     .expect("active test device");
 
-    state.activate_device_for_test(device.device_id(), device.credential_serial()).await;
+    state
+        .activate_device_for_test(device.device_id(), device.credential_serial())
+        .await;
     let configuration = state
         .signed_configuration_for(&device)
         .await
         .expect("active device receives a signed configuration");
     assert_eq!(configuration.envelope().bundle_version().to_wire(), "1");
     assert!(state.record_health_for(&device, "mounted").await.is_ok());
-    assert_eq!(state.health_report_count_for_test(device.device_id()).await, 1);
+    assert_eq!(
+        state.health_report_count_for_test(device.device_id()).await,
+        1
+    );
 
-    state.revoke_device_for_test(device.device_id(), device.credential_serial()).await;
+    state
+        .revoke_device_for_test(device.device_id(), device.credential_serial())
+        .await;
     assert!(state.signed_configuration_for(&device).await.is_err());
     assert!(state.record_health_for(&device, "mounted").await.is_err());
 }
@@ -217,7 +230,9 @@ async fn signed_configuration_is_audience_bound_hashed_and_replay_safe() {
         CredentialStatus::Active,
     )
     .expect("active test device");
-    state.activate_device_for_test(device.device_id(), device.credential_serial()).await;
+    state
+        .activate_device_for_test(device.device_id(), device.credential_serial())
+        .await;
 
     let first = state
         .signed_configuration_for(&device)
@@ -312,7 +327,9 @@ fn trusted_provisioning_preflight_requires_named_lab_roles_and_kerberos_tls() {
 #[test]
 fn trusted_provisioning_invokes_dlpctl_without_serial_or_token_arguments() {
     let procedure = include_str!("../../scripts/lab/Invoke-TrustedProvisioning.ps1");
-    assert!(procedure.contains("provision-device --computer"));
+    assert!(procedure.contains("'provision-device'"));
+    assert!(procedure.contains("'--computer'"));
+    assert!(procedure.contains("Start-Process"));
     assert!(procedure.contains("DLP_PROVISIONING_AD_OBJECT_GUID"));
     assert!(procedure.contains("DLP_PROVISIONING_AD_OBJECT_SID"));
     assert!(procedure.contains("DLP_PROVISIONING_PREFERRED_DRIVE_LETTER"));
@@ -334,9 +351,9 @@ fn trusted_provisioning_preflight_compares_both_domain_controllers() {
 async fn bootstrap_enrollment_route_returns_ok_for_bounded_valid_request() {
     use axum::body::Body;
     use axum::extract::connect_info::ConnectInfo;
+    use axum::http::Request;
     use dlp_server::routes::api_v1_router;
     use dlp_server::tls::TlsConnectionInfo;
-    use axum::http::Request;
     use tower::ServiceExt;
 
     let state = RouteState::for_test();
@@ -363,9 +380,9 @@ async fn bootstrap_enrollment_route_returns_ok_for_bounded_valid_request() {
 async fn bootstrap_enrollment_route_returns_bad_request_for_invalid_version() {
     use axum::body::Body;
     use axum::extract::connect_info::ConnectInfo;
+    use axum::http::Request;
     use dlp_server::routes::api_v1_router;
     use dlp_server::tls::TlsConnectionInfo;
-    use axum::http::Request;
     use tower::ServiceExt;
 
     let state = RouteState::for_test();
@@ -374,12 +391,15 @@ async fn bootstrap_enrollment_route_returns_bad_request_for_invalid_version() {
         .method("POST")
         .uri("/api/v1/enrollment")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::json!({
-            "version": 2,
-            "device_id": "device-01",
-            "token": "one-time-token",
-            "csr_pem": "csr",
-        }).to_string()))
+        .body(Body::from(
+            serde_json::json!({
+                "version": 2,
+                "device_id": "device-01",
+                "token": "one-time-token",
+                "csr_pem": "csr",
+            })
+            .to_string(),
+        ))
         .unwrap();
     request
         .extensions_mut()
@@ -392,9 +412,9 @@ async fn bootstrap_enrollment_route_returns_bad_request_for_invalid_version() {
 async fn admin_provisioning_route_returns_ok_for_bounded_valid_request() {
     use axum::body::Body;
     use axum::extract::connect_info::ConnectInfo;
+    use axum::http::Request;
     use dlp_server::routes::api_v1_router;
     use dlp_server::tls::{PeerIdentity, TlsConnectionInfo};
-    use axum::http::Request;
     use tower::ServiceExt;
 
     let state = RouteState::for_test();
@@ -403,18 +423,23 @@ async fn admin_provisioning_route_returns_ok_for_bounded_valid_request() {
         .method("POST")
         .uri("/api/v1/admin/provisioning")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::json!({
-            "version": 1,
-            "device_id": "device-01",
-            "fingerprint_digest": vec![0; 32],
-            "ad_object_guid": vec![0; 16],
-            "ad_object_sid": vec![0; 16],
-            "preferred_drive_letter": "P",
-        }).to_string()))
+        .body(Body::from(
+            serde_json::json!({
+                "version": 1,
+                "device_id": "device-01",
+                "fingerprint_digest": vec![0; 32],
+                "ad_object_guid": vec![0; 16],
+                "ad_object_sid": vec![0; 16],
+                "preferred_drive_letter": "P",
+            })
+            .to_string(),
+        ))
         .unwrap();
-    request.extensions_mut().insert(ConnectInfo(
-        TlsConnectionInfo::from_verified_peer(PeerIdentity::admin_for_test("admin-test")),
-    ));
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(TlsConnectionInfo::from_verified_peer(
+            PeerIdentity::admin_for_test("admin-test"),
+        )));
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
@@ -423,9 +448,9 @@ async fn admin_provisioning_route_returns_ok_for_bounded_valid_request() {
 async fn admin_provisioning_route_returns_bad_request_for_short_digest() {
     use axum::body::Body;
     use axum::extract::connect_info::ConnectInfo;
+    use axum::http::Request;
     use dlp_server::routes::api_v1_router;
     use dlp_server::tls::{PeerIdentity, TlsConnectionInfo};
-    use axum::http::Request;
     use tower::ServiceExt;
 
     let state = RouteState::for_test();
@@ -434,18 +459,23 @@ async fn admin_provisioning_route_returns_bad_request_for_short_digest() {
         .method("POST")
         .uri("/api/v1/admin/provisioning")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::json!({
-            "version": 1,
-            "device_id": "device-01",
-            "fingerprint_digest": vec![0; 16],
-            "ad_object_guid": vec![0; 16],
-            "ad_object_sid": vec![0; 16],
-            "preferred_drive_letter": "P",
-        }).to_string()))
+        .body(Body::from(
+            serde_json::json!({
+                "version": 1,
+                "device_id": "device-01",
+                "fingerprint_digest": vec![0; 16],
+                "ad_object_guid": vec![0; 16],
+                "ad_object_sid": vec![0; 16],
+                "preferred_drive_letter": "P",
+            })
+            .to_string(),
+        ))
         .unwrap();
-    request.extensions_mut().insert(ConnectInfo(
-        TlsConnectionInfo::from_verified_peer(PeerIdentity::admin_for_test("admin-test")),
-    ));
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(TlsConnectionInfo::from_verified_peer(
+            PeerIdentity::admin_for_test("admin-test"),
+        )));
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

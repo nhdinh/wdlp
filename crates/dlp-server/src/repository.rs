@@ -50,7 +50,7 @@ impl PgAuthorityRepository {
             .await
             .map_err(|_| RepositoryError::Unavailable)?;
         let result = sqlx::query(
-            "INSERT INTO enrollment_authority (device_id, fingerprint_version, fingerprint_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, preferred_drive_letter, token_digest, token_expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + INTERVAL '10 minutes')",
+            "INSERT INTO enrollment_authority (device_id, fingerprint_version, fingerprint_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, preferred_drive_letter, token_digest, token_expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + INTERVAL '10 minutes') ON CONFLICT (device_id) DO UPDATE SET fingerprint_version = EXCLUDED.fingerprint_version, fingerprint_digest = EXCLUDED.fingerprint_digest, ad_object_guid = EXCLUDED.ad_object_guid, ad_object_sid = EXCLUDED.ad_object_sid, ad_dns_name = EXCLUDED.ad_dns_name, ad_domain = EXCLUDED.ad_domain, preferred_drive_letter = EXCLUDED.preferred_drive_letter, token_digest = EXCLUDED.token_digest, token_expires_at = EXCLUDED.token_expires_at, token_consumed_at = NULL",
         )
         .bind(request.device_id())
         .bind(i32::from(request.fingerprint_version()))
@@ -122,12 +122,14 @@ impl PgAuthorityRepository {
             .map_err(|_| RepositoryError::Unavailable)
     }
 
-    /// Locks the current authority row, validates its exact trusted-station
-    /// observation and token, invokes the certificate callback, then consumes,
-    /// revokes, and activates in one committed PostgreSQL transaction.
+    /// Locks the current authority row, validates its one-time token and active
+    /// credential state, invokes the certificate callback, then consumes,
+    /// revokes, and activates in one committed PostgreSQL transaction. The
+    /// identity fields remain server-held authority data; bootstrap callers do
+    /// not submit an observation to compare.
     pub async fn consume_and_activate<T, F>(
         &self,
-        request: &ProvisionDeviceRequestV1,
+        device_id: &str,
         token: &str,
         prior_serial: Option<&[u8]>,
         issue: F,
@@ -144,40 +146,18 @@ impl PgAuthorityRepository {
         let row = sqlx::query(
             "SELECT fingerprint_digest, token_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, active_serial FROM enrollment_authority WHERE device_id = $1 AND token_consumed_at IS NULL AND token_expires_at > CURRENT_TIMESTAMP FOR UPDATE",
         )
-        .bind(request.device_id())
+        .bind(device_id)
         .fetch_optional(&mut *transaction)
         .await
             .map_err(|_| RepositoryError::Unavailable)?
             .ok_or(RepositoryError::Denied)?;
-        let fingerprint: Vec<u8> = row
-            .try_get("fingerprint_digest")
-            .map_err(|_| RepositoryError::Unavailable)?;
         let stored_token: Vec<u8> = row
             .try_get("token_digest")
-            .map_err(|_| RepositoryError::Unavailable)?;
-        let guid: Vec<u8> = row
-            .try_get("ad_object_guid")
-            .map_err(|_| RepositoryError::Unavailable)?;
-        let sid: Vec<u8> = row
-            .try_get("ad_object_sid")
-            .map_err(|_| RepositoryError::Unavailable)?;
-        let dns: String = row
-            .try_get("ad_dns_name")
-            .map_err(|_| RepositoryError::Unavailable)?;
-        let domain: String = row
-            .try_get("ad_domain")
             .map_err(|_| RepositoryError::Unavailable)?;
         let active_serial: Option<Vec<u8>> = row
             .try_get("active_serial")
             .map_err(|_| RepositoryError::Unavailable)?;
-        if fingerprint.as_slice() != request.fingerprint_digest()
-            || stored_token.as_slice() != token_digest
-            || guid.as_slice() != request.ad_object_guid()
-            || sid.as_slice() != request.ad_object_sid()
-            || dns != request.ad_dns_name()
-            || domain != request.ad_domain()
-            || active_serial.as_deref() != prior_serial
-        {
+        if stored_token.as_slice() != token_digest || active_serial.as_deref() != prior_serial {
             return Err(RepositoryError::Denied);
         }
 
@@ -187,7 +167,7 @@ impl PgAuthorityRepository {
             sqlx::query(
                 "UPDATE device_route_credentials SET credential_status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE device_id = $1 AND credential_serial = $2 AND credential_status = 'active'",
             )
-            .bind(request.device_id())
+            .bind(device_id)
             .bind(&previous)
             .execute(&mut *transaction)
             .await
@@ -196,7 +176,7 @@ impl PgAuthorityRepository {
                 "INSERT INTO revoked_device_credentials (serial, device_id) VALUES ($1, $2)",
             )
             .bind(previous)
-            .bind(request.device_id())
+            .bind(device_id)
             .execute(&mut *transaction)
             .await
             .map_err(|_| RepositoryError::Unavailable)?;
@@ -204,7 +184,7 @@ impl PgAuthorityRepository {
         let consumed = sqlx::query(
             "UPDATE enrollment_authority SET token_consumed_at = CURRENT_TIMESTAMP, active_serial = $2 WHERE device_id = $1 AND token_consumed_at IS NULL",
         )
-        .bind(request.device_id())
+        .bind(device_id)
         .bind(&new_serial)
         .execute(&mut *transaction)
         .await
@@ -215,7 +195,7 @@ impl PgAuthorityRepository {
         sqlx::query(
             "INSERT INTO device_route_credentials (device_id, credential_serial, credential_status, public_certificate_digest, expires_at) VALUES ($1, $2, 'active', $3, CURRENT_TIMESTAMP + INTERVAL '30 days')",
         )
-        .bind(request.device_id())
+        .bind(device_id)
         .bind(new_serial)
         .bind(public_certificate_digest.as_slice())
         .execute(&mut *transaction)
@@ -304,14 +284,12 @@ impl RouteRepositoryPort for PgRouteRepository {
         device_id: &str,
         drive_state: &str,
     ) -> Result<(), RouteRepositoryError> {
-        sqlx::query(
-            "INSERT INTO health_reports (device_id, status) VALUES ($1, $2)",
-        )
-        .bind(device_id)
-        .bind(drive_state)
-        .execute(&self.pool)
-        .await
-        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("INSERT INTO health_reports (device_id, status) VALUES ($1, $2)")
+            .bind(device_id)
+            .bind(drive_state)
+            .execute(&self.pool)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
         Ok(())
     }
 
@@ -375,24 +353,20 @@ impl RouteRepositoryPort for PgRouteRepository {
         let Some(row) = row else {
             return Ok(None);
         };
-        let bundle_version_str: i64 = row
+        let bundle_version: i64 = row
             .try_get("bundle_version")
             .map_err(|_| RouteRepositoryError::Unavailable)?;
-        let bundle_version = dlp_domain::BundleVersion::parse(bundle_version_str.to_string())
+        let canonical_bundle: Vec<u8> = row
+            .try_get("canonical_bundle")
             .map_err(|_| RouteRepositoryError::Unavailable)?;
-        let schema_version: i16 = row
-            .try_get("schema_version")
-            .map_err(|_| RouteRepositoryError::Unavailable)?;
-        let device_id_parsed = dlp_domain::DeviceId::parse(device_id)
-            .map_err(|_| RouteRepositoryError::Unavailable)?;
-        let envelope = dlp_protocol::ConfigurationEnvelopeV1::new(
-            u16::try_from(schema_version).map_err(|_| RouteRepositoryError::Unavailable)?,
-            device_id_parsed,
-            bundle_version,
-            1_754_568_000,
-            "{}",
-        )
-        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let envelope =
+            dlp_protocol::ConfigurationEnvelopeV1::from_canonical_bytes(&canonical_bundle)
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if envelope.bundle_version().to_wire() != bundle_version.to_string()
+            || envelope.device_id().to_wire() != device_id
+        {
+            return Err(RouteRepositoryError::Unavailable);
+        }
         let key_id: String = row
             .try_get("key_id")
             .map_err(|_| RouteRepositoryError::Unavailable)?;
@@ -401,19 +375,30 @@ impl RouteRepositoryPort for PgRouteRepository {
             .map_err(|_| RouteRepositoryError::Unavailable)?;
         let signed = SignedConfigurationV1::new(envelope, &key_id, signature)
             .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let stored_digest: Vec<u8> = row
+            .try_get("content_digest")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let stored_audience: String = row
+            .try_get("audience")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if stored_digest.as_slice() != signed.content_digest()
+            || stored_audience != device_id
+            || signed.audience().to_wire() != stored_audience
+        {
+            return Err(RouteRepositoryError::Unavailable);
+        }
         Ok(Some(signed))
     }
 
     async fn health_report_count(&self, device_id: &str) -> usize {
-        let count: i64 = sqlx::query(
-            "SELECT COUNT(*) AS count FROM health_reports WHERE device_id = $1",
-        )
-        .bind(device_id)
-        .fetch_one(&self.pool)
-        .await
-        .ok()
-        .and_then(|row| row.try_get::<i64, _>("count").ok())
-        .unwrap_or(0);
+        let count: i64 =
+            sqlx::query("SELECT COUNT(*) AS count FROM health_reports WHERE device_id = $1")
+                .bind(device_id)
+                .fetch_one(&self.pool)
+                .await
+                .ok()
+                .and_then(|row| row.try_get::<i64, _>("count").ok())
+                .unwrap_or(0);
         count as usize
     }
 }

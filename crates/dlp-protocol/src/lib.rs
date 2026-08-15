@@ -11,6 +11,7 @@ use std::fmt;
 
 pub const API_VERSION_V1: u16 = 1;
 pub const CONFIGURATION_SCHEMA_VERSION_V1: u16 = 1;
+const CONFIGURATION_ENVELOPE_PREFIX: &[u8] = b"dlp-configuration-envelope/v1\0";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProtocolError {
@@ -361,7 +362,7 @@ impl ConfigurationEnvelopeV1 {
 
     /// Encodes the only signature input as a length-delimited fixed field sequence.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        let mut output = b"dlp-configuration-envelope/v1\0".to_vec();
+        let mut output = CONFIGURATION_ENVELOPE_PREFIX.to_vec();
         append_u16(&mut output, self.version);
         append_u16(&mut output, self.schema_version);
         append_bytes(&mut output, self.device_id.to_wire().as_bytes());
@@ -369,6 +370,48 @@ impl ConfigurationEnvelopeV1 {
         append_u64(&mut output, self.issued_at_epoch_seconds);
         append_bytes(&mut output, self.payload.as_bytes());
         output
+    }
+
+    /// Reconstructs an envelope from the exact bytes that were signed.
+    ///
+    /// Persistence adapters use this strict decoder so a stored configuration
+    /// cannot be reconstructed with a substituted payload or timestamp.
+    pub fn from_canonical_bytes(canonical: &[u8]) -> Result<Self, ProtocolError> {
+        let Some(bytes) = canonical.strip_prefix(CONFIGURATION_ENVELOPE_PREFIX) else {
+            return Err(ProtocolError::InvalidField {
+                field: "configuration envelope",
+            });
+        };
+        let mut reader = CanonicalReader::new(bytes);
+        let version = reader.read_u16()?;
+        require_v1("ConfigurationEnvelopeV1", version)?;
+        let schema_version = reader.read_u16()?;
+        let device_id = reader.read_utf8("configuration device")?;
+        let bundle_version = reader.read_utf8("configuration bundle version")?;
+        let issued_at_epoch_seconds = reader.read_u64()?;
+        let payload = reader.read_utf8("configuration payload")?;
+        if !reader.is_empty() {
+            return Err(ProtocolError::InvalidField {
+                field: "configuration envelope",
+            });
+        }
+        let envelope = Self::new(
+            schema_version,
+            DeviceId::parse(&device_id).map_err(|_| ProtocolError::InvalidField {
+                field: "configuration device",
+            })?,
+            BundleVersion::parse(bundle_version).map_err(|_| ProtocolError::InvalidField {
+                field: "configuration bundle version",
+            })?,
+            issued_at_epoch_seconds,
+            payload,
+        )?;
+        if envelope.canonical_bytes() != canonical {
+            return Err(ProtocolError::InvalidField {
+                field: "configuration envelope",
+            });
+        }
+        Ok(envelope)
     }
 }
 
@@ -474,6 +517,47 @@ fn append_bytes(output: &mut Vec<u8>, value: &[u8]) {
     output.extend_from_slice(value);
 }
 
+struct CanonicalReader<'a> {
+    remaining: &'a [u8],
+}
+
+impl<'a> CanonicalReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { remaining: bytes }
+    }
+
+    fn read_u16(&mut self) -> Result<u16, ProtocolError> {
+        let bytes = self.take(2)?;
+        Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
+    }
+
+    fn read_u64(&mut self) -> Result<u64, ProtocolError> {
+        let bytes = self.take(8)?;
+        Ok(u64::from_be_bytes(bytes.try_into().expect("fixed length")))
+    }
+
+    fn read_utf8(&mut self, field: &'static str) -> Result<String, ProtocolError> {
+        let length = u32::from_be_bytes(self.take(4)?.try_into().expect("fixed length")) as usize;
+        let bytes = self.take(length)?;
+        String::from_utf8(bytes.to_vec()).map_err(|_| ProtocolError::InvalidField { field })
+    }
+
+    fn take(&mut self, length: usize) -> Result<&'a [u8], ProtocolError> {
+        if self.remaining.len() < length {
+            return Err(ProtocolError::InvalidField {
+                field: "configuration envelope",
+            });
+        }
+        let (output, remaining) = self.remaining.split_at(length);
+        self.remaining = remaining;
+        Ok(output)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.remaining.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -509,6 +593,24 @@ mod tests {
             signed.envelope().canonical_bytes()
         );
         assert!(!signed.envelope().canonical_bytes().is_empty());
+    }
+
+    #[test]
+    fn configuration_envelopes_round_trip_exact_signed_bytes() {
+        let envelope = ConfigurationEnvelopeV1::new(
+            1,
+            DeviceId::parse("device-01").expect("valid device"),
+            BundleVersion::parse("bundle-01").expect("valid bundle version"),
+            1_700_000_001,
+            "allow",
+        )
+        .expect("valid envelope");
+        let canonical = envelope.canonical_bytes();
+        assert_eq!(
+            ConfigurationEnvelopeV1::from_canonical_bytes(&canonical)
+                .expect("canonical bytes restore exactly"),
+            envelope
+        );
     }
 
     #[test]

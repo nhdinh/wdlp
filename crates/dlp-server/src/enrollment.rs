@@ -77,7 +77,7 @@ impl TestEnrollmentService {
 /// token and CSR because neither belongs in diagnostics or committed fixtures.
 #[derive(Clone)]
 pub struct EnrollmentSubmission {
-    observation: ProvisionDeviceRequestV1,
+    device_id: String,
     token: String,
     csr_pem: String,
     prior_serial: Option<Vec<u8>>,
@@ -85,14 +85,17 @@ pub struct EnrollmentSubmission {
 
 impl EnrollmentSubmission {
     pub fn new(
-        observation: ProvisionDeviceRequestV1,
+        device_id: impl Into<String>,
         token: impl Into<String>,
         csr_pem: impl Into<String>,
         prior_serial: Option<Vec<u8>>,
     ) -> Result<Self, EnrollmentError> {
+        let device_id = device_id.into();
         let token = token.into();
         let csr_pem = csr_pem.into();
-        if token.is_empty()
+        if device_id.is_empty()
+            || device_id.len() > 128
+            || token.is_empty()
             || token.len() > 512
             || csr_pem.is_empty()
             || csr_pem.len() > 65_536
@@ -103,7 +106,7 @@ impl EnrollmentSubmission {
             return Err(EnrollmentError::Denied);
         }
         Ok(Self {
-            observation,
+            device_id,
             token,
             csr_pem,
             prior_serial,
@@ -115,7 +118,7 @@ impl std::fmt::Debug for EnrollmentSubmission {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("EnrollmentSubmission")
-            .field("observation", &self.observation)
+            .field("device_id", &self.device_id)
             .field("token", &"[REDACTED]")
             .field("csr_pem", &"[REDACTED]")
             .field(
@@ -161,16 +164,12 @@ impl EnrollmentServicePort for EnrollmentService {
         let issuer = &self.issuer;
         self.repository
             .consume_and_activate(
-                &submission.observation,
+                &submission.device_id,
                 &submission.token,
                 submission.prior_serial.as_deref(),
                 |serial| {
                     let issued = issuer
-                        .issue_from_csr(
-                            submission.observation.device_id(),
-                            &submission.csr_pem,
-                            serial,
-                        )
+                        .issue_from_csr(&submission.device_id, &submission.csr_pem, serial)
                         .map_err(|_| RepositoryError::Denied)?;
                     let certificate_digest: [u8; 32] =
                         Sha256::digest(issued.certificate_chain_pem.as_bytes()).into();

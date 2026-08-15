@@ -10,7 +10,8 @@ workspace = true
 
 [dependencies]
 async-trait = "=0.1.92"
-axum = "=0.8.9"
+axum = { version = "=0.8.9", features = ["http2"] }
+dlp-agent-core = { path = "../dlp-agent-core" }
 dlp-crypto = { path = "../dlp-crypto" }
 dlp-domain = { path = "../dlp-domain" }
 dlp-protocol = { path = "../dlp-protocol" }

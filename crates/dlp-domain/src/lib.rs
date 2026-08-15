@@ -43,7 +43,7 @@ impl fmt::Display for DomainError {
 impl std::error::Error for DomainError {}
 
 macro_rules! typed_identifier {
-    ($name:ident, $subject:literal) => {
+    ($name:ident, $subject:literal, allow_dot = $allow_dot:literal) => {
         #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
         pub struct $name(String);
 
@@ -54,9 +54,13 @@ macro_rules! typed_identifier {
                     return Err(DomainError::new(DomainErrorKind::EmptyValue, $subject));
                 }
                 if value.len() > 128
-                    || !value
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+                    || !value.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric()
+                            || matches!(byte, b'-' | b'_')
+                            || ($allow_dot && byte == b'.')
+                    })
+                    || ($allow_dot
+                        && (value.starts_with('.') || value.ends_with('.') || value.contains("..")))
                 {
                     return Err(DomainError::new(
                         DomainErrorKind::InvalidIdentifier,
@@ -85,11 +89,11 @@ macro_rules! typed_identifier {
     };
 }
 
-typed_identifier!(DeviceId, "device id");
-typed_identifier!(UserSid, "user SID");
-typed_identifier!(StoreId, "store id");
-typed_identifier!(FileId, "file id");
-typed_identifier!(BundleVersion, "bundle version");
+typed_identifier!(DeviceId, "device id", allow_dot = true);
+typed_identifier!(UserSid, "user SID", allow_dot = false);
+typed_identifier!(StoreId, "store id", allow_dot = false);
+typed_identifier!(FileId, "file id", allow_dot = false);
+typed_identifier!(BundleVersion, "bundle version", allow_dot = false);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicyInput {
@@ -212,7 +216,7 @@ impl PolicyDecision {
 mod tests {
     use super::{
         DecisionReason, DeviceId, DomainError, DomainErrorKind, EnforcementAction, PolicyDecision,
-        PolicyInput, UserSid,
+        PolicyInput, StoreId, UserSid,
     };
     use std::fs;
     use std::process::Command;
@@ -221,6 +225,16 @@ mod tests {
     fn typed_values_reject_bad_input_and_redact_sensitive_output() {
         let device = DeviceId::parse("device-01").expect("valid device id");
         assert_eq!(device.to_wire(), "device-01");
+        assert_eq!(
+            DeviceId::parse("LAB-CLIENT01.lab.local")
+                .expect("device FQDN is a valid device id")
+                .to_wire(),
+            "LAB-CLIENT01.lab.local"
+        );
+        assert!(DeviceId::parse(".LAB-CLIENT01").is_err());
+        assert!(DeviceId::parse("LAB-CLIENT01..lab.local").is_err());
+        assert!(DeviceId::parse("LAB-CLIENT01.lab.local.").is_err());
+        assert!(StoreId::parse("store.with-dot").is_err());
         assert!(DeviceId::parse(" ").is_err());
         assert_eq!(format!("{device:?}"), "DeviceId([REDACTED])");
         assert_eq!(device.to_string(), "[REDACTED]");
