@@ -81,7 +81,7 @@ Plans:
 **Goal:** Developers can manually run an independent development-only Windows service on an endpoint and retrieve a bounded, allowlisted log tail over HTTP from trusted lab clients without affecting DLP runtime components.
 **Requirements**: TBD
 **Depends on:** Phase 1
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 
@@ -91,7 +91,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01.3-02-PLAN.md (Wave 2) — Complete peer-authorized raw-text HTTP behavior and the isolated gracefully stoppable Windows SCM lifecycle
+- [x] 01.3-02-PLAN.md (Wave 2) — Complete peer-authorized raw-text HTTP behavior and the isolated gracefully stoppable Windows SCM lifecycle
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

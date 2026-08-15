@@ -5,10 +5,10 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 status: executing
-stopped_at: Completed 01.2-01-PLAN.md
-last_updated: "2026-08-15T15:53:15.970Z"
+stopped_at: Completed 01.3-02-PLAN.md
+last_updated: "2026-08-15T16:05:49.716Z"
 last_activity: 2026-08-15
-last_activity_desc: "Completed plan 01-20: WinFsp integrity, disk-full, service-restart, and Windows-reboot recovery"
+last_activity_desc: "Completed plan 01.3-02: peer-authorized HTTP boundary and isolated Windows SCM lifecycle"
 progress:
   total_phases: 4
   completed_phases: 2
@@ -24,7 +24,7 @@ progress:
 - **MVP boundary**: Enroll → signed config → mount → copy → encrypted store → read back → survive restart; policy blocking and toast follow.
 - **Constraints**: Rust for endpoint agent and core domain; PostgreSQL server persistence; Docker Compose server deployment; WinFsp user-mode virtual drive; no kernel-mode filtering or signed driver; safe Rust in portable domain crates.
 
-Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, service-restart, and Windows-reboot recovery
+Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundary and isolated Windows SCM lifecycle
 
 ## Quick Tasks Completed
 
@@ -117,8 +117,8 @@ Last activity: 2026-08-15 - Completed plan 01-20: WinFsp integrity, disk-full, s
 
 **Resume file:** None
 
-**Last session:** 2026-08-15T15:53:15.952Z
-**Stopped at:** Completed 01.2-01-PLAN.md
+**Last session:** 2026-08-15T16:05:49.699Z
+**Stopped at:** Completed 01.3-02-PLAN.md
 
 **Current session:** 2026-08-13
 **Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
