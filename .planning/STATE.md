@@ -5,10 +5,10 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 status: executing
-stopped_at: Completed 01-17-PLAN.md
-last_updated: "2026-08-16T12:30:00Z"
+stopped_at: Completed 01-22-PLAN.md
+last_updated: "2026-08-15T17:56:31.387Z"
 last_activity: 2026-08-16
-last_activity_desc: Re-executed Plan 01-17; cleared synthetic matrix evidence IDs, aligned schema enums, and confirmed privilege-manifest approvals
+last_activity_desc: Re-executed Plan 01-22; verified PostgreSQL enrollment authority source artifacts, published source-only evidence for WRK-03/SRV-03/SRV-11/CRY-04/TST-05, and refreshed the requirement matrix
 progress:
   total_phases: 4
   completed_phases: 2
@@ -49,11 +49,11 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 ## Current Position
 
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — EXECUTING
-- **Plan:** 19 of 21 (next)
-- **Task:** 0 of 2
-- **Status:** Ready to execute
+- **Plan:** 22 — COMPLETED (source-only verification)
+- **Task:** 2 of 2
+- **Status:** Stopped after 01-22 completion per operator instruction
 - **Progress:** [████████░░] 81%
-- **Next plan:** 01-16 production-provider encrypted-drive vertical slice and D-16/D-17/D-18 matrix
+- **Next plan:** 01-16 production-provider encrypted-drive vertical slice and D-16/D-17/D-18 matrix (pending operator go-ahead)
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by VM reachability.
 
 ## Performance Metrics
@@ -87,6 +87,7 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 20m | 3 tasks | 7 files |
 | Phase 01.2-dlp-agent-enrollment-token-should-be-obtained-automatically P01 | 90m | 3 tasks | 3 files |
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 15min | 3 tasks | 2 files |
+| Phase 01-first-encrypted-drive-vertical-slice P22 | 25m | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -118,13 +119,13 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 
 **Resume file:** None
 
-**Last session:** 2026-08-16T12:30:00Z
-**Stopped at:** Completed 01-17-PLAN.md
+**Last session:** 2026-08-15T17:56:31.371Z
+**Stopped at:** Completed 01-22-PLAN.md
 
 **Current session:** 2026-08-16
-**Resumed at:** /gsd-execute-phase 1 — re-executed Plan 01-17 to repair matrix/schema drift and confirm privilege approvals.
+**Resumed at:** /gsd-execute-phase 1 — executed Plan 01-22 source-only verification and evidence publication.
 
-- Last action: Re-executed Plan 01-17. Cleared four synthetic/inaccessible matrix evidence IDs (WRK-04, SRV-11, SRV-12, CRY-01), aligned evidence-manifest schema enums with the PowerShell verifier, and confirmed the eight digest-bound privilege manifests remain approved. All verifier scenarios pass on hungdinh-lt.
+- Last action: Verified 01-22 source artifacts, ran repository/enrollment/PKI tests and clippy, passed ServerAuthoritySource and ServerEnrollmentSource source checks, published fresh evidence for WRK-03, SRV-03, SRV-11, CRY-04, and TST-05, and updated the requirement matrix. Stopped per operator instruction; no later plan executed.
 
 ### Completed Plan 01-23 Evidence
 
@@ -186,6 +187,7 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 - [Phase ?]: Synthetic or stale evidence IDs in the requirement matrix must be cleared to unverified rather than left as passing placeholders. — The fail-closed contract requires every passing matrix row to point to accessible, hash-verified raw artifacts.
 - [Phase ?]: Evidence schema enums and PowerShell verifier enums must remain synchronized. — A schema that accepts values the verifier rejects allows publication of evidence that cannot be validated, breaking the contract.
 - [Phase ?]: The operator approved the existing eight digest-bound privilege manifests for Plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21. — All manifests passed automated role, digest, and approval-identity validation; the human checkpoint confirmed the risk acceptance.
+- [Phase ?]: Plan 01-22 source-only evidence published on hungdinh-lt for WRK-03, SRV-03, SRV-11, CRY-04, TST-05; LAB-DC01/LAB-SERVER01 acceptance evidence remains the responsibility of Plan 01-13.
 
 ### Blockers
 
