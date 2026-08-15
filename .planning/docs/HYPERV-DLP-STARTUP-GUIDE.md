@@ -37,10 +37,22 @@ $env:DLP_DATABASE_URL      = 'postgres://dlp_server:***@192.168.50.12:5432/dlp'
 $env:DLP_SERVER01_ADMIN_PASSWORD = '***from-runtime-provider***'
 $env:DLP_SERVER01_SSH_USER = 'dlpadmin'   # Ubuntu account with passwordless sudo or postgres group membership
 
-# Server runtime secrets (PEM content as multi-line strings)
-$env:DLP_SERVER_CERT_PEM  = '-----BEGIN CERTIFICATE-----...'
-$env:DLP_SERVER_KEY_PEM   = '-----BEGIN PRIVATE KEY-----...'
-# ... remaining secrets per Invoke-Dc01Server.ps1
+# Baseline server runtime inputs required by every Invoke-Dc01Server.ps1 scenario.
+# PEM variables accept inline PEM content or an existing file path.
+$env:DLP_SERVER_CERT_PEM                    = '-----BEGIN CERTIFICATE-----...'
+$env:DLP_SERVER_KEY_PEM                     = '-----BEGIN PRIVATE KEY-----...'
+$env:DLP_ADMIN_CA_CERT_PEM                  = '-----BEGIN CERTIFICATE-----...'
+$env:DLP_PHASE1_ROOT_CA_CERT_PEM            = '-----BEGIN CERTIFICATE-----...'
+$env:DLP_DEVICE_ISSUING_CA_CERT_PEM         = '-----BEGIN CERTIFICATE-----...'
+$env:DLP_DEVICE_ISSUING_CA_KEY_PEM          = '-----BEGIN PRIVATE KEY-----...'
+$env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX = '0123...abcdef' # exactly 64 hex chars
+
+# TrustedProvisioning and All only: provisioning administrator mTLS credentials.
+$env:DLP_PROVISIONING_ROOT_CA_PEM    = '-----BEGIN CERTIFICATE-----...'
+$env:DLP_PROVISIONING_ADMIN_CERT_PEM = '-----BEGIN CERTIFICATE-----...'
+$env:DLP_PROVISIONING_ADMIN_KEY_PEM  = '-----BEGIN PRIVATE KEY-----...'
+# Those scenarios also need all six DLP_AD_* LDAPS values from ENV-VARS.md.
+# Never set DLP_ADMIN_PROVISIONING_KEY; it is an obsolete bearer credential.
 
 # Endpoint runtime secrets for LAB-CLIENT01 (required by Invoke-Client01Runtime.ps1).
 # See ENV-VARS.md for how to collect or create each value.
@@ -520,6 +532,8 @@ For the independent `DlpLogDebugService` diagnostic only, use the development-on
 | `sqlx migrate` fails | Verify `$env:DLP_DATABASE_URL`, SSH to `LAB-SERVER01`, and run `sudo systemctl status postgresql`. |
 | Cannot SSH to `LAB-SERVER01` | Verify the VM IP, SSH key or password, and that `sshd` is installed and running. |
 | `Invoke-Dc01Server.ps1` fails with `vm_credentials_required` | Set `$env:DLP_VM_ADMIN_USER`/`PASSWORD` or pass `-Credential`. |
+| `Invoke-Dc01Server.ps1` fails with `runtime_secrets_missing: DLP_ADMIN_PROVISIONING_KEY` | The local runner is stale. Update `scripts\lab\Invoke-Dc01Server.ps1` from the current working tree and rerun it. Do not create or set this obsolete bearer secret; provisioning now uses administrator mTLS. |
+| `Invoke-Dc01Server.ps1` fails with another `runtime_secrets_missing` value | Set the named baseline server input from the list in Section 1. For `TrustedProvisioning`/`All`, also set the provisioning mTLS and AD/LDAPS inputs. |
 | `Invoke-Client01Runtime.ps1` fails with `runtime_secrets_missing` | Set `DLP_DEVICE_ID`, `DLP_SERVER_URL`, `DLP_ROOT_CA_PEM`, and `DLP_CONFIGURATION_PUBLIC_KEY_HEX`. |
 | `Invoke-Client01Runtime.ps1` fails with `service_failed_to_start` | Check `C:\dlp\agent\dlp-windows-service.err`, verify the env file, and confirm `DlpWindowsService` is configured. |
 | `dlp-server` port not reachable from `LAB-CLIENT01` | Check firewall rule on `LAB-DC01`; verify VM network profile is Domain/Private. |
