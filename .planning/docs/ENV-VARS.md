@@ -30,7 +30,7 @@ These variables have safe defaults in the service. Set them only when you need t
 | Variable | Purpose | Format / validation | Example | Default |
 | --- | --- | --- | --- | --- |
 | `DLP_CONFIGURATION_KEY_ID` | Identifier for the configuration signing key. Must match the key ID the server embeds in signed bundles. | Non-empty string, typically kebab-case. | `phase1-config-signer` | `phase1-config-signer` |
-| `DLP_AGENT_ENROLLMENT_TOKEN` | Short-lived token used for initial or replacement enrollment. | JWT-safe token string; the lab orchestrator validates length `<=512` and charset `[A-Za-z0-9_.~/-]`. | `eyJ0eXAiOiJKV1Qi...` | None (omit when using trusted provisioning) |
+| `DLP_AGENT_ENROLLMENT_TOKEN` | Short-lived token used for initial or replacement enrollment. | JWT-safe token string; the lab orchestrator validates length `<=512` and charset `[A-Za-z0-9_.~/-]`. In the lab this is automatically obtained when `Invoke-Client01Runtime.ps1` is run with `-EnrollmentTokenProvider TrustedProvisioning`; set it only for manual or offline enrollment. | `eyJ0eXAiOiJKV1Qi...` | None (omit when using trusted provisioning) |
 | `DLP_POLL_INTERVAL_SECONDS` | How often the agent polls the management server for a new signed configuration. | Positive integer seconds. | `300` | `300` (5 minutes) |
 | `DLP_HEALTH_INTERVAL_SECONDS` | How often the agent posts a redacted health snapshot. | Positive integer seconds. | `60` | `60` (1 minute) |
 | `DLP_START_TIMEOUT_SECONDS` | Internal startup timeout used by some service helpers. | Positive integer seconds. | `60` | `60` |
