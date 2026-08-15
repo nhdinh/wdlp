@@ -5,10 +5,10 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 status: executing
-stopped_at: null
-last_updated: "2026-08-15T17:16:04.218Z"
+stopped_at: Completed 01-17-PLAN.md
+last_updated: "2026-08-16T12:30:00Z"
 last_activity: 2026-08-16
-last_activity_desc: Reconciled working tree from checkpoint 01-16; committed atomic plan-scoped groups for 01-22, 01-23, 01-14/18/19, and project artifacts
+last_activity_desc: Re-executed Plan 01-17; cleared synthetic matrix evidence IDs, aligned schema enums, and confirmed privilege-manifest approvals
 progress:
   total_phases: 4
   completed_phases: 2
@@ -86,6 +86,7 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 | Phase 01.1-add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp P01 | 18min | 3 tasks | 3 files |
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 20m | 3 tasks | 7 files |
 | Phase 01.2-dlp-agent-enrollment-token-should-be-obtained-automatically P01 | 90m | 3 tasks | 3 files |
+| Phase 01-first-encrypted-drive-vertical-slice P17 | 15min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -117,13 +118,13 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 
 **Resume file:** None
 
-**Last session:** 2026-08-15T17:16:04.189Z
-**Stopped at:** context exhaustion at 75% (2026-08-15)
+**Last session:** 2026-08-16T12:30:00Z
+**Stopped at:** Completed 01-17-PLAN.md
 
-**Current session:** 2026-08-13
-**Resumed at:** /gsd-execute-phase 1 — continuing Phase 1 Wave execution.
+**Current session:** 2026-08-16
+**Resumed at:** /gsd-execute-phase 1 — re-executed Plan 01-17 to repair matrix/schema drift and confirm privilege approvals.
 
-- Last action: Completed Plan 01-19 (SCM service lifecycle, native fingerprint, secret-free config, and LAB-CLIENT01 smoke artifacts). Source checks pass; LAB-CLIENT01 runtime blocked by token/VM reachability. Plan 01-18 source-level blocker resolved.
+- Last action: Re-executed Plan 01-17. Cleared four synthetic/inaccessible matrix evidence IDs (WRK-04, SRV-11, SRV-12, CRY-01), aligned evidence-manifest schema enums with the PowerShell verifier, and confirmed the eight digest-bound privilege manifests remain approved. All verifier scenarios pass on hungdinh-lt.
 
 ### Completed Plan 01-23 Evidence
 
@@ -182,6 +183,9 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 - [Phase ?]: [Phase 01.2]: Made token cleanup the default after successful enrollment; only retain with -RetainEnrollmentToken for explicit troubleshooting.
 - [Phase ?]: [Phase 01.2]: Validated enrollment token length (<=512) and charset ([A-Za-z0-9_.~/-]) before any persistence to LAB-CLIENT01.
 - [Phase ?]: [Phase 01.2]: Replaced Get-FileHash with direct [System.Security.Cryptography.SHA256] calls because the Git-Bash-launched Windows PowerShell session could not auto-import Microsoft.PowerShell.Utility.
+- [Phase ?]: Synthetic or stale evidence IDs in the requirement matrix must be cleared to unverified rather than left as passing placeholders. — The fail-closed contract requires every passing matrix row to point to accessible, hash-verified raw artifacts.
+- [Phase ?]: Evidence schema enums and PowerShell verifier enums must remain synchronized. — A schema that accepts values the verifier rejects allows publication of evidence that cannot be validated, breaking the contract.
+- [Phase ?]: The operator approved the existing eight digest-bound privilege manifests for Plans 01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, and 01-21. — All manifests passed automated role, digest, and approval-identity validation; the human checkpoint confirmed the risk acceptance.
 
 ### Blockers
 
