@@ -4,6 +4,29 @@ PowerShell/Python scripts for setting up, running, and tearing down the Phase 1 
 
 > **Security:** These scripts handle runtime-only secrets. Never commit generated `.env` files, PEM/KEY material, or enrollment tokens to source control.
 
+## Invocation Roles and Prerequisites
+
+Use scripts labeled **orchestrator-invoked** through their owning runner unless the entry explicitly says it is a debugging exception. All other entries are **manual** tools; their examples are run from the repository root on `hungdinh-lt` unless another host is named.
+
+| Script | Invocation role | Prerequisites |
+| --- | --- | --- |
+| `Debug-Fingerprint.ps1` | Manual diagnostic | LAB-DC01 connectivity to LAB-CLIENT01 through CIM/WinRM; write access to `C:\dlp\server`. |
+| `Debug-TrustedProvisioningTls.ps1` | Manual diagnostic | Run on LAB-DC01 with OpenSSL and the existing provisioning/server runtime files. |
+| `Fetch-DC01Cert.ps1` | Manual certificate export | Run on LAB-DC01 or a domain-joined host with directory access. |
+| `Initialize-DlpEnvironment.ps1` | Manual setup wizard | PowerShell 5.1+ and runtime-only values from the secret provider. |
+| `Invoke-Client01Runtime.ps1` | Orchestrator-invoked endpoint runner | Authorized LAB-CLIENT01 credentials and required runtime secrets. |
+| `Invoke-Dc01Server.ps1` | Orchestrator-invoked management-server runner | Authorized LAB-DC01 credentials, LAB-SERVER01 database reachability, and runtime secrets. |
+| `Invoke-Phase1EnvironmentReconcile.ps1` | Manual cleanup runner | Run on `hungdinh-lt`; review the default dry run before `-Apply`. |
+| `Invoke-TrustedProvisioning.ps1` | Orchestrator-invoked provisioning helper | Run on LAB-DC01 with an approved privilege-manifest digest and runtime PEM material. |
+| `Reset-DlpEnrollment.ps1` | Manual database repair | `DLP_DATABASE_URL` and PostgreSQL client tools (`psql`). |
+| `Reset-DlpPostgres.py` | Manual database reset | Python with Paramiko, `DLP_SERVER01_ADMIN_PASSWORD`, and a pinned SSH known-hosts file. |
+| `Rotate-DlpAdminCa.ps1` | Manual PKI rotation | OpenSSL and a protected writable output directory. |
+| `Rotate-DlpDeviceIssuingCa.ps1` | Manual PKI rotation | OpenSSL and a protected writable output directory. |
+| `Rotate-DlpProvisioningAdmin.ps1` | Manual PKI rotation | OpenSSL, existing administrator-CA material, and a protected writable output directory. |
+| `Rotate-DlpServerCert.ps1` | Manual PKI rotation | OpenSSL, existing Phase 1 root-CA material, and a protected writable output directory. |
+| `Set-DlpEnvironment.ps1` | Manual session setup | An environment file created by the setup wizard or an explicit `-EnvFile`. |
+| `Verify-DlpLabCertificates.ps1` | Manual validation | OpenSSL and the required PKI environment values or rotated files. |
+
 ## Environment Setup
 
 ### Initialize-DlpEnvironment.ps1
@@ -68,6 +91,30 @@ Validates certificate/key pairs, chains, extensions, expiration, hostname, and r
 
 ```powershell
 .\scripts\lab\Verify-DlpLabCertificates.ps1 -ServerHostname 'LAB-DC01.lab.local'
+```
+
+### Rotate-DlpDeviceIssuingCa.ps1
+
+Generates or rotates the device-issuing CA used to issue endpoint mTLS certificates.
+
+**When to use:** Manual PKI rotation after protecting the output directory and arranging deployment of the replacement trust material.
+
+**Example:**
+
+```powershell
+.\scripts\lab\Rotate-DlpDeviceIssuingCa.ps1 -OutputDirectory C:\dlp\secrets -Force
+```
+
+### Rotate-DlpServerCert.ps1
+
+Generates or rotates the LAB-DC01 management-server TLS certificate using the existing Phase 1 root CA.
+
+**When to use:** Manual server-certificate rotation; verify and deploy the replacement before restarting the management server.
+
+**Example:**
+
+```powershell
+.\scripts\lab\Rotate-DlpServerCert.ps1 -OutputDirectory C:\dlp\secrets -RootCaCertPath C:\dlp\secrets\phase1-root-ca.pem -RootCaKeyPath C:\dlp\secrets\phase1-root-ca-key.pem -Force
 ```
 
 ### Fetch-DC01Cert.ps1
@@ -195,6 +242,19 @@ Collects SMBIOS/BIOS/disk identity from `LAB-CLIENT01` for troubleshooting trust
 .\scripts\lab\Debug-Fingerprint.ps1
 ```
 
+### Debug-TrustedProvisioningTls.ps1
+
+Collects a redacted diagnostic JSON snapshot for a trusted-provisioning TLS abort.
+
+**When to use:** Run manually on LAB-DC01 immediately before a provisioning TLS failure. It is a diagnostic helper, not a daily startup entrypoint.
+
+**Example:**
+
+```powershell
+# Reproduce only when the incident procedure calls for it.
+.\scripts\lab\Debug-TrustedProvisioningTls.ps1 -RunReproduction
+```
+
 ## Cleanup
 
 ### Invoke-Phase1EnvironmentReconcile.ps1
@@ -224,7 +284,8 @@ Audits and removes DLP artifacts from the developer host (`hungdinh-lt`).
 
 ## Related Documentation
 
-- [.planning/docs/LAB-SETUP-GUIDE.md](../.planning/docs/LAB-SETUP-GUIDE.md) — start-here lab setup walkthrough.
-- [.planning/docs/ENV-VARS.md](../.planning/docs/ENV-VARS.md) — environment variable reference.
-- [.planning/docs/PEM-KEY-GUIDE.md](../.planning/docs/PEM-KEY-GUIDE.md) — PKI generation guide.
-- [.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md](../.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md) — daily cold-start and service startup.
+- [.planning/docs/README.md](../../.planning/docs/README.md) — documentation front door and ownership map.
+- [.planning/docs/LAB-SETUP-GUIDE.md](../../.planning/docs/LAB-SETUP-GUIDE.md) — start-here lab setup walkthrough.
+- [.planning/docs/ENV-VARS.md](../../.planning/docs/ENV-VARS.md) — environment variable reference.
+- [.planning/docs/PEM-KEY-GUIDE.md](../../.planning/docs/PEM-KEY-GUIDE.md) — PKI generation guide.
+- [.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md](../../.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md) — daily cold-start and service startup.
