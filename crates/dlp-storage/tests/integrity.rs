@@ -3,6 +3,7 @@ use dlp_storage::{
     CapturedStoreIdentity, DurabilityFaultPoint, LocalEncryptedStore, StorageError, StoreKey,
     recover_store,
 };
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -60,6 +61,29 @@ fn evidence_contains(root: &Path, expected: &[u8]) -> bool {
     }
     let evidence = root.join("evidence");
     evidence.exists() && visit(&evidence, expected)
+}
+
+fn contains_marker(root: &Path, marker: &[u8]) -> bool {
+    fn visit(path: &Path, marker: &[u8]) -> bool {
+        let entries = fs::read_dir(path).expect("read scan root");
+        for entry in entries {
+            let entry = entry.expect("directory entry");
+            let path = entry.path();
+            if path.is_dir() {
+                if visit(&path, marker) {
+                    return true;
+                }
+            } else if fs::read(&path)
+                .expect("read artifact")
+                .windows(marker.len())
+                .any(|window| window == marker)
+            {
+                return true;
+            }
+        }
+        false
+    }
+    visit(root, marker)
 }
 
 #[test]
@@ -163,4 +187,112 @@ fn no_space_at_each_publication_boundary_preserves_a_complete_commit() {
         let recovered = restarted.read(&file).expect("read complete generation");
         assert!(recovered == b"old complete" || recovered == b"new complete");
     }
+}
+
+#[test]
+fn corrupt_authenticated_content_returns_integrity_failure_and_preserves_evidence() {
+    let (temp, identity, key, file, _) = fixture();
+    let mut store = LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone())
+        .expect("open store");
+    let baseline = b"DLP-01-20-BASELINE";
+    store.write(&file, baseline).expect("stage baseline");
+    store.flush_file(&file).expect("commit baseline");
+
+    store
+        .write(&file, b"DLP-01-20-REPLACEMENT")
+        .expect("stage replacement");
+    let replacement = store.flush_file(&file).expect("commit replacement");
+    let chunk = backing_file(
+        temp.path(),
+        &identity,
+        &file,
+        &format!(
+            "generations/g-{:020}/chunk-00000000.rec",
+            replacement.generation
+        ),
+    );
+    let mut altered = fs::read(&chunk).expect("read encrypted chunk");
+    *altered.last_mut().expect("non-empty encrypted chunk") ^= 1;
+    fs::write(&chunk, &altered).expect("corrupt content record");
+
+    let mut restarted = LocalEncryptedStore::open(temp.path(), identity, key).expect("restart");
+    assert_eq!(
+        recover_store(&mut restarted, &file),
+        Err(StorageError::IntegrityFailure)
+    );
+    assert_eq!(restarted.read(&file), Err(StorageError::IntegrityFailure));
+    assert!(
+        evidence_contains(temp.path(), &altered),
+        "corrupt content evidence is preserved"
+    );
+    assert!(
+        !contains_marker(temp.path(), b"DLP-01-20-REPLACEMENT"),
+        "replacement plaintext is not exposed"
+    );
+    assert!(
+        !contains_marker(temp.path(), baseline),
+        "baseline plaintext is not exposed in backing store"
+    );
+}
+
+#[test]
+fn corrupt_sensitive_metadata_returns_integrity_failure_and_preserves_evidence() {
+    let (temp, identity, key, file, _) = fixture();
+    let mut store = LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone())
+        .expect("open store");
+    let documents = dlp_storage::VirtualPath::parse("Documents").expect("directory path");
+    store.create_directory(&documents).expect("create directory");
+    store
+        .write(&file, b"DLP-01-20-METADATA-BASELINE")
+        .expect("stage baseline");
+    store.flush_file(&file).expect("commit baseline");
+
+    let namespace = temp
+        .path()
+        .join("stores")
+        .join(identity.store_id().to_wire())
+        .join("namespace.rec");
+    let mut altered = fs::read(&namespace).expect("read encrypted namespace record");
+    *altered.last_mut().expect("non-empty encrypted record") ^= 1;
+    fs::write(&namespace, &altered).expect("corrupt sensitive metadata record");
+
+    let restarted = LocalEncryptedStore::open(temp.path(), identity, key);
+    assert!(
+        matches!(restarted, Err(StorageError::IntegrityFailure)),
+        "corrupt namespace metadata must deny store load"
+    );
+    assert!(
+        evidence_contains(temp.path(), &altered),
+        "corrupt metadata evidence is preserved"
+    );
+}
+
+#[test]
+fn backing_store_disk_full_returns_no_space_and_preserves_baseline_hash() {
+    let (temp, identity, key, file, _) = fixture();
+    let mut store = LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone())
+        .expect("open store");
+    let baseline = b"DLP-01-20-DISK-FULL-BASELINE";
+    store.write(&file, baseline).expect("stage baseline");
+    store.flush_file(&file).expect("commit baseline");
+    let baseline_hash = Sha256::digest(store.read(&file).expect("read baseline"));
+
+    store
+        .write(&file, b"DLP-01-20-DISK-FULL-REPLACEMENT")
+        .expect("stage replacement");
+    store.inject_no_space_at_for_test(DurabilityFaultPoint::BeforePointerReplace);
+    assert_eq!(
+        store.flush_file(&file),
+        Err(StorageError::NoSpace),
+        "NoSpace before pointer publication returns disk-full"
+    );
+
+    let mut restarted = LocalEncryptedStore::open(temp.path(), identity, key).expect("restart");
+    recover_store(&mut restarted, &file).expect("recover baseline");
+    let recovered = restarted.read(&file).expect("read baseline after NoSpace");
+    assert_eq!(
+        Sha256::digest(&recovered),
+        baseline_hash,
+        "baseline hash is preserved after disk-full"
+    );
 }
