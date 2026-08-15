@@ -29,11 +29,7 @@ function Write-Blocker {
 }
 
 if ($ExecutionMachine -ne $env:COMPUTERNAME) {
-    if (-not (Test-Connection -ComputerName $ExecutionMachine -Count 1 -Quiet -ErrorAction SilentlyContinue)) {
-        Write-Blocker -Reason "${ExecutionMachine} is not reachable from ${CallerMachine}; WinFsp installation must run on the endpoint"
-        return
-    }
-    Invoke-Command -ComputerName $ExecutionMachine -FilePath $PSCommandPath -ArgumentList $CallerMachine, $ExecutionMachine
+    Write-Blocker -Reason "${ExecutionMachine} is not the local machine (${CallerMachine}); WinFsp installation must run interactively on the endpoint"
     return
 }
 

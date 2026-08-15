@@ -338,43 +338,35 @@ function Invoke-LetterRetrySignOutRestart {
 }
 
 function Invoke-WinFspServiceRestartReboot {
-    if (-not (Test-RuntimeReachable)) { return }
-    if ($ExecutionMachine -eq $env:COMPUTERNAME) {
-        Invoke-WinFspServiceRestartRebootLocal
+    if ($ExecutionMachine -ne $env:COMPUTERNAME) {
+        Write-Blocker -Reason "${ExecutionMachine} is not the local machine; 01-20 runtime scenarios must run interactively on the endpoint"
+        return
     }
-    else {
-        Invoke-Command -ComputerName $ExecutionMachine -ScriptBlock ${function:Invoke-WinFspServiceRestartRebootLocal}
-    }
+    Invoke-WinFspServiceRestartRebootLocal
 }
 
 function Invoke-CorruptAuthenticatedContent {
-    if (-not (Test-RuntimeReachable)) { return }
-    if ($ExecutionMachine -eq $env:COMPUTERNAME) {
-        Invoke-CorruptAuthenticatedContentLocal
+    if ($ExecutionMachine -ne $env:COMPUTERNAME) {
+        Write-Blocker -Reason "${ExecutionMachine} is not the local machine; 01-20 runtime scenarios must run interactively on the endpoint"
+        return
     }
-    else {
-        Invoke-Command -ComputerName $ExecutionMachine -ScriptBlock ${function:Invoke-CorruptAuthenticatedContentLocal}
-    }
+    Invoke-CorruptAuthenticatedContentLocal
 }
 
 function Invoke-CorruptSensitiveMetadata {
-    if (-not (Test-RuntimeReachable)) { return }
-    if ($ExecutionMachine -eq $env:COMPUTERNAME) {
-        Invoke-CorruptSensitiveMetadataLocal
+    if ($ExecutionMachine -ne $env:COMPUTERNAME) {
+        Write-Blocker -Reason "${ExecutionMachine} is not the local machine; 01-20 runtime scenarios must run interactively on the endpoint"
+        return
     }
-    else {
-        Invoke-Command -ComputerName $ExecutionMachine -ScriptBlock ${function:Invoke-CorruptSensitiveMetadataLocal}
-    }
+    Invoke-CorruptSensitiveMetadataLocal
 }
 
 function Invoke-BackingStoreDiskFull {
-    if (-not (Test-RuntimeReachable)) { return }
-    if ($ExecutionMachine -eq $env:COMPUTERNAME) {
-        Invoke-BackingStoreDiskFullLocal
+    if ($ExecutionMachine -ne $env:COMPUTERNAME) {
+        Write-Blocker -Reason "${ExecutionMachine} is not the local machine; 01-20 runtime scenarios must run interactively on the endpoint"
+        return
     }
-    else {
-        Invoke-Command -ComputerName $ExecutionMachine -ScriptBlock ${function:Invoke-BackingStoreDiskFullLocal}
-    }
+    Invoke-BackingStoreDiskFullLocal
 }
 
 switch ($Scenario) {
