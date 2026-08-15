@@ -38,8 +38,8 @@
                                             "unsafe-boundary"
                                         ],
                              "substitute_policy":  "none",
-                             "current_evidence_id":  "dc47d360-6a94-49ae-a6b4-5b6e0e9cea59",
-                             "status":  "pass"
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
                          },
                          {
                              "id":  "SRV-01",
@@ -68,8 +68,8 @@
                                             "postgresql-migration"
                                         ],
                              "substitute_policy":  "SQLite component fixture only; never acceptance",
-                             "current_evidence_id":  "452cdf54-0dcb-4b83-b29a-979de8c70d05",
-                             "status":  "pass"
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
                          },
                          {
                              "id":  "SRV-12",
@@ -78,8 +78,8 @@
                                             "server-readiness"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "e79f05a4-8daa-4cf0-bf7c-04bbd5aa77d4",
-                             "status":  "pass"
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
                          },
                          {
                              "id":  "CRY-01",
@@ -88,8 +88,8 @@
                                             "aead-store"
                                         ],
                              "substitute_policy":  "deterministic portable faults only",
-                             "current_evidence_id":  "b7a9c8e3-4d2f-4e8b-9c1a-3f5e7d9b0a2c",
-                             "status":  "pass"
+                             "current_evidence_id":  "",
+                             "status":  "unverified"
                          },
                          {
                              "id":  "CRY-02",
