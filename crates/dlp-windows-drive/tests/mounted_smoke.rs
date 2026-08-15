@@ -71,14 +71,17 @@ fn skip_if_winfsp_unavailable() -> bool {
 fn mount_volume(
     root: &Path,
     drive: &str,
-) -> (WinFspMountHost, dlp_windows_drive::WinFspMountedVolume, PathBuf) {
+) -> (
+    WinFspMountHost,
+    dlp_windows_drive::WinFspMountedVolume,
+    PathBuf,
+) {
     let identity = CapturedStoreIdentity::new(
         UserSid::parse("S-1-5-21-1000").expect("test SID"),
         StoreId::parse("mounted-smoke-store").expect("test store"),
     );
-    let store =
-        LocalEncryptedStore::open(root, identity.clone(), StoreKey::from_bytes([9; 32]))
-            .expect("open encrypted backing store");
+    let store = LocalEncryptedStore::open(root, identity.clone(), StoreKey::from_bytes([9; 32]))
+        .expect("open encrypted backing store");
     let context = DlpFileSystemContext::new(identity.clone(), store)
         .expect("capture matching store identity");
     let mounted_path = format!("{}\\", drive);
@@ -90,7 +93,11 @@ fn mount_volume(
         wait_for_path(&mounted_path, true),
         "drive is visible in this Windows session"
     );
-    (WinFspMountHost::new(drive).expect("host reusable"), volume, PathBuf::from(mounted_path))
+    (
+        WinFspMountHost::new(drive).expect("host reusable"),
+        volume,
+        PathBuf::from(mounted_path),
+    )
 }
 
 #[test]
@@ -256,8 +263,9 @@ fn corrupt_authenticated_content_returns_integrity_failure_and_preserves_evidenc
     *ciphertext.last_mut().expect("nonempty encrypted record") ^= 1;
     fs::write(&record, &ciphertext).expect("corrupt selected content record");
 
-    let restarted_store = LocalEncryptedStore::open(&root, identity_for(&root), StoreKey::from_bytes([9; 32]))
-        .expect("restart opens encrypted namespace index");
+    let restarted_store =
+        LocalEncryptedStore::open(&root, identity_for(&root), StoreKey::from_bytes([9; 32]))
+            .expect("restart opens encrypted namespace index");
     let restarted_context = DlpFileSystemContext::new(identity_for(&root), restarted_store)
         .expect("restart captures identity");
     let restarted = WinFspMountHost::new(&drive)
@@ -318,7 +326,8 @@ fn corrupt_sensitive_metadata_denies_mount_and_preserves_evidence() {
     *ciphertext.last_mut().expect("nonempty namespace record") ^= 1;
     fs::write(&namespace, &ciphertext).expect("corrupt sensitive metadata record");
 
-    let restart_result = LocalEncryptedStore::open(&root, identity_for(&root), StoreKey::from_bytes([9; 32]));
+    let restart_result =
+        LocalEncryptedStore::open(&root, identity_for(&root), StoreKey::from_bytes([9; 32]));
     assert!(
         matches!(restart_result, Err(StorageError::IntegrityFailure)),
         "corrupt namespace metadata must deny store load"
@@ -355,9 +364,11 @@ fn backing_store_disk_full_returns_no_space_and_preserves_baseline_hash() {
     // The storage layer exposes a deterministic fault seam that injects NoSpace before the
     // durable pointer publication. This simulates a full backing volume without depending on
     // actually exhausting disk space, which would make the test slow and non-deterministic.
-    let mut injecting_store = LocalEncryptedStore::open(&root, identity_for(&root), StoreKey::from_bytes([9; 32]))
-        .expect("open store for fault injection");
-    injecting_store.inject_no_space_at_for_test(dlp_storage::DurabilityFaultPoint::BeforePointerReplace);
+    let mut injecting_store =
+        LocalEncryptedStore::open(&root, identity_for(&root), StoreKey::from_bytes([9; 32]))
+            .expect("open store for fault injection");
+    injecting_store
+        .inject_no_space_at_for_test(dlp_storage::DurabilityFaultPoint::BeforePointerReplace);
 
     let err = injecting_store
         .flush_file(&dlp_domain::FileId::parse("diskfull-file").expect("valid file ID"))
@@ -372,10 +383,11 @@ fn backing_store_disk_full_returns_no_space_and_preserves_baseline_hash() {
     wait_for_path(&mounted_path.to_string_lossy(), false);
 
     // Remount and confirm the baseline hash is still selected; no mixed generation became current.
-    let recovered_store = LocalEncryptedStore::open(&root, identity_for(&root), StoreKey::from_bytes([9; 32]))
-        .expect("recover store after NoSpace");
-    let recovered_context = DlpFileSystemContext::new(identity_for(&root), recovered_store)
-        .expect("capture identity");
+    let recovered_store =
+        LocalEncryptedStore::open(&root, identity_for(&root), StoreKey::from_bytes([9; 32]))
+            .expect("recover store after NoSpace");
+    let recovered_context =
+        DlpFileSystemContext::new(identity_for(&root), recovered_store).expect("capture identity");
     let recovered = WinFspMountHost::new(&drive)
         .expect("same drive valid")
         .start(recovered_context)

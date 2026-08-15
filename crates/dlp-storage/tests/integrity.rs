@@ -192,8 +192,8 @@ fn no_space_at_each_publication_boundary_preserves_a_complete_commit() {
 #[test]
 fn corrupt_authenticated_content_returns_integrity_failure_and_preserves_evidence() {
     let (temp, identity, key, file, _) = fixture();
-    let mut store = LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone())
-        .expect("open store");
+    let mut store =
+        LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone()).expect("open store");
     let baseline = b"DLP-01-20-BASELINE";
     store.write(&file, baseline).expect("stage baseline");
     store.flush_file(&file).expect("commit baseline");
@@ -238,10 +238,12 @@ fn corrupt_authenticated_content_returns_integrity_failure_and_preserves_evidenc
 #[test]
 fn corrupt_sensitive_metadata_returns_integrity_failure_and_preserves_evidence() {
     let (temp, identity, key, file, _) = fixture();
-    let mut store = LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone())
-        .expect("open store");
+    let mut store =
+        LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone()).expect("open store");
     let documents = dlp_storage::VirtualPath::parse("Documents").expect("directory path");
-    store.create_directory(&documents).expect("create directory");
+    store
+        .create_directory(&documents)
+        .expect("create directory");
     store
         .write(&file, b"DLP-01-20-METADATA-BASELINE")
         .expect("stage baseline");
@@ -270,8 +272,8 @@ fn corrupt_sensitive_metadata_returns_integrity_failure_and_preserves_evidence()
 #[test]
 fn backing_store_disk_full_returns_no_space_and_preserves_baseline_hash() {
     let (temp, identity, key, file, _) = fixture();
-    let mut store = LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone())
-        .expect("open store");
+    let mut store =
+        LocalEncryptedStore::open(temp.path(), identity.clone(), key.clone()).expect("open store");
     let baseline = b"DLP-01-20-DISK-FULL-BASELINE";
     store.write(&file, baseline).expect("stage baseline");
     store.flush_file(&file).expect("commit baseline");

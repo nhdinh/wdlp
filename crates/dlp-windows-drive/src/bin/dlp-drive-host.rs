@@ -41,7 +41,11 @@ fn parse_args() -> Option<HostArgs> {
                 preferred_letter = iter.next().and_then(|v| {
                     let mut chars = v.chars();
                     let c = chars.next()?;
-                    if chars.next().is_none() { Some(c) } else { None }
+                    if chars.next().is_none() {
+                        Some(c)
+                    } else {
+                        None
+                    }
                 })
             }
             _ => {}
@@ -68,16 +72,13 @@ fn main() {
 
     // Authenticate to the service-owned pipe using only the bounded identity fields
     // supplied by the service. The pipe server validates SID/session/PID/generation.
-    if let Err(error) = authenticate_to_service(&args.pipe_name,
-        args.session_id,
-        args.generation,
-    ) {
+    if let Err(error) = authenticate_to_service(&args.pipe_name, args.session_id, args.generation) {
         eprintln!("pipe_auth_failed: {error}");
         std::process::exit(2);
     }
 
-    let store_id =
-        StoreId::parse(format!("sid-{}", stable_sid_digest(&args.user_sid))).unwrap_or_else(|_| {
+    let store_id = StoreId::parse(format!("sid-{}", stable_sid_digest(&args.user_sid)))
+        .unwrap_or_else(|_| {
             eprintln!("store_id_failed");
             std::process::exit(3);
         });
@@ -138,7 +139,11 @@ fn authenticate_to_service(
 fn stable_sid_digest(sid: &UserSid) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(sid.to_wire().as_bytes());
-    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()[..64].to_owned()
+    digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()[..64]
+        .to_owned()
 }
 
 fn open_local_store(
