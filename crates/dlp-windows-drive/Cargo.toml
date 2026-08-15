@@ -9,7 +9,9 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+dlp-domain = { path = "../dlp-domain" }
 dlp-storage = { path = "../dlp-storage" }
+sha2 = "=0.11.0"
 winfsp = "0.13.0"
 
 [build-dependencies]

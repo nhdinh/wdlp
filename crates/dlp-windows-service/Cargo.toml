@@ -14,8 +14,13 @@ unsafe_code = "allow"
 dlp-agent-core = { path = "../dlp-agent-core" }
 dlp-crypto = { path = "../dlp-crypto" }
 dlp-domain = { path = "../dlp-domain" }
+dlp-storage = { path = "../dlp-storage" }
+rand = "=0.8.5"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0"
 sha2 = "=0.11.0"
-tokio = { version = "=1.53.1", features = ["rt-multi-thread", "time", "macros", "sync"] }
+tempfile = "=3.27.0"
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "time", "macros", "sync", "net", "io-util"] }
 windows-service = "=0.8.1"
-windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_RemoteDesktop", "Win32_System_Pipes"] }
 zeroize = "=1.9.0"
