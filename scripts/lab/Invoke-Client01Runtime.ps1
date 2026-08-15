@@ -14,6 +14,52 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Update-DlpEnvironmentFromRotatedFiles {
+    # If a freshly rotated certificate/key file exists in the standard lab
+    # secrets directory and is newer than the path referenced by the env var,
+    # update the process environment variable to use it. This prevents the
+    # orchestrator from silently using stale material after rotation.
+    $rotations = @(
+        @{ Name='DLP_PHASE1_ROOT_CA_CERT_PEM'; Path='C:\dlp\secrets\phase1-root-ca.pem' },
+        @{ Name='DLP_PHASE1_ROOT_CA_KEY_PEM'; Path='C:\dlp\secrets\phase1-root-ca-key.pem' },
+        @{ Name='DLP_ADMIN_CA_CERT_PEM'; Path='C:\dlp\secrets\admin-ca.pem' },
+        @{ Name='DLP_ADMIN_CA_KEY_PEM'; Path='C:\dlp\secrets\admin-ca-key.pem' },
+        @{ Name='DLP_PROVISIONING_ADMIN_CERT_PEM'; Path='C:\dlp\secrets\provisioning-admin-cert.pem' },
+        @{ Name='DLP_PROVISIONING_ADMIN_KEY_PEM'; Path='C:\dlp\secrets\provisioning-admin-key.pem' },
+        @{ Name='DLP_SERVER_CERT_PEM'; Path='C:\dlp\secrets\server-cert.pem' },
+        @{ Name='DLP_SERVER_KEY_PEM'; Path='C:\dlp\secrets\server-key.pem' },
+        @{ Name='DLP_DEVICE_ISSUING_CA_CERT_PEM'; Path='C:\dlp\secrets\device-issuing-ca.pem' },
+        @{ Name='DLP_DEVICE_ISSUING_CA_KEY_PEM'; Path='C:\dlp\secrets\device-issuing-ca-key.pem' }
+    )
+    foreach ($entry in $rotations) {
+        $name = $entry.Name
+        $rotatedPath = $entry.Path
+        if (-not (Test-Path -LiteralPath $rotatedPath)) { continue }
+        $envValue = [Environment]::GetEnvironmentVariable($name)
+        $currentPath = if (-not [string]::IsNullOrWhiteSpace($envValue) -and $envValue -notmatch '^-----BEGIN' -and (Test-Path -LiteralPath $envValue)) {
+            $envValue
+        } else {
+            $null
+        }
+        if ($null -eq $currentPath) {
+            Write-Host "Env-rotation: $name not set to a path; using $rotatedPath" -ForegroundColor Yellow
+            [Environment]::SetEnvironmentVariable($name, $rotatedPath, 'Process')
+            continue
+        }
+        $currentFull = [System.IO.Path]::GetFullPath($currentPath)
+        $rotatedFull = [System.IO.Path]::GetFullPath($rotatedPath)
+        if ($currentFull -eq $rotatedFull) { continue }
+        $rotatedTime = (Get-Item -LiteralPath $rotatedFull).LastWriteTimeUtc
+        $currentTime = (Get-Item -LiteralPath $currentFull).LastWriteTimeUtc
+        if ($rotatedTime -gt $currentTime) {
+            Write-Host "Env-rotation: $rotatedPath is newer than `$env:$name ($currentPath); using rotated file" -ForegroundColor Yellow
+            [Environment]::SetEnvironmentVariable($name, $rotatedPath, 'Process')
+        }
+    }
+}
+
+Update-DlpEnvironmentFromRotatedFiles
+
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $ConfigPath = Join-Path $RepoRoot 'config/lab.phase1.example.yaml'
 $RoleConfigPath = Join-Path $RepoRoot 'config/lab.roles.example.json'
@@ -218,41 +264,701 @@ function Remove-Client01EnrollmentToken {
     }
 }
 
+function Wait-Client01AdwsReady {
+    param(
+        [Parameter(Mandatory)][string[]]$ServerName,
+        [Parameter()][int]$TimeoutSeconds = 120
+    )
+    Write-Host "Waiting for Active Directory Web Services on $($ServerName -join ', ')..."
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ($true) {
+        $readyList = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+            param($Names)
+            $ErrorActionPreference = 'Stop'
+            $svc = Get-Service -Name 'ADWS' -ErrorAction SilentlyContinue
+            if ($null -eq $svc -or $svc.Status -ne 'Running') { return @($false) * $Names.Count }
+            $results = @()
+            foreach ($name in $Names) {
+                try {
+                    Get-ADComputer -Server $name -Identity 'LAB-CLIENT01' -ErrorAction Stop | Out-Null
+                    $results += $true
+                } catch {
+                    $results += $false
+                }
+            }
+            return $results
+        } -ArgumentList @(,$ServerName)
+        if (-not ($readyList -contains $false)) {
+            Write-Host 'Active Directory Web Services is ready.'
+            return
+        }
+        if ((Get-Date) -ge $deadline) {
+            Stop-Client01 'adws_not_ready'
+        }
+        Write-Host 'ADWS not ready yet; retrying in 5 seconds...'
+        Start-Sleep -Seconds 5
+    }
+}
+
+function Assert-Client01ServerSecretsPresent {
+    $required = @(
+        'DLP_DATABASE_URL',
+        'DLP_SERVER_CERT_PEM',
+        'DLP_SERVER_KEY_PEM',
+        'DLP_ADMIN_CA_CERT_PEM',
+        'DLP_PHASE1_ROOT_CA_CERT_PEM',
+        'DLP_DEVICE_ISSUING_CA_CERT_PEM',
+        'DLP_DEVICE_ISSUING_CA_KEY_PEM',
+        'DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX'
+    )
+    $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+    if ($missing.Count -gt 0) { Stop-Client01 ("server_runtime_secrets_missing: " + ($missing -join ', ')) }
+
+    # The configuration signing seed must be exactly 64 hexadecimal characters.
+    # A placeholder or short value produces a cryptic server startup error; fail
+    # fast here with a clear diagnostic.
+    $seed = $env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX
+    if ($seed -notmatch '^[A-Fa-f0-9]{64}$') {
+        Stop-Client01 'configuration_signing_key_seed_invalid: DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX must be exactly 64 hexadecimal characters'
+    }
+
+    # Validate that the server private key is an unencrypted RSA key in PKCS#8
+    # or PKCS#1 form. A mismatched or encrypted key causes a 'BadSignature' TLS
+    # alert that is hard to diagnose inside the VM.
+    $serverKey = Get-Client01SecretValue -Name 'DLP_SERVER_KEY_PEM' -Value $env:DLP_SERVER_KEY_PEM
+    $keyHeader = ($serverKey -split "`r?`n" | Where-Object { $_.Trim().StartsWith('-----BEGIN ') } | Select-Object -First 1).Trim()
+    if ($keyHeader -notmatch '^-----BEGIN (RSA )?PRIVATE KEY-----$') {
+        Stop-Client01 "server_key_invalid_header: '$keyHeader'"
+    }
+    if ($keyHeader -match 'ENCRYPTED') {
+        Stop-Client01 'server_key_encrypted: decrypt DLP_SERVER_KEY_PEM before use'
+    }
+}
+
+function Test-Client01AdSecretsPresent {
+    return -not ([string]::IsNullOrWhiteSpace($env:DLP_AD_PRIMARY_LDAPS_URL) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_SECONDARY_LDAPS_URL) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_BASE_DN) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_BIND_DN) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_BIND_PASSWORD) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_CA_CERT_PEM))
+}
+
+function Install-Client01ServerBinary {
+    # Re-use the server deployment logic from Invoke-Dc01Server.ps1 so the
+    # client runtime script can perform a self-contained Tracer run. The server
+    # binary, secrets, and provisioning helper are staged on LAB-DC01.
+    $localBinary = Join-Path $RepoRoot 'target/release/dlp-server.exe'
+
+    # Always rebuild the server from source so repository/route fixes are
+    # deployed. Cargo incremental builds are fast; stale binaries have masked
+    # root causes repeatedly in this workflow.
+    Write-Host 'Building dlp-server release binary on hungdinh-lt...'
+    if (Test-Path -LiteralPath $localBinary) { Remove-Item -LiteralPath $localBinary -Force }
+    $proc = Start-Process -FilePath 'cargo' -ArgumentList @('build', '--release', '-p', 'dlp-server') -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
+    if ($proc.ExitCode -ne 0) { Stop-Client01 'cargo_build_server_failed' }
+    Assert-Client01 (Test-Path -LiteralPath $localBinary) 'server_release_binary_missing'
+
+    Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        New-Item -ItemType Directory -Path 'C:\dlp\server' -Force | Out-Null
+    }
+
+    # Stop any running server before replacing the binary.
+    Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+
+    $remoteBinary = 'C:\dlp\server\dlp-server.exe'
+    Copy-VMFileOrStream -VMName 'LAB-DC01' -SourcePath $localBinary -DestinationPath $remoteBinary
+
+    # Deploy the trusted-provisioning helper so it can be invoked from LAB-DC01.
+    $localProvScript = Join-Path $RepoRoot 'scripts/lab/Invoke-TrustedProvisioning.ps1'
+    $remoteProvScript = 'C:\dlp\server\scripts\lab\Invoke-TrustedProvisioning.ps1'
+    if (Test-Path -LiteralPath $localProvScript) {
+        Copy-VMFileOrStream -VMName 'LAB-DC01' -SourcePath $localProvScript -DestinationPath $remoteProvScript
+    }
+}
+
+function Get-Client01SecretValue {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Value
+    )
+    # Secrets may be supplied either as inline PEM/KEY material or as a path to
+    # a file on the orchestrator host. Detect the form and return the actual
+    # secret bytes/string that should be written inside the VM.
+    $trimmed = $Value.Trim()
+    if ($trimmed.StartsWith('-----BEGIN')) {
+        return $Value
+    }
+    if (Test-Path -LiteralPath $Value) {
+        return [System.IO.File]::ReadAllText($Value)
+    }
+    Stop-Client01 "server_secret_not_pem_or_file: $Name"
+}
+
+function Install-Client01ServerSecrets {
+    # The runtime provider supplies PEM content as environment variables, or
+    # paths to PEM files on the orchestrator host. The server expects file
+    # paths on LAB-DC01, so resolve each value and write it there.
+    $secrets = [ordered]@{
+        'server-cert.pem' = Get-Client01SecretValue -Name 'DLP_SERVER_CERT_PEM' -Value $env:DLP_SERVER_CERT_PEM
+        'server-key.pem' = Get-Client01SecretValue -Name 'DLP_SERVER_KEY_PEM' -Value $env:DLP_SERVER_KEY_PEM
+        'admin-ca.pem' = Get-Client01SecretValue -Name 'DLP_ADMIN_CA_CERT_PEM' -Value $env:DLP_ADMIN_CA_CERT_PEM
+        'phase1-root-ca.pem' = Get-Client01SecretValue -Name 'DLP_PHASE1_ROOT_CA_CERT_PEM' -Value $env:DLP_PHASE1_ROOT_CA_CERT_PEM
+        'device-issuing-ca.pem' = Get-Client01SecretValue -Name 'DLP_DEVICE_ISSUING_CA_CERT_PEM' -Value $env:DLP_DEVICE_ISSUING_CA_CERT_PEM
+        'device-issuing-ca-key.pem' = Get-Client01SecretValue -Name 'DLP_DEVICE_ISSUING_CA_KEY_PEM' -Value $env:DLP_DEVICE_ISSUING_CA_KEY_PEM
+    }
+    if (Test-Client01AdSecretsPresent) {
+        $secrets['ad-ca.pem'] = Get-Client01SecretValue -Name 'DLP_AD_CA_CERT_PEM' -Value $env:DLP_AD_CA_CERT_PEM
+    }
+    foreach ($name in $secrets.Keys) {
+        Assert-Client01 (-not [string]::IsNullOrWhiteSpace($secrets[$name])) "server_secret_empty_$name"
+        Assert-Client01 ($secrets[$name].Trim().StartsWith('-----BEGIN')) "server_secret_not_valid_pem_$name"
+    }
+
+    $secretNames = $secrets.Keys
+    $secretValues = $secrets.Values
+    Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        param($Names, $Values)
+        $ErrorActionPreference = 'Stop'
+        $dir = 'C:\dlp\secrets'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        for ($i = 0; $i -lt $Names.Count; $i++) {
+            $path = Join-Path $dir $Names[$i]
+            [System.IO.File]::WriteAllText($path, $Values[$i], (New-Object System.Text.UTF8Encoding($false)))
+        }
+    } -ArgumentList @($secretNames, $secretValues)
+}
+
+function Assert-Client01ServerSecretsValid {
+    # Verify the server certificate and key installed on LAB-DC01 are byte-for-byte
+    # identical to the orchestrator's resolved values. This catches corruption during
+    # secret copy without requiring openssl on the remote VM.
+    $expectedHashes = [ordered]@{
+        'server-cert.pem' = (Get-FileHash -Algorithm SHA256 -InputStream ([System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes((Get-Client01SecretValue -Name 'DLP_SERVER_CERT_PEM' -Value $env:DLP_SERVER_CERT_PEM))))).Hash.ToLowerInvariant()
+        'server-key.pem' = (Get-FileHash -Algorithm SHA256 -InputStream ([System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes((Get-Client01SecretValue -Name 'DLP_SERVER_KEY_PEM' -Value $env:DLP_SERVER_KEY_PEM))))).Hash.ToLowerInvariant()
+        'phase1-root-ca.pem' = (Get-FileHash -Algorithm SHA256 -InputStream ([System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes((Get-Client01SecretValue -Name 'DLP_PHASE1_ROOT_CA_CERT_PEM' -Value $env:DLP_PHASE1_ROOT_CA_CERT_PEM))))).Hash.ToLowerInvariant()
+    }
+
+    Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        param($ExpectedHashes)
+        $ErrorActionPreference = 'Stop'
+        $dir = 'C:\dlp\secrets'
+        $result = [ordered]@{}
+        foreach ($name in $ExpectedHashes.Keys) {
+            $path = Join-Path $dir $name
+            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $result[$name] = [ordered]@{
+                expected = $ExpectedHashes[$name]
+                actual = $actual
+                match = ($actual -eq $ExpectedHashes[$name])
+            }
+            if (-not $result[$name].match) {
+                throw "server_secret_hash_mismatch:$name expected=$($ExpectedHashes[$name]) actual=$actual"
+            }
+        }
+        return $result
+    } -ArgumentList @($expectedHashes)
+}
+
+function Get-Client01SecretHash {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Value
+    )
+    $resolved = Get-Client01SecretValue -Name $Name -Value $Value
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($resolved)
+    $stream = [System.IO.MemoryStream]::new($bytes)
+    try {
+        return (Get-FileHash -Algorithm SHA256 -InputStream $stream).Hash.ToLowerInvariant()
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Invoke-Client01SqlxMigrate {
+    $dbUrl = $env:DLP_DATABASE_URL
+    Assert-Client01 (-not [string]::IsNullOrWhiteSpace($dbUrl)) 'database_url_missing'
+    $env:DATABASE_URL = $dbUrl
+    $migrationsDir = Join-Path $RepoRoot 'migrations'
+    $output = sqlx migrate run --source $migrationsDir 2>&1
+    if ($LASTEXITCODE -ne 0) { Stop-Client01 "sqlx migrate failed: $output" }
+    return $output
+}
+
+function Start-Client01Server {
+    param([Parameter()][switch]$WaitForReady)
+
+    Assert-Client01ServerSecretsPresent
+    Write-Host 'Start-Client01Server: installing binary...'
+    Install-Client01ServerBinary
+    Write-Host 'Start-Client01Server: installing secrets...'
+    Install-Client01ServerSecrets
+    Write-Host 'Start-Client01Server: validating installed secrets...'
+    $secretValidation = Assert-Client01ServerSecretsValid
+    Write-Host "Start-Client01Server: secret validation: $($secretValidation | ConvertTo-Json -Compress)"
+
+    $listenAddress = "0.0.0.0:$($script:ServerPort)"
+    $databaseUrl = $env:DLP_DATABASE_URL
+
+    # Build the env file content inside LAB-DC01.
+    $envLines = [System.Collections.Generic.List[string]]::new()
+    $envLines.Add("DATABASE_URL=$databaseUrl")
+    $envLines.Add("DLP_LISTEN_ADDRESS=$listenAddress")
+    if (Test-Client01AdSecretsPresent) {
+        $envLines.Add("DLP_AD_PRIMARY_LDAPS_URL=$($env:DLP_AD_PRIMARY_LDAPS_URL)")
+        $envLines.Add("DLP_AD_SECONDARY_LDAPS_URL=$($env:DLP_AD_SECONDARY_LDAPS_URL)")
+        $envLines.Add("DLP_AD_BASE_DN=$($env:DLP_AD_BASE_DN)")
+        $envLines.Add("DLP_AD_BIND_DN=$($env:DLP_AD_BIND_DN)")
+        $envLines.Add("DLP_AD_BIND_PASSWORD=$($env:DLP_AD_BIND_PASSWORD)")
+        $envLines.Add('DLP_AD_CA_CERT_PEM=C:\dlp\secrets\ad-ca.pem')
+    }
+    $envLines.Add('DLP_SERVER_CERT_PEM=C:\dlp\secrets\server-cert.pem')
+    $envLines.Add('DLP_SERVER_KEY_PEM=C:\dlp\secrets\server-key.pem')
+    $envLines.Add('DLP_ADMIN_CA_CERT_PEM=C:\dlp\secrets\admin-ca.pem')
+    $envLines.Add('DLP_PHASE1_ROOT_CA_CERT_PEM=C:\dlp\secrets\phase1-root-ca.pem')
+    $envLines.Add('DLP_DEVICE_ISSUING_CA_CERT_PEM=C:\dlp\secrets\device-issuing-ca.pem')
+    $envLines.Add('DLP_DEVICE_ISSUING_CA_KEY_PEM=C:\dlp\secrets\device-issuing-ca-key.pem')
+    $envLines.Add("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX=$($env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX)")
+
+    Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        param($EnvLines, $Port)
+        $ErrorActionPreference = 'Stop'
+        $envPath = 'C:\dlp\server\server.env'
+        [System.IO.File]::WriteAllLines($envPath, $EnvLines, (New-Object System.Text.UTF8Encoding($false)))
+
+        # Remove any stale listener.
+        Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+
+        # Ensure the management-server port is reachable from LAB-CLIENT01 probes.
+        $existing = Get-NetFirewallRule -Direction Inbound -ErrorAction SilentlyContinue |
+            Where-Object { ($_ | Get-NetFirewallPortFilter).LocalPort -eq $Port }
+        if (-not $existing) {
+            New-NetFirewallRule -DisplayName 'DLP Management Server' -Direction Inbound -LocalPort $Port -Protocol TCP -Action Allow -Profile Domain,Private -ErrorAction Stop | Out-Null
+        }
+
+        # Load environment into the current process so the child inherits it.
+        foreach ($line in $EnvLines) {
+            $parts = $line.Split('=', 2)
+            [Environment]::SetEnvironmentVariable($parts[0], $parts[1], 'Process')
+        }
+
+        # Verify the environment values the server will inherit.
+        $diagnosticPath = 'C:\dlp\server\startup-diagnostic.log'
+        @(
+            "DLP_LISTEN_ADDRESS=$([Environment]::GetEnvironmentVariable('DLP_LISTEN_ADDRESS', 'Process'))"
+            "DATABASE_URL=$([Environment]::GetEnvironmentVariable('DATABASE_URL', 'Process'))"
+            "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX_LENGTH=$(([Environment]::GetEnvironmentVariable('DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX', 'Process')).Length)"
+            "DLP_SERVER_CERT_PEM=$([Environment]::GetEnvironmentVariable('DLP_SERVER_CERT_PEM', 'Process'))"
+            "DLP_SERVER_KEY_PEM=$([Environment]::GetEnvironmentVariable('DLP_SERVER_KEY_PEM', 'Process'))"
+            "DLP_ADMIN_CA_CERT_PEM=$([Environment]::GetEnvironmentVariable('DLP_ADMIN_CA_CERT_PEM', 'Process'))"
+            "DLP_PHASE1_ROOT_CA_CERT_PEM=$([Environment]::GetEnvironmentVariable('DLP_PHASE1_ROOT_CA_CERT_PEM', 'Process'))"
+            "DLP_DEVICE_ISSUING_CA_CERT_PEM=$([Environment]::GetEnvironmentVariable('DLP_DEVICE_ISSUING_CA_CERT_PEM', 'Process'))"
+            "DLP_DEVICE_ISSUING_CA_KEY_PEM=$([Environment]::GetEnvironmentVariable('DLP_DEVICE_ISSUING_CA_KEY_PEM', 'Process'))"
+        ) | Set-Content -Path $diagnosticPath -Encoding UTF8
+
+        $logPath = 'C:\dlp\server\dlp-server.log'
+        $errPath = 'C:\dlp\server\dlp-server.err'
+        $pidPath = 'C:\dlp\server\dlp-server.pid'
+        Remove-Item -LiteralPath $logPath, $errPath -Force -ErrorAction SilentlyContinue
+        $proc = Start-Process -FilePath 'C:\dlp\server\dlp-server.exe' -WorkingDirectory 'C:\dlp\server' `
+            -RedirectStandardOutput $logPath -RedirectStandardError $errPath -WindowStyle Hidden -PassThru
+        $proc.Id | Set-Content -Path $pidPath -Encoding UTF8
+    } -ArgumentList @($envLines, $script:ServerPort)
+
+    if ($WaitForReady) {
+        $deadline = (Get-Date).AddSeconds(60)
+        $ready = $false
+        $lastErr = ''
+        while ((Get-Date) -lt $deadline) {
+            try {
+                Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+                    param($Port)
+                    $ErrorActionPreference = 'Stop'
+                    $tcp = New-Object System.Net.Sockets.TcpClient
+                    $tcp.Connect('127.0.0.1', $Port)
+                    $tcp.Close()
+                } -ArgumentList @($script:ServerPort) | Out-Null
+                $ready = $true
+                break
+            } catch {
+                $lastErr = $_.Exception.Message
+                Start-Sleep -Seconds 1
+            }
+        }
+        if (-not $ready) {
+            Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+                Write-Host '--- startup-diagnostic.log ---'
+                Get-Content -LiteralPath 'C:\dlp\server\startup-diagnostic.log' -ErrorAction SilentlyContinue
+                Write-Host '--- dlp-server.err ---'
+                Get-Content -LiteralPath 'C:\dlp\server\dlp-server.err' -ErrorAction SilentlyContinue
+                Write-Host '--- dlp-server.log ---'
+                Get-Content -LiteralPath 'C:\dlp\server\dlp-server.log' -ErrorAction SilentlyContinue
+                Write-Host '--- secret files ---'
+                Get-ChildItem -LiteralPath 'C:\dlp\secrets' -ErrorAction SilentlyContinue | ForEach-Object {
+                    $firstLine = Get-Content -LiteralPath $_.FullName -TotalCount 1 -ErrorAction SilentlyContinue
+                    "$($_.Name): length=$($_.Length) first_line=$firstLine"
+                }
+                Write-Host '--- listening ports ---'
+                Get-NetTCPConnection -LocalPort 8443 -ErrorAction SilentlyContinue | Select-Object LocalAddress, LocalPort, State, OwningProcess
+                Write-Host '--- excluded port ranges ---'
+                netsh int ipv4 show excludedportrange protocol=tcp 2>&1
+                Write-Host '--- dlp-server processes ---'
+                Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue | Select-Object Id, Path
+            } | Write-Host
+            Stop-Client01 "server_failed_to_bind: $lastErr"
+        }
+    }
+}
+
+function Assert-Client01CertificatesValid {
+    # Validate the orchestrator-side PKI material before copying it to LAB-DC01.
+    # This catches hostname mismatches, chain breaks, and rustls-incompatible
+    # certificates early with a clear error instead of a cryptic TLS EOF.
+    $verifyScript = Join-Path $RepoRoot 'scripts/lab/Verify-DlpLabCertificates.ps1'
+    Assert-Client01 (Test-Path -LiteralPath $verifyScript) 'certificate_verification_script_missing'
+
+    $expectedHostname = "$ProbeMachine.lab.local"
+    Write-Host "Assert-Client01CertificatesValid: verifying certificates against $expectedHostname..."
+    $command = "& '$verifyScript' -ServerHostname '$expectedHostname'"
+    $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy', 'Bypass',
+        '-Command', $command
+    ) -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
+    if ($proc.ExitCode -ne 0) {
+        Stop-Client01 'certificate_validation_failed'
+    }
+}
+
+function Assert-Client01ServerReady {
+    # Validate certificates first so a hostname or chain mismatch fails fast
+    # before we copy secrets to LAB-DC01 or start the server.
+    Assert-Client01CertificatesValid
+
+    # Ensure the management server is running on LAB-DC01 before trusted
+    # provisioning. If it is not listening, start it (run migrations first).
+    # Also restart it if the local release binary differs from the running one
+    # so TLS diagnostic improvements are always deployed, or if the secrets
+    # installed on the VM no longer match the orchestrator's current values.
+    $serverHost = $script:Dc01Ip
+    $localBinary = Join-Path $RepoRoot 'target/release/dlp-server.exe'
+    Assert-Client01 (Test-Path -LiteralPath $localBinary) 'local_server_binary_missing'
+    $localHash = (Get-FileHash -LiteralPath $localBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    $expectedSecretHashes = [ordered]@{
+        'server-cert.pem' = Get-Client01SecretHash -Name 'DLP_SERVER_CERT_PEM' -Value $env:DLP_SERVER_CERT_PEM
+        'server-key.pem' = Get-Client01SecretHash -Name 'DLP_SERVER_KEY_PEM' -Value $env:DLP_SERVER_KEY_PEM
+        'phase1-root-ca.pem' = Get-Client01SecretHash -Name 'DLP_PHASE1_ROOT_CA_CERT_PEM' -Value $env:DLP_PHASE1_ROOT_CA_CERT_PEM
+        'admin-ca.pem' = Get-Client01SecretHash -Name 'DLP_ADMIN_CA_CERT_PEM' -Value $env:DLP_ADMIN_CA_CERT_PEM
+        'device-issuing-ca.pem' = Get-Client01SecretHash -Name 'DLP_DEVICE_ISSUING_CA_CERT_PEM' -Value $env:DLP_DEVICE_ISSUING_CA_CERT_PEM
+    }
+
+    $ready = $false
+    $diagnostics = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        param($Port, $ExpectedHash, $ExpectedSecretHashes)
+        $ErrorActionPreference = 'Stop'
+        $result = [ordered]@{
+            process_running = $false
+            port_listening = $false
+            listening_process = $null
+            tcp_connect_succeeded = $false
+            tcp_connect_error = $null
+            remote_binary_hash = $null
+            hash_matches = $false
+            secret_hash_matches = $true
+            secret_hash_details = @{}
+            dlp_server_err = $null
+            dlp_server_log = $null
+        }
+
+        $proc = Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue
+        $result.process_running = $null -ne $proc
+
+        if ($null -ne $proc -and $proc.Path) {
+            try {
+                $result.remote_binary_hash = (Get-FileHash -LiteralPath $proc.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+                $result.hash_matches = ($result.remote_binary_hash -eq $ExpectedHash)
+            } catch { }
+        }
+
+        $secretsDir = 'C:\dlp\secrets'
+        foreach ($name in $ExpectedSecretHashes.Keys) {
+            $path = Join-Path $secretsDir $name
+            $expected = $ExpectedSecretHashes[$name]
+            $actual = if (Test-Path -LiteralPath $path) {
+                (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            } else {
+                '<missing>'
+            }
+            $result.secret_hash_details[$name] = [ordered]@{
+                expected = $expected
+                actual = $actual
+                match = ($actual -eq $expected)
+            }
+            if (-not $result.secret_hash_details[$name].match) {
+                $result.secret_hash_matches = $false
+            }
+        }
+
+        $listener = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        $result.port_listening = $null -ne $listener
+        if ($null -ne $listener) {
+            $result.listening_process = try {
+                (Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue).ProcessName
+            } catch { '<unknown>' }
+        }
+
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $tcp.Connect('127.0.0.1', $Port)
+            $result.tcp_connect_succeeded = $tcp.Connected
+            $tcp.Close()
+        } catch {
+            $result.tcp_connect_error = $_.Exception.Message
+        }
+
+        $result.dlp_server_err = if (Test-Path -LiteralPath 'C:\dlp\server\dlp-server.err') {
+            Get-Content -LiteralPath 'C:\dlp\server\dlp-server.err' -Raw
+        } else { '<missing>' }
+        $result.dlp_server_log = if (Test-Path -LiteralPath 'C:\dlp\server\dlp-server.log') {
+            Get-Content -LiteralPath 'C:\dlp\server\dlp-server.log' -Raw
+        } else { '<missing>' }
+
+        return $result
+    } -ArgumentList @($script:ServerPort, $localHash, $expectedSecretHashes)
+
+    Write-Host "Server readiness diagnostics: $($diagnostics | ConvertTo-Json -Compress -Depth 10)"
+
+    $ready = $diagnostics.process_running -and $diagnostics.port_listening -and $diagnostics.tcp_connect_succeeded -and $diagnostics.hash_matches -and $diagnostics.secret_hash_matches
+    if (-not $ready) {
+        if ($diagnostics.process_running -and -not $diagnostics.hash_matches) {
+            Write-Host 'Management server binary is stale; stopping it before restart...'
+            Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+                Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                # Wait briefly for the port to be released.
+                Start-Sleep -Seconds 2
+            } | Out-Null
+        } elseif ($diagnostics.process_running -and -not $diagnostics.secret_hash_matches) {
+            Write-Host 'Management server secrets are stale; stopping it before restart...'
+            Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+                Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 2
+            } | Out-Null
+        }
+        Write-Host 'Management server not ready on LAB-DC01; running migrations and starting it...'
+        Invoke-Client01SqlxMigrate
+        Start-Client01Server -WaitForReady
+    }
+}
+
+function Install-Client01ProvisioningBinary {
+    # Ensure the dlpctl binary used by the trusted provisioning station is present
+    # on LAB-DC01. The orchestrator host may already have a local path in
+    # $env:DLP_PROVISIONING_DLPCTL_PATH; otherwise default to the workspace release
+    # build. The binary is copied to a deterministic location inside the DC so the
+    # remote Invoke-TrustedProvisioning.ps1 can invoke it by path.
+    $localBinary = if ($env:DLP_PROVISIONING_DLPCTL_PATH) { $env:DLP_PROVISIONING_DLPCTL_PATH } else { Join-Path $RepoRoot 'target/release/dlpctl.exe' }
+
+    # Always rebuild dlpctl from source so crypto-provider fixes and other
+    # changes are deployed. Cargo is fast when incremental; rebuilding prevents
+    # a stale binary from masking the root cause.
+    Write-Host 'Building dlpctl release binary on hungdinh-lt...'
+    if (Test-Path -LiteralPath $localBinary) { Remove-Item -LiteralPath $localBinary -Force }
+    $proc = Start-Process -FilePath 'cargo' -ArgumentList @('build', '--release', '-p', 'dlpctl') -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
+    if ($proc.ExitCode -ne 0) { Stop-Client01 'cargo_build_dlpctl_failed' }
+    Assert-Client01 (Test-Path -LiteralPath $localBinary) 'dlpctl_release_binary_missing'
+
+    Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        New-Item -ItemType Directory -Path 'C:\dlp\provisioning' -Force | Out-Null
+    }
+
+    $remoteBinary = 'C:\dlp\provisioning\dlpctl.exe'
+    Copy-VMFileOrStream -VMName 'LAB-DC01' -SourcePath $localBinary -DestinationPath $remoteBinary
+
+    # Always stage the latest provisioning helper so diagnostics and behavior
+    # fixes are available even when the server binary is already running.
+    Install-Client01ProvisioningScript
+
+    return $remoteBinary
+}
+
+function Install-Client01ProvisioningScript {
+    $localProvScript = Join-Path $RepoRoot 'scripts/lab/Invoke-TrustedProvisioning.ps1'
+    $remoteProvScript = 'C:\dlp\server\scripts\lab\Invoke-TrustedProvisioning.ps1'
+    Assert-Client01 (Test-Path -LiteralPath $localProvScript) 'trusted_provisioning_script_missing'
+
+    # Remove any existing copy so Copy-VMFileOrStream cannot silently leave an
+    # old helper in place.
+    Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        param($Path)
+        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+    } -ArgumentList @($remoteProvScript) | Out-Null
+
+    Copy-VMFileOrStream -VMName 'LAB-DC01' -SourcePath $localProvScript -DestinationPath $remoteProvScript
+
+    # Verify the remote file matches the local file so stale copies are caught
+    # immediately.
+    $localHash = Get-Phase1Sha256 $localProvScript
+    $remoteHash = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        param($Path)
+        (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    } -ArgumentList @($remoteProvScript)
+    if ($localHash -ne $remoteHash) { Stop-Client01 'trusted_provisioning_script_hash_mismatch' }
+    Write-Host "TrustedProvisioning: staged Invoke-TrustedProvisioning.ps1 ($remoteHash)"
+}
+
+function Get-Client01ProvisioningMaterial {
+    # The provisioning material may be supplied as inline PEM or as a path to a
+    # file on the orchestrator host. The lab.env example uses the _PATH suffix,
+    # while the orchestration code historically expected _PEM; support both.
+    param(
+        [Parameter(Mandatory)][string]$PemVariable,
+        [Parameter(Mandatory)][string]$PathVariable
+    )
+    $value = [Environment]::GetEnvironmentVariable($PemVariable)
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        $value = [Environment]::GetEnvironmentVariable($PathVariable)
+    }
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        Stop-Client01 "provisioning_material_missing: set $PemVariable or $PathVariable"
+    }
+    return (Get-Client01SecretValue -Name $PemVariable -Value $value)
+}
+
+function Get-LatestProvisioningAdminMaterial {
+    # Prefer a freshly rotated provisioning admin cert/key in the standard lab
+    # secrets directory if it exists and is newer than the env-var path. This
+    # prevents the orchestrator from using a stale cert after rotation.
+    param(
+        [Parameter(Mandatory)][string]$PemVariable,
+        [Parameter(Mandatory)][string]$PathVariable,
+        [Parameter(Mandatory)][string]$DefaultPath
+    )
+    $envValue = [Environment]::GetEnvironmentVariable($PemVariable)
+    $envPath = [Environment]::GetEnvironmentVariable($PathVariable)
+    $resolvedPath = if (-not [string]::IsNullOrWhiteSpace($envValue) -and $envValue -notmatch '^-----BEGIN' -and (Test-Path -LiteralPath $envValue)) {
+        $envValue
+    } elseif (-not [string]::IsNullOrWhiteSpace($envPath) -and (Test-Path -LiteralPath $envPath)) {
+        $envPath
+    } else {
+        $null
+    }
+
+    $defaultFullPath = [System.IO.Path]::GetFullPath($DefaultPath)
+    if (Test-Path -LiteralPath $defaultFullPath) {
+        if ($null -eq $resolvedPath) {
+            Write-Host "TrustedProvisioning: using $defaultFullPath (no env-var path found)" -ForegroundColor Yellow
+            return (Get-Client01SecretValue -Name $PemVariable -Value $defaultFullPath)
+        }
+        $resolvedFullPath = [System.IO.Path]::GetFullPath($resolvedPath)
+        if ($resolvedFullPath -ne $defaultFullPath) {
+            $defaultTime = (Get-Item -LiteralPath $defaultFullPath).LastWriteTimeUtc
+            $resolvedTime = (Get-Item -LiteralPath $resolvedFullPath).LastWriteTimeUtc
+            if ($defaultTime -gt $resolvedTime) {
+                Write-Host "TrustedProvisioning: $defaultFullPath is newer than env-var path $resolvedFullPath; using rotated material" -ForegroundColor Yellow
+                return (Get-Client01SecretValue -Name $PemVariable -Value $defaultFullPath)
+            }
+        }
+    }
+
+    return (Get-Client01ProvisioningMaterial -PemVariable $PemVariable -PathVariable $PathVariable)
+}
+
 function Invoke-Client01TrustedProvisioning {
     param(
         [Parameter(Mandatory)][string]$PrivilegeManifestDigest,
         [Parameter(Mandatory)][string]$TargetComputer,
         [Parameter()][char]$PreferredDriveLetter = 'P'
     )
+    Wait-Client01AdwsReady -ServerName @('LAB-DC01.lab.local', 'LAB-DC02.lab.local')
+    Assert-Client01ServerReady
+    Write-Host 'TrustedProvisioning: staging dlpctl binary on LAB-DC01...'
+    $remoteDlpctlPath = Install-Client01ProvisioningBinary
     Write-Host 'TrustedProvisioning: invoking trusted provisioning on LAB-DC01...'
 
     # Invoke-TrustedProvisioning.ps1 guards require both the approved digest and
     # the administrator provisioning mTLS material to be present in the LAB-DC01
     # session. These values are consumed only on LAB-DC01; they are not written
     # to LAB-CLIENT01 or persisted on hungdinh-lt.
-    $provisioningRootCa = $env:DLP_PROVISIONING_ROOT_CA_PEM
-    $provisioningAdminCert = $env:DLP_PROVISIONING_ADMIN_CERT_PEM
-    $provisioningAdminKey = $env:DLP_PROVISIONING_ADMIN_KEY_PEM
-    if ([string]::IsNullOrWhiteSpace($provisioningRootCa) -or
-        [string]::IsNullOrWhiteSpace($provisioningAdminCert) -or
-        [string]::IsNullOrWhiteSpace($provisioningAdminKey)) {
-        Stop-Client01 'provisioning_material_missing: set DLP_PROVISIONING_ROOT_CA_PEM, DLP_PROVISIONING_ADMIN_CERT_PEM, and DLP_PROVISIONING_ADMIN_KEY_PEM on hungdinh-lt'
+    # The provisioning client needs the CA that signed the server's TLS
+    # certificate. In the Phase 1 lab the server cert is signed by the Phase 1
+    # root CA, so default to DLP_PHASE1_ROOT_CA_CERT_PEM when no
+    # provisioning-specific root CA variable is set. Validate that the selected
+    # value is a certificate, not a private key.
+    $provisioningRootCa = if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('DLP_PROVISIONING_ROOT_CA_PEM')) -or
+                               -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('DLP_PROVISIONING_ROOT_CA_PATH'))) {
+        Get-Client01ProvisioningMaterial -PemVariable 'DLP_PROVISIONING_ROOT_CA_PEM' -PathVariable 'DLP_PROVISIONING_ROOT_CA_PATH'
+    } else {
+        Get-Client01SecretValue -Name 'DLP_PHASE1_ROOT_CA_CERT_PEM' -Value ([Environment]::GetEnvironmentVariable('DLP_PHASE1_ROOT_CA_CERT_PEM'))
+    }
+    if (-not ($provisioningRootCa -match '^-----BEGIN CERTIFICATE-----')) {
+        Stop-Client01 'provisioning_root_ca_invalid: expected -----BEGIN CERTIFICATE-----'
+    }
+    $provisioningAdminCert = Get-LatestProvisioningAdminMaterial -PemVariable 'DLP_PROVISIONING_ADMIN_CERT_PEM' -PathVariable 'DLP_PROVISIONING_ADMIN_CERT_PATH' -DefaultPath 'C:\dlp\secrets\provisioning-admin-cert.pem'
+    $provisioningAdminKey = Get-LatestProvisioningAdminMaterial -PemVariable 'DLP_PROVISIONING_ADMIN_KEY_PEM' -PathVariable 'DLP_PROVISIONING_ADMIN_KEY_PATH' -DefaultPath 'C:\dlp\secrets\provisioning-admin-key.pem'
+    # The admin CA certificate is required so dlpctl can present the full
+    # client certificate chain (leaf + issuing CA) to the server's
+    # CertificateRequest. Without it, rustls may be unable to select a cert.
+    $provisioningAdminCa = Get-Client01SecretValue -Name 'DLP_ADMIN_CA_CERT_PEM' -Value ([Environment]::GetEnvironmentVariable('DLP_ADMIN_CA_CERT_PEM'))
+    if (-not ($provisioningAdminCa -match '^-----BEGIN CERTIFICATE-----')) {
+        Stop-Client01 'provisioning_admin_ca_invalid: expected -----BEGIN CERTIFICATE-----'
     }
 
-    $resultJson = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
-        param($Digest, $Target, $PreferredLetter, $ProvisioningRootCa, $ProvisioningAdminCert, $ProvisioningAdminKey)
-        $ErrorActionPreference = 'Stop'
-        Set-Location C:\dlp\server
-        $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST = $Digest
-        $env:DLP_PROVISIONING_ROOT_CA_PEM = $ProvisioningRootCa
-        $env:DLP_PROVISIONING_ADMIN_CERT_PEM = $ProvisioningAdminCert
-        $env:DLP_PROVISIONING_ADMIN_KEY_PEM = $ProvisioningAdminKey
-        & scripts/lab/Invoke-TrustedProvisioning.ps1 `
-            -ExecutionMachine LAB-DC01 `
-            -TargetComputer $Target `
-            -PrivilegeManifestDigest $Digest `
-            -PreferredDriveLetter $PreferredLetter
-    } -ArgumentList @($PrivilegeManifestDigest, $TargetComputer, $PreferredDriveLetter, $provisioningRootCa, $provisioningAdminCert, $provisioningAdminKey)
+    $resultJson = $null
+    try {
+        $resultJson = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+            param($Digest, $Target, $PreferredLetter, $ProvisioningRootCa, $ProvisioningAdminCert, $ProvisioningAdminKey, $ProvisioningAdminCa, $DlpctlPath, $LabAllowVirtualDiskUniqueId)
+            $ErrorActionPreference = 'Stop'
+            Set-Location C:\dlp\server
+            $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST = $Digest
+            $env:DLP_PROVISIONING_ROOT_CA_PEM = $ProvisioningRootCa
+            $env:DLP_PROVISIONING_ADMIN_CERT_PEM = $ProvisioningAdminCert
+            $env:DLP_PROVISIONING_ADMIN_KEY_PEM = $ProvisioningAdminKey
+            $env:DLP_PROVISIONING_DLPCTL_PATH = $DlpctlPath
+            if (-not [string]::IsNullOrWhiteSpace($LabAllowVirtualDiskUniqueId)) {
+                $env:DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID = $LabAllowVirtualDiskUniqueId
+            }
+            & scripts/lab/Invoke-TrustedProvisioning.ps1 `
+                -ExecutionMachine LAB-DC01 `
+                -TargetComputer $Target `
+                -PrivilegeManifestDigest $Digest `
+                -PreferredDriveLetter $PreferredLetter `
+                -AdminCaPem $ProvisioningAdminCa
+        } -ArgumentList @($PrivilegeManifestDigest, $TargetComputer, $PreferredDriveLetter, $provisioningRootCa, $provisioningAdminCert, $provisioningAdminKey, $provisioningAdminCa, $remoteDlpctlPath, $env:DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID)
+    } catch {
+        Write-Host '--- dlpctl diagnostics from LAB-DC01 ---'
+        $diagnostics = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+            $provDir = 'C:\dlp\provisioning'
+            $logPath = Join-Path $provDir 'dlpctl.log'
+            $errPath = Join-Path $provDir 'dlpctl.err'
+            $rustErrPath = Join-Path $provDir 'dlpctl-rust.err'
+            $tlsLogPath = 'C:\dlp\server\tls-events.log'
+            $result = [ordered]@{
+                log = if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath -Raw } else { '<missing>' }
+                err = if (Test-Path -LiteralPath $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '<missing>' }
+                rustErr = if (Test-Path -LiteralPath $rustErrPath) { Get-Content -LiteralPath $rustErrPath -Raw } else { '<missing>' }
+                tlsEvents = if (Test-Path -LiteralPath $tlsLogPath) { Get-Content -LiteralPath $tlsLogPath -Raw } else { '<missing>' }
+                files = @()
+            }
+            Get-ChildItem -LiteralPath $provDir -ErrorAction SilentlyContinue | ForEach-Object {
+                $firstLine = Get-Content -LiteralPath $_.FullName -TotalCount 1 -ErrorAction SilentlyContinue
+                $result.files += "$($_.Name): length=$($_.Length) first_line=$firstLine"
+            }
+            return $result
+        }
+        Write-Host "dlpctl.log:`n$($diagnostics.log)"
+        Write-Host "dlpctl.err:`n$($diagnostics.err)"
+        Write-Host "dlpctl-rust.err:`n$($diagnostics.rustErr)"
+        Write-Host "tls-events.log:`n$($diagnostics.tlsEvents)"
+        Write-Host 'provisioning files:'
+        $diagnostics.files | ForEach-Object { Write-Host $_ }
+        throw
+    }
 
     $result = $resultJson | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace($result.enrollment_token)) {
@@ -302,8 +1008,12 @@ function Install-Client01RuntimeSecrets {
     # write them to an env file on LAB-CLIENT01; Install-Client01Service later
     # persists the same lines into the service registry Environment value so the
     # SCM creates the service process with these variables already loaded.
+    $rootCaPem = Get-Client01SecretValue -Name 'DLP_ROOT_CA_PEM' -Value $env:DLP_ROOT_CA_PEM
+    if (-not $rootCaPem.TrimStart().StartsWith('-----BEGIN CERTIFICATE-----')) {
+        Stop-Client01 'root_ca_invalid: DLP_ROOT_CA_PEM must resolve to a certificate PEM, not a private key or other file'
+    }
     $secrets = [ordered]@{
-        'phase1-root-ca.pem' = $env:DLP_ROOT_CA_PEM
+        'phase1-root-ca.pem' = $rootCaPem
     }
     foreach ($name in $secrets.Keys) {
         Assert-Client01 (-not [string]::IsNullOrWhiteSpace($secrets[$name])) "secret_missing_$name"
@@ -388,9 +1098,84 @@ function Install-Client01Service {
         }
 
         if ($StartAfter) {
-            Start-Service -Name $serviceName -ErrorAction Stop
+            try {
+                Start-Service -Name $serviceName -ErrorAction Stop
+            } catch {
+                # Collect diagnostics before re-throwing so the orchestrator can see
+                # why the service failed without a second remote round-trip.
+                $diag = [ordered]@{
+                    service_status = '<missing>'
+                    service_exit_code = $null
+                    event_log_errors = @()
+                    binary_exists = $false
+                    binary_version = $null
+                    env_file = '<missing>'
+                }
+                $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+                if ($null -ne $svc) {
+                    $diag.service_status = $svc.Status.ToString()
+                    try {
+                        $wmiSvc = Get-WmiObject -Class Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+                        if ($null -ne $wmiSvc) { $diag.service_exit_code = $wmiSvc.ExitCode }
+                    } catch { }
+                }
+                $diag.binary_exists = Test-Path -LiteralPath $binaryPath
+                if ($diag.binary_exists) {
+                    try { $diag.binary_version = (Get-ItemProperty -LiteralPath $binaryPath).VersionInfo.FileVersion } catch { }
+                }
+                if (Test-Path -LiteralPath $envPath) {
+                    $diag.env_file = Get-Content -LiteralPath $envPath -Raw
+                }
+                $diag.event_log_errors = @(Get-WinEvent -FilterHashtable @{LogName='System'; Level=1,2; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Message -like "*$serviceName*" -or $_.ProviderName -eq 'Service Control Manager' } |
+                    Select-Object -First 10 |
+                    ForEach-Object { "[$($_.TimeCreated.ToString('o'))] $($_.ProviderName): $($_.LevelDisplayName) - $($_.Message)" })
+                throw "Start-Service failed: $_`nDiagnostics: $($diag | ConvertTo-Json -Compress -Depth 10)"
+            }
         }
     } -ArgumentList @($StartAfterInstall)
+}
+
+function Get-Client01ServiceStartDiagnostics {
+    return Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+        $ErrorActionPreference = 'Stop'
+        $serviceName = 'DlpWindowsService'
+        $result = [ordered]@{
+            service_status = '<missing>'
+            service_exit_code = $null
+            event_log_errors = @()
+            binary_exists = $false
+            binary_version = $null
+            env_file = '<missing>'
+        }
+        $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if ($null -ne $svc) {
+            $result.service_status = $svc.Status.ToString()
+            try {
+                $wmiSvc = Get-WmiObject -Class Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+                if ($null -ne $wmiSvc) {
+                    $result.service_exit_code = $wmiSvc.ExitCode
+                }
+            } catch { }
+        }
+        $binaryPath = 'C:\dlp\agent\dlp-windows-service.exe'
+        $result.binary_exists = Test-Path -LiteralPath $binaryPath
+        if ($result.binary_exists) {
+            try {
+                $result.binary_version = (Get-ItemProperty -LiteralPath $binaryPath).VersionInfo.FileVersion
+            } catch { }
+        }
+        $envPath = 'C:\dlp\agent\agent.env'
+        if (Test-Path -LiteralPath $envPath) {
+            $result.env_file = Get-Content -LiteralPath $envPath -Raw
+        }
+        # Collect the most recent 10 service-related errors from the System log.
+        $result.event_log_errors = @(Get-WinEvent -FilterHashtable @{LogName='System'; Level=1,2; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -like "*$serviceName*" -or $_.ProviderName -eq 'Service Control Manager' } |
+            Select-Object -First 10 |
+            ForEach-Object { "[$($_.TimeCreated.ToString('o'))] $($_.ProviderName): $($_.LevelDisplayName) - $($_.Message)" })
+        return $result
+    }
 }
 
 function Test-Client01ServiceRunning {
@@ -407,6 +1192,11 @@ function Invoke-Client01ServiceInstall {
     Install-Client01Service -StartAfterInstall -EnrollmentToken $EnrollmentToken
 
     $running = Test-Client01ServiceRunning
+    if (-not $running) {
+        Write-Host '--- service start diagnostics ---'
+        $diag = Get-Client01ServiceStartDiagnostics
+        Write-Host ($diag | ConvertTo-Json -Compress -Depth 10)
+    }
     if ($running -and $EnrollmentTokenProvider -eq 'TrustedProvisioning' -and -not $RetainEnrollmentToken) {
         if (Test-Client01CredentialPresent) {
             Remove-Client01EnrollmentToken

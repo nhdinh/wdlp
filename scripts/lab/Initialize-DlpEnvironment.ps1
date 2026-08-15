@@ -4,7 +4,9 @@ param(
     [Parameter()][string]$OutEnvFile,
     [Parameter()][switch]$SkipValidation,
     [Parameter()][switch]$Force,
-    [Parameter()][switch]$NoHelp
+    [Parameter()][switch]$NoHelp,
+    [Parameter()][switch]$Clear,
+    [Parameter()][switch]$NonInteractive
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,7 +16,7 @@ Set-StrictMode -Version Latest
 
 function Test-IsPlaceholder {
     param([Parameter()][AllowEmptyString()][string]$Value)
-    return [string]::IsNullOrWhiteSpace($Value) -or ($Value -like 'REPLACE_*') -or ($Value -eq '<missing>')
+    return [string]::IsNullOrWhiteSpace($Value) -or ($Value -match 'REPLACE_') -or ($Value -match '<missing>')
 }
 
 function Get-EntryProperty {
@@ -36,12 +38,23 @@ function Read-DlpValue {
         [Parameter()][switch]$Secure,
         [Parameter()][scriptblock]$Validate,
         [Parameter()][string]$ValidateMessage = 'Value is not valid.',
-        [Parameter()][string]$HelpText = ''
+        [Parameter()][string]$HelpText = '',
+        [Parameter()][switch]$NonInteractive
     )
 
     $current = [Environment]::GetEnvironmentVariable($Name, 'Process')
     if (-not (Test-IsPlaceholder $current)) {
         return $current
+    }
+
+    if ($NonInteractive) {
+        if (Test-IsPlaceholder $Default) {
+            return $null
+        }
+        if ($Validate -and -not $SkipValidation -and -not (& $Validate $Default)) {
+            return $null
+        }
+        return $Default
     }
 
     if (-not $NoHelp -and -not [string]::IsNullOrWhiteSpace($HelpText)) {
@@ -93,12 +106,20 @@ function Invoke-EnvFile {
     if (-not (Test-Path -LiteralPath $Path)) {
         throw "Env file not found: $Path"
     }
+    $seen = @{}
+    $lineNumber = 0
     Get-Content -LiteralPath $Path | ForEach-Object {
+        $lineNumber++
         $line = $_.Trim()
         if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) { return }
-        if ($line -notmatch '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') { return }
+        if ($line -notmatch '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+            throw "Malformed env file entry at line $lineNumber. Use NAME=value with one value per line."
+        }
         $name = $Matches[1]
         $value = $Matches[2]
+        if ($seen.ContainsKey($name)) { throw "Duplicate env file key: $name" }
+        $seen[$name] = $true
+        if ($script:CatalogNames -notcontains $name) { throw "Env file key is not in the DLP catalog: $name" }
         # Strip surrounding quotes
         if (($value.StartsWith('"') -and $value.EndsWith('"')) -or
             ($value.StartsWith("'") -and $value.EndsWith("'"))) {
@@ -942,11 +963,40 @@ $Catalog = @(
 
 #endregion
 
+if ($Clear) {
+    $incompatible = @(@('EnvFile', 'OutEnvFile', 'SkipValidation', 'Force', 'NoHelp', 'NonInteractive') |
+        Where-Object { $PSBoundParameters.ContainsKey($_) })
+    if ($incompatible.Count -gt 0) {
+        throw 'Clear cannot be combined with initialization or output switches.'
+    }
+    $processNames = @([Environment]::GetEnvironmentVariables('Process').Keys | Where-Object { $_ -like 'DLP_*' })
+    foreach ($name in $processNames) {
+        if ($PSCmdlet.ShouldProcess("process environment variable $name", 'Clear')) {
+            [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+        }
+    }
+    Write-Host "Cleared $($processNames.Count) DLP process environment variable(s)." -ForegroundColor Green
+    return
+}
+
+$CatalogMetadata = @{
+    'DLP_AGENT_ENROLLMENT_TOKEN' = @{ Required = $false; Conditional = $true; Sensitivity = 'secret'; Representation = 'token' }
+}
+foreach ($entry in $Catalog) {
+    $metadata = if ($CatalogMetadata.ContainsKey($entry.Name)) { $CatalogMetadata[$entry.Name] } else { @{} }
+    $entry | Add-Member -NotePropertyName Required -NotePropertyValue $(if ($metadata.ContainsKey('Required')) { $metadata.Required } else { Test-IsPlaceholder $entry.Default })
+    $entry | Add-Member -NotePropertyName Conditional -NotePropertyValue $(if ($metadata.ContainsKey('Conditional')) { $metadata.Conditional } else { $false })
+    $entry | Add-Member -NotePropertyName Sensitivity -NotePropertyValue $(if ($metadata.ContainsKey('Sensitivity')) { $metadata.Sensitivity } elseif ($entry.Secure) { 'secret' } else { 'non-secret' })
+    $entry | Add-Member -NotePropertyName Representation -NotePropertyValue $(if ($metadata.ContainsKey('Representation')) { $metadata.Representation } elseif ($entry.Name -match '(_PEM|_PATH)$') { 'single-line path or supported process PEM input' } else { 'single-line value' })
+}
+$script:CatalogNames = @($Catalog | ForEach-Object { $_.Name })
+
 if ($EnvFile) {
     Invoke-EnvFile -Path $EnvFile
 }
 
 $resolved = [ordered]@{}
+$unresolved = [System.Collections.Generic.List[string]]::new()
 $currentGroup = $null
 
 foreach ($entry in $Catalog) {
@@ -963,13 +1013,23 @@ foreach ($entry in $Catalog) {
         -Secure:([bool](Get-EntryProperty $entry 'Secure')) `
         -Validate (Get-EntryProperty $entry 'Validate') `
         -ValidateMessage (Get-EntryProperty $entry 'ValidateMessage') `
-        -HelpText (Get-HelpText $entry.Name)
+        -HelpText (Get-HelpText $entry.Name) `
+        -NonInteractive:$NonInteractive
+
+    if (Test-IsPlaceholder $value) {
+        if ($entry.Required -or $entry.Conditional) { $unresolved.Add($entry.Name) }
+        continue
+    }
 
     $resolved[$entry.Name] = $value
 
     if ($PSCmdlet.ShouldProcess("process environment variable $($entry.Name)", 'Set')) {
         [Environment]::SetEnvironmentVariable($entry.Name, $value, 'Process')
     }
+}
+
+if ($NonInteractive -and $unresolved.Count -gt 0) {
+    throw "Non-interactive initialization requires values for: $($unresolved -join ', ')"
 }
 
 # Summary
@@ -984,6 +1044,10 @@ if ($stillPlaceholder) {
 }
 
 if ($OutEnvFile) {
+    if ((Test-Path -LiteralPath $OutEnvFile) -and -not $Force) {
+        throw "OutEnvFile already exists. Re-run with -Force to overwrite: $OutEnvFile"
+    }
+    Write-Warning 'OutEnvFile stores plaintext secrets. Protect the file and do not commit it.'
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add('# DLP Phase 1 lab environment')
     $lines.Add("# Generated by Initialize-DlpEnvironment.ps1 on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')")
