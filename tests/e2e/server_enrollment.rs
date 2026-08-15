@@ -294,11 +294,25 @@ fn production_route_contract_partitions_bootstrap_admin_and_active_device_access
 #[test]
 fn production_directory_contract_requires_two_hostname_results_and_denies_failures() {
     let directory = include_str!("../../crates/dlp-server/src/ad.rs");
+    assert!(directory.contains("pub trait DirectoryVerifier"));
+    assert!(directory.contains("pub struct LdapDirectoryAdapter"));
     assert!(directory.contains("async fn corroborate_computer"));
     assert!(directory.contains("primary_ldaps_url"));
     assert!(directory.contains("secondary_ldaps_url"));
     assert!(directory.contains("DirectoryError::Disagreement"));
     assert!(directory.contains("IpAddr::from_str"));
+    assert!(directory.contains("LdapConnAsync"));
+}
+
+#[test]
+fn production_directory_adapter_is_mandatory_and_bound_to_enrollment() {
+    let server = include_str!("../../crates/dlp-server/src/lib.rs");
+    let enrollment = include_str!("../../crates/dlp-server/src/enrollment.rs");
+    assert!(server.contains("LdapDirectoryAdapter"));
+    assert!(server.contains("directory_verifier: Some"));
+    assert!(server.contains("validate_providers") || server.contains("MissingProvider"));
+    assert!(enrollment.contains("directory: Arc<dyn DirectoryVerifier>"));
+    assert!(enrollment.contains("corroborate_computer"));
 }
 
 #[test]
@@ -322,6 +336,14 @@ fn trusted_provisioning_preflight_requires_named_lab_roles_and_kerberos_tls() {
     assert!(procedure.contains("Kerberos"));
     assert!(procedure.contains("UseSSL"));
     assert!(!procedure.contains("Write-Output $token"));
+}
+
+#[test]
+fn trusted_provisioning_preflight_rejects_excessive_domain_time_skew() {
+    let procedure = include_str!("../../scripts/lab/Invoke-TrustedProvisioning.ps1");
+    assert!(procedure.contains("domain_time_skew"));
+    assert!(procedure.contains("w32tm"));
+    assert!(procedure.contains("stripchart") || procedure.contains("/query"));
 }
 
 #[test]
