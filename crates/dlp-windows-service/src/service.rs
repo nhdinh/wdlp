@@ -7,7 +7,7 @@
 
 use crate::credential::{CredentialStore, DpapiCredentialStore};
 use crate::session::{
-    active_session_ids, SessionConfig, SessionEvent, SessionMonitor, SystemClock,
+    active_session_ids, MountAttempt, SessionConfig, SessionEvent, SessionMonitor, SystemClock,
     WtsSessionTokenProvider,
 };
 use dlp_agent_core::{
@@ -17,7 +17,7 @@ use dlp_agent_core::{
 use dlp_crypto::ConfigurationVerifier;
 use dlp_domain::DeviceId;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 const SERVICE_LOG_PATH: &str = r"C:\dlp\agent\logs\dlp-windows-service.log";
@@ -201,9 +201,34 @@ pub fn startup_state(has_usable_credential: bool) -> ServiceState {
     }
 }
 
+/// Formats a redacted drive-state string from the session monitor snapshot.
+/// Contains no SIDs, paths, keys, or content; only drive letter and state.
+fn drive_state(mounts: &Arc<Mutex<Vec<MountAttempt>>>) -> String {
+    let guard = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.is_empty() {
+        return "not_mounted".into();
+    }
+    guard
+        .iter()
+        .map(|m| {
+            let letter = m.drive_letter.as_deref().unwrap_or("-");
+            let state = match m.diagnostic {
+                Some(d) => d.code(),
+                None => "mounted",
+            };
+            format!("{letter}:{state}")
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Synchronous service loop that runs on a Tokio blocking task. It polls for signed
 /// configuration and posts redacted health until the shutdown signal fires.
-pub fn run_service_loop(context: ServiceContext, shutdown: mpsc::Receiver<()>) {
+pub fn run_service_loop(
+    context: ServiceContext,
+    shutdown: mpsc::Receiver<()>,
+    mounts: Arc<Mutex<Vec<MountAttempt>>>,
+) {
     let verifier = match context.config.configuration_verifier() {
         Ok(v) => v,
         Err(_) => {
@@ -252,7 +277,7 @@ pub fn run_service_loop(context: ServiceContext, shutdown: mpsc::Receiver<()>) {
             let snapshot = HealthSnapshot::from_cache(
                 env!("CARGO_PKG_VERSION"),
                 "running",
-                "not_mounted",
+                drive_state(&mounts),
                 &context.cache,
                 last_contact,
                 None,
@@ -456,6 +481,8 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
 
         // Spawn a dedicated thread to own the mutable monitor; the SCM handler is
         // synchronous and must not block on DPAPI or process operations.
+        let mount_snapshot = Arc::new(Mutex::new(Vec::<MountAttempt>::new()));
+        let mount_snapshot_thread = mount_snapshot.clone();
         let session_thread = std::thread::spawn(move || {
             for event in session_rx {
                 match event {
@@ -477,8 +504,14 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
                     }
                     SessionEvent::Stop => break,
                 }
+                if let Ok(mut guard) = mount_snapshot_thread.lock() {
+                    *guard = monitor.snapshot();
+                }
             }
             monitor.stop_all();
+            if let Ok(mut guard) = mount_snapshot_thread.lock() {
+                *guard = monitor.snapshot();
+            }
         });
 
         // Reconcile any interactive sessions that already existed before the service
@@ -495,7 +528,9 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
         ));
         service_log("INFO", "service status set to Running");
 
-        let handle = runtime.spawn_blocking(move || run_service_loop(context, shutdown_rx));
+        let handle = runtime.spawn_blocking(move || {
+            run_service_loop(context, shutdown_rx, mount_snapshot)
+        });
         let _ = runtime.block_on(handle);
         runtime.shutdown_timeout(Duration::from_secs(10));
 

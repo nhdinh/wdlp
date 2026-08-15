@@ -19,6 +19,11 @@ pub enum RedactedDiagnostic {
     ConfigurationRejected,
     NetworkUnavailable,
     CacheCorrupt,
+    SessionHostLaunchFailed,
+    DriveMountFailed,
+    DriveLetterUnavailable,
+    SessionDrainTimeout,
+    StoreRecoveryFailed,
 }
 impl RedactedDiagnostic {
     pub const fn code(self) -> &'static str {
@@ -28,6 +33,11 @@ impl RedactedDiagnostic {
             Self::ConfigurationRejected => "configuration_rejected",
             Self::NetworkUnavailable => "network_unavailable",
             Self::CacheCorrupt => "cache_corrupt",
+            Self::SessionHostLaunchFailed => "session_host_launch_failed",
+            Self::DriveMountFailed => "drive_mount_failed",
+            Self::DriveLetterUnavailable => "drive_letter_unavailable",
+            Self::SessionDrainTimeout => "session_drain_timeout",
+            Self::StoreRecoveryFailed => "store_recovery_failed",
         }
     }
 }
