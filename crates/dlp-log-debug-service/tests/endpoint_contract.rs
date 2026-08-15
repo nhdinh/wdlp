@@ -8,8 +8,8 @@ use std::{
 
 use dlp_log_debug_service::{
     AccessMode, AppState, AuthorizedFolders, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_TAIL_LINES,
-    DEFAULT_PORT, HttpError, authorize_canonical_target, authorize_peer, authorize_requested_file,
-    load_runtime_config, read_bounded_tail, serve_http,
+    DEFAULT_PORT, FileConfig, HttpError, authorize_canonical_target, authorize_peer,
+    authorize_requested_file, load_runtime_config, read_bounded_tail, serve_http,
 };
 use tokio::net::TcpListener;
 
@@ -140,6 +140,14 @@ fn invalid_or_empty_config_falls_back_without_authorized_folders() {
     assert_eq!(empty_trust.access_mode, AccessMode::LocalhostOnly);
     assert!(empty_trust.authorized_folders.is_empty());
     fs::remove_dir_all(directory).expect("test directory should be removed");
+}
+
+#[test]
+fn shipped_config_example_deserializes_with_required_tail_limit() {
+    let config: FileConfig = serde_json::from_str(include_str!("../config.example.json"))
+        .expect("shipped config example must remain valid");
+
+    assert_eq!(config.max_tail_lines, DEFAULT_MAX_TAIL_LINES);
 }
 
 #[test]
