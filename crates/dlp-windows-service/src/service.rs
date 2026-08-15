@@ -166,9 +166,14 @@ impl ServiceContext {
         let Some(token) = config.enrollment_token.clone() else {
             return Err(dlp_agent_core::EnrollmentError::CredentialUnavailable);
         };
+        // A damaged credential can still retain the serial that authorizes its
+        // replacement.  Passing that serial preserves the server's active-
+        // credential check instead of making recovery impossible whenever the
+        // local protection validation fails.
+        let prior_serial = store.load().ok().map(|credential| credential.serial().to_vec());
         let mut coordinator =
             EnrollmentCoordinator::new((*bootstrap_client).clone(), store.clone());
-        coordinator.startup(config.device_id.clone(), token, None)
+        coordinator.startup(config.device_id.clone(), token, prior_serial.as_deref())
     }
 
     fn client_with_identity(
