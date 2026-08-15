@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-SERVER01', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart', 'SignInMount', 'LetterRetrySignOutRestart')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -249,6 +249,34 @@ function Invoke-ServiceRestart {
     Assert-Phase1 ($smoke -match "'ServiceRestart'") 'smoke test lacks ServiceRestart scenario'
 }
 
+function Invoke-SignInMount {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'SignInMount verifier must run on hungdinh-lt'
+    $service = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/service.rs') -Raw
+    $session = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/session.rs') -Raw
+    $hostBin = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-drive/src/bin/dlp-drive-host.rs') -Raw
+    $toml = Get-Content -LiteralPath (Join-Path $repoRoot 'config/agent.toml.example') -Raw
+    $smoke = Get-Content -LiteralPath (Join-Path $repoRoot 'tests/windows/Invoke-ServiceSessionSmoke.ps1') -Raw
+    Assert-Phase1 ($service -match 'SessionMonitor' -and $service -match 'SessionEvent' -and $service -match 'SessionChangeReason::SessionLogon' -and $service -match 'SessionChangeReason::SessionLogoff') 'service does not dispatch SCM session changes to the session monitor'
+    Assert-Phase1 ($session -match 'WtsSessionTokenProvider' -and $session -match 'WTSQueryUserToken' -and $session -match 'active_session_ids' -and $session -match 'EligibleSession') 'session module lacks WTS token provider and active-session enumeration'
+    Assert-Phase1 ($session -match 'DpapiStoreKeyProvider' -and $session -match 'enforce_acl' -and $session -match 'StoreKeyProvider') 'session module lacks DPAPI per-SID key provider'
+    Assert-Phase1 ($session -match 'MountManager' -and $session -match 'select_target' -and $session -match 'RetryTimer') 'session module lacks drive-letter and retry abstractions'
+    Assert-Phase1 ($hostBin -match 'pipe-name' -and $hostBin -match 'user-sid' -and $hostBin -match 'generation' -and $hostBin -match 'preferred-letter') 'drive host does not accept bounded identity arguments'
+    Assert-Phase1 ($toml -match 'preferred_drive_letter' -and $toml -match 'sign_out_grace_seconds' -and $toml -match 'host_binary_path') 'agent.toml.example is missing mount configuration'
+    Assert-Phase1 ($smoke -match "'SignInMount'") 'service session smoke test lacks SignInMount scenario'
+}
+
+function Invoke-LetterRetrySignOutRestart {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'LetterRetrySignOutRestart verifier must run on hungdinh-lt'
+    $session = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/session.rs') -Raw
+    $tests = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/tests/session_lifecycle.rs') -Raw
+    $health = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-agent-core/src/health.rs') -Raw
+    $smoke = Get-Content -LiteralPath (Join-Path $repoRoot 'tests/windows/Invoke-ServiceSessionSmoke.ps1') -Raw
+    Assert-Phase1 ($session -match 'MountManager' -and $session -match 'RetryTimer' -and $session -match 'begin_drain' -and $session -match 'stop_all') 'session module lacks retry/drain/recovery primitives'
+    Assert-Phase1 ($tests -match 'occupied_preferred_chooses_deterministic_next_free' -and $tests -match 'retry_backoff_doubles_and_caps_at_300_seconds' -and $tests -match 'logoff_rejects_new_opens_and_drains' -and $tests -match 'stop_all_terminates_actors') 'session lifecycle tests do not cover fallback, retry, drain, or stop'
+    Assert-Phase1 ($health -match 'SessionHostLaunchFailed' -and $health -match 'DriveMountFailed' -and $health -match 'DriveLetterUnavailable' -and $health -match 'SessionDrainTimeout' -and $health -match 'StoreRecoveryFailed') 'health diagnostics do not include session/mount redacted codes'
+    Assert-Phase1 ($smoke -match "'LetterRetrySignOutRestart'") 'service session smoke test lacks LetterRetrySignOutRestart scenario'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
@@ -266,6 +294,8 @@ switch ($Scenario) {
     'ReplacementRevocation' { Invoke-ReplacementRevocation }
     'ConfigurationCache' { Invoke-ConfigurationCache }
     'ServiceRestart' { Invoke-ServiceRestart }
+    'SignInMount' { Invoke-SignInMount }
+    'LetterRetrySignOutRestart' { Invoke-LetterRetrySignOutRestart }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json

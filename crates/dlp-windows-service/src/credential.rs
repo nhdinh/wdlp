@@ -318,7 +318,7 @@ fn has_service_sid() -> bool {
 }
 
 #[cfg(windows)]
-fn enforce_acl(path: &Path) -> Result<(), CredentialError> {
+pub(crate) fn enforce_acl(path: &Path) -> Result<(), CredentialError> {
     if !has_service_sid() {
         return Ok(());
     }

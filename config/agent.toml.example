@@ -45,6 +45,8 @@ max_backoff = 3600
 preferred_drive_letter = "P"
 # Grace period in seconds for existing handles after a user signs out before unmount.
 sign_out_grace_seconds = 30
+# Path to the per-session non-UI WinFsp host binary launched by the service.
+host_binary_path = "C:/Program Files/DLP/dlp-drive-host.exe"
 
 [diagnostics]
 # All diagnostic output uses stable redacted codes; no secrets, tokens, private

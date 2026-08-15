@@ -6,6 +6,10 @@
 //! here for Plan 01-15; the session host itself is implemented separately.
 
 use crate::credential::{CredentialStore, DpapiCredentialStore};
+use crate::session::{
+    active_session_ids, MountAttempt, SessionConfig, SessionEvent, SessionMonitor, SystemClock,
+    WtsSessionTokenProvider,
+};
 use dlp_agent_core::{
     AgentConfigurationTransport, AgentHttpClient, ConfigurationCache, EnrollmentCoordinator,
     EnrollmentCredentialStore, EnrollmentMode, HealthSnapshot, RedactedDiagnostic,
@@ -13,7 +17,7 @@ use dlp_agent_core::{
 use dlp_crypto::ConfigurationVerifier;
 use dlp_domain::DeviceId;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 const SERVICE_LOG_PATH: &str = r"C:\dlp\agent\logs\dlp-windows-service.log";
@@ -197,9 +201,34 @@ pub fn startup_state(has_usable_credential: bool) -> ServiceState {
     }
 }
 
+/// Formats a redacted drive-state string from the session monitor snapshot.
+/// Contains no SIDs, paths, keys, or content; only drive letter and state.
+fn drive_state(mounts: &Arc<Mutex<Vec<MountAttempt>>>) -> String {
+    let guard = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.is_empty() {
+        return "not_mounted".into();
+    }
+    guard
+        .iter()
+        .map(|m| {
+            let letter = m.drive_letter.as_deref().unwrap_or("-");
+            let state = match m.diagnostic {
+                Some(d) => d.code(),
+                None => "mounted",
+            };
+            format!("{letter}:{state}")
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Synchronous service loop that runs on a Tokio blocking task. It polls for signed
 /// configuration and posts redacted health until the shutdown signal fires.
-pub fn run_service_loop(context: ServiceContext, shutdown: mpsc::Receiver<()>) {
+pub fn run_service_loop(
+    context: ServiceContext,
+    shutdown: mpsc::Receiver<()>,
+    mounts: Arc<Mutex<Vec<MountAttempt>>>,
+) {
     let verifier = match context.config.configuration_verifier() {
         Ok(v) => v,
         Err(_) => {
@@ -248,7 +277,7 @@ pub fn run_service_loop(context: ServiceContext, shutdown: mpsc::Receiver<()>) {
             let snapshot = HealthSnapshot::from_cache(
                 env!("CARGO_PKG_VERSION"),
                 "running",
-                "not_mounted",
+                drive_state(&mounts),
                 &context.cache,
                 last_contact,
                 None,
@@ -333,14 +362,29 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
         }
 
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let (session_tx, session_rx) = mpsc::channel::<SessionEvent>();
+        let session_tx_handler = session_tx.clone();
         let handler =
             service_control_handler::register("DlpWindowsService", move |control| match control {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
+                    let _ = session_tx_handler.send(SessionEvent::Stop);
                     let _ = shutdown_tx.send(());
                     ServiceControlHandlerResult::NoError
                 }
-                ServiceControl::SessionChange(_) => {
-                    // Registered for Plan 01-15; the session host consumes this event.
+                ServiceControl::SessionChange(session_change) => {
+                    use windows_service::service::SessionChangeReason;
+                    let event = match session_change.reason {
+                        SessionChangeReason::SessionLogon => {
+                            Some(SessionEvent::Logon(session_change.notification.session_id))
+                        }
+                        SessionChangeReason::SessionLogoff => {
+                            Some(SessionEvent::Logoff(session_change.notification.session_id))
+                        }
+                        _ => None,
+                    };
+                    if let Some(event) = event {
+                        let _ = session_tx_handler.send(event);
+                    }
                     ServiceControlHandlerResult::NoError
                 }
                 _ => ServiceControlHandlerResult::NotImplemented,
@@ -415,6 +459,67 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
         service_log("INFO", format!("service context initialized mode={mode:?}"));
 
         let _service_state = startup_state(matches!(mode, EnrollmentMode::Existing));
+
+        let session_config = build_session_config(&context.config.data_directory);
+        let mut monitor = match SessionMonitor::new(
+            session_config,
+            Box::new(SystemClock),
+            Box::new(WtsSessionTokenProvider),
+        ) {
+            Ok(m) => m,
+            Err(error) => {
+                service_log("ERROR", format!("session monitor creation failed: {error}"));
+                let _ = handler.set_service_status(build_status(
+                    ScmState::Stopped,
+                    0,
+                    Duration::default(),
+                    ServiceExitCode::Win32(1),
+                ));
+                return;
+            }
+        };
+
+        // Spawn a dedicated thread to own the mutable monitor; the SCM handler is
+        // synchronous and must not block on DPAPI or process operations.
+        let mount_snapshot = Arc::new(Mutex::new(Vec::<MountAttempt>::new()));
+        let mount_snapshot_thread = mount_snapshot.clone();
+        let session_thread = std::thread::spawn(move || {
+            for event in session_rx {
+                match event {
+                    SessionEvent::Logon(session_id) => {
+                        if let Err(error) = monitor.session_logon(session_id) {
+                            service_log(
+                                "WARN",
+                                format!("session_logon({session_id}) failed: {error}"),
+                            );
+                        }
+                    }
+                    SessionEvent::Logoff(session_id) => {
+                        if let Err(error) = monitor.session_logoff(session_id) {
+                            service_log(
+                                "WARN",
+                                format!("session_logoff({session_id}) failed: {error}"),
+                            );
+                        }
+                    }
+                    SessionEvent::Stop => break,
+                }
+                if let Ok(mut guard) = mount_snapshot_thread.lock() {
+                    *guard = monitor.snapshot();
+                }
+            }
+            monitor.stop_all();
+            if let Ok(mut guard) = mount_snapshot_thread.lock() {
+                *guard = monitor.snapshot();
+            }
+        });
+
+        // Reconcile any interactive sessions that already existed before the service
+        // started (e.g., service restart while a user is signed in).
+        for session_id in active_session_ids() {
+            let _ = session_tx.send(SessionEvent::Logon(session_id));
+        }
+
         let _ = handler.set_service_status(build_status(
             ScmState::Running,
             0,
@@ -423,9 +528,13 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
         ));
         service_log("INFO", "service status set to Running");
 
-        let handle = runtime.spawn_blocking(move || run_service_loop(context, shutdown_rx));
+        let handle = runtime.spawn_blocking(move || {
+            run_service_loop(context, shutdown_rx, mount_snapshot)
+        });
         let _ = runtime.block_on(handle);
         runtime.shutdown_timeout(Duration::from_secs(10));
+
+        let _ = session_thread.join();
 
         service_log("INFO", "service loop ended");
         let _ = handler.set_service_status(build_status(
@@ -437,6 +546,30 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
     }
 
     service_dispatcher::start("DlpWindowsService", ffi_service_main)
+}
+
+/// Builds the session-monitor configuration from runtime environment values.
+#[cfg(windows)]
+fn build_session_config(data_directory: &std::path::Path) -> SessionConfig {
+    let preferred_drive_letter = std::env::var("DLP_PREFERRED_DRIVE_LETTER")
+        .ok()
+        .and_then(|v| v.chars().next())
+        .unwrap_or('P')
+        .to_ascii_uppercase();
+    let sign_out_grace_seconds = std::env::var("DLP_SIGN_OUT_GRACE_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30);
+    let host_binary_path = std::env::var("DLP_DRIVE_HOST_BINARY_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(r"C:\Program Files\DLP\dlp-drive-host.exe"));
+
+    SessionConfig {
+        data_directory: data_directory.to_path_buf(),
+        preferred_drive_letter,
+        sign_out_grace_seconds,
+        host_binary_path,
+    }
 }
 
 /// Loads service configuration from the runtime provider. The default implementation
