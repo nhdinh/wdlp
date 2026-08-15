@@ -1,6 +1,5 @@
 use sqlx::{Row, postgres::PgPoolOptions, sqlite::SqlitePoolOptions};
 use std::{env, fmt, path::PathBuf};
-
 mod provisioning {
     use sha2::{Digest, Sha256};
     use std::process::Command;
@@ -122,12 +121,10 @@ impl FileSecretProvider {
 }
 
 impl dlpctl::RuntimeSecretProvider for FileSecretProvider {
-    fn handoff_enrollment_token(
-        &mut self,
-        token: String,
-    ) -> Result<(), dlpctl::ProvisioningError> {
+    fn handoff_enrollment_token(&mut self, token: String) -> Result<(), dlpctl::ProvisioningError> {
         use std::io::Write;
-        let mut file = std::fs::File::create(&self.path).map_err(|_| dlpctl::ProvisioningError::SecretHandoff)?;
+        let mut file = std::fs::File::create(&self.path)
+            .map_err(|_| dlpctl::ProvisioningError::SecretHandoff)?;
         file.write_all(token.as_bytes())
             .map_err(|_| dlpctl::ProvisioningError::SecretHandoff)?;
         Ok(())
@@ -139,6 +136,7 @@ pub const MIGRATION_VERSION: i64 = 202608070001;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     MigrationStatus,
+    ConfigurationPublicKey,
     Phase1Smoke { database_url: Option<String> },
     ProvisionDevice { computer: String },
     EnrollmentTokenCreate { ttl_minutes: u32 },
@@ -157,6 +155,11 @@ impl Command {
         {
             Some(argument) if argument == "migration-status" && arguments.next().is_none() => {
                 Ok(Self::MigrationStatus)
+            }
+            Some(argument)
+                if argument == "configuration-public-key" && arguments.next().is_none() =>
+            {
+                Ok(Self::ConfigurationPublicKey)
             }
             Some(argument) if argument == "phase1-smoke" => {
                 match (arguments.next(), arguments.next()) {
@@ -211,19 +214,21 @@ pub enum CliError {
     MigrationMissing,
     TrustedStationRequired,
     ProvisioningApiUnavailable,
+    InvalidSigningSeed,
 }
 
 impl fmt::Display for CliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let code = match self {
             Self::Usage => {
-                "usage: dlpctl migration-status | phase1-smoke [--database-url sqlite:... ] | provision-device --computer <FQDN> | enrollment-token create --ttl <minutes>"
+                "usage: dlpctl migration-status | configuration-public-key | phase1-smoke [--database-url sqlite:... ] | provision-device --computer <FQDN> | enrollment-token create --ttl <minutes>"
             }
             Self::MissingDatabaseUrl => "database_url_missing",
             Self::DatabaseUnavailable => "database_unavailable",
             Self::MigrationMissing => "expected_migration_missing",
             Self::TrustedStationRequired => "trusted_station_required",
             Self::ProvisioningApiUnavailable => "provisioning_api_unavailable",
+            Self::InvalidSigningSeed => "configuration_signing_seed_invalid",
         };
         write!(formatter, "{code}")
     }
@@ -283,8 +288,38 @@ async fn sqlite_migration_status(database_url: &str) -> Result<(), CliError> {
 
 #[tokio::main]
 async fn main() -> Result<(), CliError> {
+    // Enable rustls trace logging when the orchestrator sets RUST_LOG. This
+    // captures the exact certificate validation decision without changing the
+    // default quiet behavior.
+    if std::env::var_os("RUST_LOG").is_some() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_writer(std::io::stderr)
+            .try_init();
+    }
+
+    // dlpctl depends on reqwest with the rustls feature but no explicit crypto
+    // provider feature. Other workspace crates enable rustls providers, so the
+    // process-level default is ambiguous. Install ring explicitly to avoid the
+    // "Could not automatically determine the process-level CryptoProvider" panic.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     match Command::parse(env::args().skip(1))? {
         Command::MigrationStatus => migration_status().await,
+        Command::ConfigurationPublicKey => {
+            let seed_hex = env::var("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX")
+                .map_err(|_| CliError::InvalidSigningSeed)?;
+            let seed: [u8; 32] = hex_decode(&seed_hex)
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or(CliError::InvalidSigningSeed)?;
+            let signer = dlp_crypto::ConfigurationSigner::from_seed("derive-only", seed);
+            let public_key = signer
+                .public_key_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            println!("{public_key}");
+            Ok(())
+        }
         Command::Phase1Smoke { database_url } => {
             let root = PathBuf::from("target").join("phase1-smoke");
             let database_url = database_url.unwrap_or_else(|| {
@@ -332,6 +367,11 @@ async fn main() -> Result<(), CliError> {
                 .map_err(|_| CliError::TrustedStationRequired)?;
             let provisioning_admin_key = env::var("DLP_PROVISIONING_ADMIN_KEY_PATH")
                 .map_err(|_| CliError::TrustedStationRequired)?;
+            // Optional issuing CA for the provisioning admin cert. When present,
+            // the CA certificate is appended to the identity chain so rustls can
+            // build the full path requested by the server's CertificateRequest.
+            let provisioning_admin_ca: Option<String> =
+                env::var("DLP_PROVISIONING_ADMIN_CA_CERT_PATH").ok();
             let handoff_path = env::var("DLP_PROVISIONING_TOKEN_HANDOFF_PATH")
                 .map_err(|_| CliError::TrustedStationRequired)?;
 
@@ -340,6 +380,7 @@ async fn main() -> Result<(), CliError> {
                 std::path::Path::new(&provisioning_root_ca),
                 std::path::Path::new(&provisioning_admin_cert),
                 std::path::Path::new(&provisioning_admin_key),
+                provisioning_admin_ca.as_deref().map(std::path::Path::new),
             )
             .map_err(|_| CliError::ProvisioningApiUnavailable)?;
             let mut provider = FileSecretProvider::new(std::path::PathBuf::from(handoff_path));
@@ -381,6 +422,14 @@ mod tests {
             Ok(Command::MigrationStatus)
         );
         assert_eq!(MIGRATION_VERSION, 202608070001);
+    }
+
+    #[test]
+    fn configuration_public_key_command_is_explicit() {
+        assert_eq!(
+            Command::parse(["configuration-public-key"]),
+            Ok(Command::ConfigurationPublicKey)
+        );
     }
 
     #[test]

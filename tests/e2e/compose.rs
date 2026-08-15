@@ -43,10 +43,7 @@ fn compose_yaml_secrets_are_not_hardcoded() {
         "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX=",
         "DLP_ADMIN_PROVISIONING_KEY=",
     ] {
-        assert!(
-            !content.contains(key),
-            "compose must not hardcode {key}"
-        );
+        assert!(!content.contains(key), "compose must not hardcode {key}");
     }
 }
 
@@ -56,7 +53,12 @@ fn migrations_are_ordered_and_forward_only() {
     let mut entries: Vec<_> = fs::read_dir(&migrations_dir)
         .expect("migrations dir must exist")
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|ext| ext == "sql").unwrap_or(false))
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "sql")
+                .unwrap_or(false)
+        })
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     entries.sort();

@@ -8,15 +8,15 @@ use axum::{
     extract::connect_info::Connected,
     serve::{IncomingStream, Listener},
 };
-use rustls::{
-    RootCertStore, ServerConfig,
-    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
-    server::WebPkiClientVerifier,
-};
 use std::{env, fs, io, path::PathBuf, sync::Arc};
 use tokio::{
     net::TcpListener,
     time::{Duration, sleep},
+};
+use tokio_rustls::rustls::{
+    RootCertStore, ServerConfig,
+    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+    server::WebPkiClientVerifier,
 };
 use tokio_rustls::{TlsAcceptor, server::TlsStream};
 use x509_parser::{extensions::GeneralName, parse_x509_certificate};
@@ -301,6 +301,10 @@ impl AuthenticatedAdmin {
         })
     }
 
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
     /// Headers are never a TLS identity source, including in test/dev mode.
     pub fn from_forwarded_header(_header_name: &str) -> Result<Self, TlsError> {
         Err(TlsError::Unauthorized)
@@ -386,6 +390,7 @@ impl TlsPaths {
         if bootstrap_roots.is_empty() {
             return Err(TlsError::InvalidMaterial);
         }
+
         let verifier = WebPkiClientVerifier::builder(Arc::new(client_roots))
             .allow_unauthenticated()
             .build()

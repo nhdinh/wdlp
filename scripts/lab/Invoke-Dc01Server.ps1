@@ -31,6 +31,24 @@ function Assert-Dc01([bool]$Condition, [string]$Code) {
     if (-not $Condition) { Stop-Dc01 $Code }
 }
 
+function Resolve-PemContent {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Value
+    )
+    # Environment variables may contain either inline PEM material or a path to a
+    # PEM file. Always return the actual PEM content so the caller writes
+    # certificates/keys to the target machine instead of path strings.
+    $trimmed = $Value.Trim()
+    if ($trimmed -match '^-----BEGIN') { return $Value }
+    if (Test-Path -LiteralPath $trimmed -PathType Leaf) {
+        $content = Get-Content -Raw -LiteralPath $trimmed
+        if ($content.Trim() -match '^-----BEGIN') { return $content }
+        Stop-Dc01 "pem_file_invalid:$Name" "'$trimmed' does not contain PEM content."
+    }
+    Stop-Dc01 "pem_unresolvable:$Name" "$Name is neither inline PEM nor an existing file path: $trimmed"
+}
+
 Import-Module (Join-Path $RepoRoot 'scripts/evidence/Phase1.Evidence.psm1') -Force
 
 function Assert-DlpMachineRole {
@@ -219,8 +237,7 @@ function Assert-RuntimeSecretsPresent {
         'DLP_PHASE1_ROOT_CA_CERT_PEM',
         'DLP_DEVICE_ISSUING_CA_CERT_PEM',
         'DLP_DEVICE_ISSUING_CA_KEY_PEM',
-        'DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX',
-        'DLP_ADMIN_PROVISIONING_KEY'
+        'DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX'
     )
     $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
     if ($missing.Count -gt 0) { Stop-Dc01 ("runtime_secrets_missing: " + ($missing -join ', ')) }
@@ -299,6 +316,13 @@ function Install-Dc01ServerBinary {
     if (Test-Path -LiteralPath $localProvScript) {
         Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $localProvScript -DestinationPath $remoteProvScript
     }
+
+    # Trusted provisioning on LAB-DC01 consumes the approved 01-13 manifest
+    # digest from this version-controlled configuration. Keep the deployed copy
+    # aligned with the orchestrator checkout instead of requiring operators to
+    # create or edit it manually on the VM.
+    $remoteConfig = 'C:\dlp\server\config\lab.phase1.example.yaml'
+    Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $ConfigPath -DestinationPath $remoteConfig
 }
 
 function Stop-Dc01Server {
@@ -308,23 +332,25 @@ function Stop-Dc01Server {
 }
 
 function Install-Dc01ServerSecrets {
-    # The runtime provider supplies PEM content as environment variables. The
-    # server expects file paths, so write them to LAB-DC01 and return the paths.
+    # The runtime provider supplies PEM content or paths to PEM files as
+    # environment variables. The server expects file paths on LAB-DC01, so
+    # resolve any path values to their content and write the actual PEM material.
     # AD/LDAPS material is only written when present; health-only scenarios do
     # not require Active Directory to be reachable.
     $secrets = [ordered]@{
-        'server-cert.pem' = $env:DLP_SERVER_CERT_PEM
-        'server-key.pem' = $env:DLP_SERVER_KEY_PEM
-        'admin-ca.pem' = $env:DLP_ADMIN_CA_CERT_PEM
-        'phase1-root-ca.pem' = $env:DLP_PHASE1_ROOT_CA_CERT_PEM
-        'device-issuing-ca.pem' = $env:DLP_DEVICE_ISSUING_CA_CERT_PEM
-        'device-issuing-ca-key.pem' = $env:DLP_DEVICE_ISSUING_CA_KEY_PEM
+        'server-cert.pem' = Resolve-PemContent -Name 'DLP_SERVER_CERT_PEM' -Value $env:DLP_SERVER_CERT_PEM
+        'server-key.pem' = Resolve-PemContent -Name 'DLP_SERVER_KEY_PEM' -Value $env:DLP_SERVER_KEY_PEM
+        'admin-ca.pem' = Resolve-PemContent -Name 'DLP_ADMIN_CA_CERT_PEM' -Value $env:DLP_ADMIN_CA_CERT_PEM
+        'phase1-root-ca.pem' = Resolve-PemContent -Name 'DLP_PHASE1_ROOT_CA_CERT_PEM' -Value $env:DLP_PHASE1_ROOT_CA_CERT_PEM
+        'device-issuing-ca.pem' = Resolve-PemContent -Name 'DLP_DEVICE_ISSUING_CA_CERT_PEM' -Value $env:DLP_DEVICE_ISSUING_CA_CERT_PEM
+        'device-issuing-ca-key.pem' = Resolve-PemContent -Name 'DLP_DEVICE_ISSUING_CA_KEY_PEM' -Value $env:DLP_DEVICE_ISSUING_CA_KEY_PEM
     }
     if (-not [string]::IsNullOrWhiteSpace($env:DLP_AD_CA_CERT_PEM)) {
-        $secrets['ad-ca.pem'] = $env:DLP_AD_CA_CERT_PEM
+        $secrets['ad-ca.pem'] = Resolve-PemContent -Name 'DLP_AD_CA_CERT_PEM' -Value $env:DLP_AD_CA_CERT_PEM
     }
     foreach ($name in $secrets.Keys) {
         Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($secrets[$name])) "secret_missing_$name"
+        Assert-Dc01 ($secrets[$name].Trim().StartsWith('-----BEGIN')) "secret_not_valid_pem_$name"
     }
 
     $secretNames = $secrets.Keys
@@ -373,7 +399,6 @@ function Start-Dc01Server {
     $envLines.Add('DLP_DEVICE_ISSUING_CA_CERT_PEM=C:\dlp\secrets\device-issuing-ca.pem')
     $envLines.Add('DLP_DEVICE_ISSUING_CA_KEY_PEM=C:\dlp\secrets\device-issuing-ca-key.pem')
     $envLines.Add("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX=$($env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX)")
-    $envLines.Add("DLP_ADMIN_PROVISIONING_KEY=$($env:DLP_ADMIN_PROVISIONING_KEY)")
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         param($EnvLines, $ListenAddress, $Port)
@@ -619,29 +644,29 @@ function Invoke-TrustedProvisioningScenario {
     Assert-RuntimeAdSecretsPresent
     Assert-RuntimeProvisioningSecretsPresent
     $digest = Get-ApprovedPrivilegeManifestDigest
+    $provisioningAdminCa = Resolve-PemContent -Name 'DLP_ADMIN_CA_CERT_PEM' -Value $env:DLP_ADMIN_CA_CERT_PEM
 
     # Ensure server is running so dlpctl can POST the provisioning request.
     Start-Dc01Server -WaitForReady
 
     $resultJson = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
-        param($Digest, $Target, $PreferredLetter, $ProvisioningRootCa, $ProvisioningAdminCert, $ProvisioningAdminKey)
+        param($Digest, $Target, $PreferredLetter, $ProvisioningRootCa, $ProvisioningAdminCert, $ProvisioningAdminKey, $ProvisioningAdminCa)
         $ErrorActionPreference = 'Stop'
         Set-Location C:\dlp\server
         $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST = $Digest
         $env:DLP_PROVISIONING_ROOT_CA_PEM = $ProvisioningRootCa
         $env:DLP_PROVISIONING_ADMIN_CERT_PEM = $ProvisioningAdminCert
         $env:DLP_PROVISIONING_ADMIN_KEY_PEM = $ProvisioningAdminKey
-        & scripts/lab/Invoke-TrustedProvisioning.ps1 -ExecutionMachine LAB-DC01 -TargetComputer $Target -PrivilegeManifestDigest $Digest -PreferredDriveLetter $PreferredLetter
-    } -ArgumentList @($digest, 'LAB-CLIENT01.lab.local', 'P', $env:DLP_PROVISIONING_ROOT_CA_PEM, $env:DLP_PROVISIONING_ADMIN_CERT_PEM, $env:DLP_PROVISIONING_ADMIN_KEY_PEM)
+        & scripts/lab/Invoke-TrustedProvisioning.ps1 -ExecutionMachine LAB-DC01 -TargetComputer $Target -PrivilegeManifestDigest $Digest -PreferredDriveLetter $PreferredLetter -AdminCaPem $ProvisioningAdminCa
+    } -ArgumentList @($digest, 'LAB-CLIENT01.lab.local', 'P', $env:DLP_PROVISIONING_ROOT_CA_PEM, $env:DLP_PROVISIONING_ADMIN_CERT_PEM, $env:DLP_PROVISIONING_ADMIN_KEY_PEM, $provisioningAdminCa)
 
     $result = $resultJson | ConvertFrom-Json
 
     # Hand the short-lived enrollment token to the orchestrator process so the
     # caller can deploy it to LAB-CLIENT01 without persisting it on hungdinh-lt.
-    if (-not [string]::IsNullOrWhiteSpace($result.enrollment_token)) {
-        $env:DLP_AGENT_ENROLLMENT_TOKEN = $result.enrollment_token
-        Write-Host "TrustedProvisioning: obtained enrollment token for $($result.target)"
-    }
+    Assert-Dc01 (-not [string]::IsNullOrWhiteSpace($result.enrollment_token)) 'trusted_provisioning_returned_empty_token'
+    $env:DLP_AGENT_ENROLLMENT_TOKEN = $result.enrollment_token
+    Write-Host "TrustedProvisioning: obtained enrollment token for $($result.target)"
 
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine $ExecutionMachine
     New-Dc01Evidence -RequirementId 'TST-05' -CheckId 'trusted-provisioning' -Status 'pass' `

@@ -60,7 +60,8 @@ impl ProvisioningRequest {
 
 impl fmt::Debug for ProvisioningRequest {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("ProvisioningRequest")
+        formatter
+            .debug_struct("ProvisioningRequest")
             .field("device_id", &self.device_id)
             .field("fingerprint_digest", &"[REDACTED]")
             .field("ad_object_guid", &"[REDACTED]")
@@ -71,7 +72,12 @@ impl fmt::Debug for ProvisioningRequest {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProvisioningError { InvalidRequest, Transport, InvalidResponse, SecretHandoff }
+pub enum ProvisioningError {
+    InvalidRequest,
+    Transport,
+    InvalidResponse,
+    SecretHandoff,
+}
 
 pub trait RuntimeSecretProvider {
     fn handoff_enrollment_token(&mut self, token: String) -> Result<(), ProvisioningError>;
@@ -81,7 +87,10 @@ pub fn handoff_token_to_runtime(
     token: &str,
     runtime: &mut dyn RuntimeSecretProvider,
 ) -> Result<(), ProvisioningError> {
-    if token.is_empty() || token.len() > 512 || !token.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+    if token.is_empty()
+        || token.len() > 512
+        || !token.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    {
         return Err(ProvisioningError::InvalidResponse);
     }
     runtime.handoff_enrollment_token(token.to_owned())
@@ -102,6 +111,7 @@ impl ProvisioningClient {
         provisioning_root_ca_pem_path: &Path,
         provisioning_admin_cert_pem_path: &Path,
         provisioning_admin_key_pem_path: &Path,
+        provisioning_admin_ca_pem_path: Option<&Path>,
     ) -> Result<Self, ProvisioningError> {
         let endpoint = endpoint.into();
         let url = reqwest::Url::parse(&endpoint).map_err(|_| ProvisioningError::InvalidRequest)?;
@@ -113,18 +123,35 @@ impl ProvisioningClient {
             return Err(ProvisioningError::InvalidRequest);
         }
 
-        let root_pem = fs::read_to_string(provisioning_root_ca_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
+        let root_pem = fs::read_to_string(provisioning_root_ca_pem_path)
+            .map_err(|_| ProvisioningError::InvalidRequest)?;
         let root_certificate = reqwest::Certificate::from_pem(root_pem.as_bytes())
             .map_err(|_| ProvisioningError::InvalidRequest)?;
 
-        let cert = fs::read_to_string(provisioning_admin_cert_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
-        let key = fs::read_to_string(provisioning_admin_key_pem_path).map_err(|_| ProvisioningError::InvalidRequest)?;
-        let identity = reqwest::Identity::from_pem((cert + &key).as_bytes())
+        let cert = fs::read_to_string(provisioning_admin_cert_pem_path)
+            .map_err(|_| ProvisioningError::InvalidRequest)?;
+        let key = fs::read_to_string(provisioning_admin_key_pem_path)
+            .map_err(|_| ProvisioningError::InvalidRequest)?;
+
+        // The server requests client certs issued by admin-ca. rustls needs the
+        // full chain (leaf + issuing CA) in the Identity so it can match the
+        // server's CertificateRequest authority_names and present a valid chain.
+        let chain = if let Some(ca_path) = provisioning_admin_ca_pem_path {
+            let ca = fs::read_to_string(ca_path).map_err(|_| ProvisioningError::InvalidRequest)?;
+            cert + &ca + &key
+        } else {
+            cert + &key
+        };
+        let identity = reqwest::Identity::from_pem(chain.as_bytes())
             .map_err(|_| ProvisioningError::InvalidRequest)?;
 
         let client = reqwest::Client::builder()
             .https_only(true)
-            .add_root_certificate(root_certificate)
+            // reqwest 0.13 defaults to the rustls platform verifier, which does
+            // not reliably trust the self-signed Phase 1 root CA when it is
+            // supplied via the deprecated add_root_certificate API. Use a
+            // webpki-only verifier that trusts exactly the configured root.
+            .tls_certs_only(vec![root_certificate])
             .identity(identity)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(20))
@@ -176,10 +203,9 @@ impl ProvisioningClient {
             .json::<ProvisioningResponseJson>()
             .await
             .map_err(|_| ProvisioningError::InvalidResponse)?;
-        validate_provisioning_response(&payload,&request.device_id,
-        )
-        .map(|_| payload.enrollment_token)
-        .and_then(|token| handoff_token_to_runtime(&token, runtime))
+        validate_provisioning_response(&payload, &request.device_id)
+            .map(|_| payload.enrollment_token)
+            .and_then(|token| handoff_token_to_runtime(&token, runtime))
     }
 }
 
@@ -201,7 +227,11 @@ struct ProvisioningResponseJson {
 }
 
 fn valid_dns_name(value: &str) -> bool {
-    value.len() <= 253 && value.contains('.') && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+    value.len() <= 253
+        && value.contains('.')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
 }
 
 pub const MIGRATION_VERSION: i64 = 202608070001;
@@ -242,7 +272,8 @@ mod provisioning_tests {
     #[test]
     fn provisioning_client_rejects_non_https_and_ip_endpoints() {
         assert!(
-            ProvisioningClient::for_test("http://server.lab.local/api/v1/admin/provisioning").is_err()
+            ProvisioningClient::for_test("http://server.lab.local/api/v1/admin/provisioning")
+                .is_err()
         );
         assert!(
             ProvisioningClient::for_test("https://192.168.1.1/api/v1/admin/provisioning").is_err()
@@ -254,33 +285,39 @@ mod provisioning_tests {
 
     #[test]
     fn provisioning_response_requires_version_and_matching_device() {
-        assert!(validate_provisioning_response(
-            &ProvisioningResponseJson {
-                version: 1,
-                device_id: "LAB-CLIENT01.lab.local".into(),
-                enrollment_token: "opaquetoken123".into(),
-            },
-            "LAB-CLIENT01.lab.local",
-        )
-        .is_ok());
-        assert!(validate_provisioning_response(
-            &ProvisioningResponseJson {
-                version: 2,
-                device_id: "LAB-CLIENT01.lab.local".into(),
-                enrollment_token: "opaquetoken123".into(),
-            },
-            "LAB-CLIENT01.lab.local",
-        )
-        .is_err());
-        assert!(validate_provisioning_response(
-            &ProvisioningResponseJson {
-                version: 1,
-                device_id: "OTHER.lab.local".into(),
-                enrollment_token: "opaquetoken123".into(),
-            },
-            "LAB-CLIENT01.lab.local",
-        )
-        .is_err());
+        assert!(
+            validate_provisioning_response(
+                &ProvisioningResponseJson {
+                    version: 1,
+                    device_id: "LAB-CLIENT01.lab.local".into(),
+                    enrollment_token: "opaquetoken123".into(),
+                },
+                "LAB-CLIENT01.lab.local",
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_provisioning_response(
+                &ProvisioningResponseJson {
+                    version: 2,
+                    device_id: "LAB-CLIENT01.lab.local".into(),
+                    enrollment_token: "opaquetoken123".into(),
+                },
+                "LAB-CLIENT01.lab.local",
+            )
+            .is_err()
+        );
+        assert!(
+            validate_provisioning_response(
+                &ProvisioningResponseJson {
+                    version: 1,
+                    device_id: "OTHER.lab.local".into(),
+                    enrollment_token: "opaquetoken123".into(),
+                },
+                "LAB-CLIENT01.lab.local",
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -292,6 +329,7 @@ mod provisioning_tests {
                 missing,
                 missing,
                 missing,
+                None,
             )
             .is_err()
         );

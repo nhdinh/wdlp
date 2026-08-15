@@ -7,11 +7,7 @@
 use axum::{Json, Router, extract::Extension, http::StatusCode, routing::get};
 use serde::Serialize;
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
-use std::{
-    fmt, fs,
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::{fmt, fs, net::SocketAddr, sync::Arc};
 
 pub mod ad;
 pub mod enrollment;
@@ -129,24 +125,25 @@ impl ProductionProviders {
         // readiness/liveness (e.g. the 01-13 Tracer). When AD configuration is
         // absent, the server starts without it; full provisioning paths still
         // fail at runtime if the provider is None.
-        let directory: Option<Arc<dyn DirectoryVerifier>> = if std::env::var("DLP_AD_PRIMARY_LDAPS_URL")
-            .ok()
-            .filter(|value| !value.is_empty())
-            .is_some()
-        {
-            Some(Arc::new(RuntimeDirectory(
-                ad::LdapDirectoryVerifier::new(
-                    required_environment("DLP_AD_PRIMARY_LDAPS_URL")?,
-                    required_environment("DLP_AD_SECONDARY_LDAPS_URL")?,
-                    required_environment("DLP_AD_BASE_DN")?,
-                )
-                .map_err(|_| ServerError::MissingProvider {
-                    provider: "directory_verifier",
-                })?,
-            )))
-        } else {
-            None
-        };
+        let directory: Option<Arc<dyn DirectoryVerifier>> =
+            if std::env::var("DLP_AD_PRIMARY_LDAPS_URL")
+                .ok()
+                .filter(|value| !value.is_empty())
+                .is_some()
+            {
+                Some(Arc::new(RuntimeDirectory(
+                    ad::LdapDirectoryVerifier::new(
+                        required_environment("DLP_AD_PRIMARY_LDAPS_URL")?,
+                        required_environment("DLP_AD_SECONDARY_LDAPS_URL")?,
+                        required_environment("DLP_AD_BASE_DN")?,
+                    )
+                    .map_err(|_| ServerError::MissingProvider {
+                        provider: "directory_verifier",
+                    })?,
+                )))
+            } else {
+                None
+            };
         let pool = PgPoolOptions::new()
             .connect_lazy(&config.database_url)
             .map_err(|_| ServerError::DatabaseUnavailable)?;
@@ -159,8 +156,9 @@ impl ProductionProviders {
         .map_err(|_| ServerError::MissingProvider {
             provider: "certificate_issuer",
         })?;
-        let seed = decode_signing_seed(&required_environment("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX")?,
-        )?;
+        let seed = decode_signing_seed(&required_environment(
+            "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX",
+        )?)?;
         // Validate TLS paths before a migration can mutate the authority ledger.
         tls::TlsPaths::from_environment().map_err(|_| ServerError::MissingProvider {
             provider: "tls_paths",
@@ -191,9 +189,10 @@ impl ProductionProviders {
 }
 
 fn required_environment(name: &'static str) -> Result<String, ServerError> {
-    std::env::var(name).ok().filter(|value| !value.is_empty()).ok_or(
-        ServerError::MissingProvider { provider: name },
-    )
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .ok_or(ServerError::MissingProvider { provider: name })
 }
 
 fn decode_signing_seed(value: &str) -> Result<[u8; 32], ServerError> {
@@ -204,8 +203,11 @@ fn decode_signing_seed(value: &str) -> Result<[u8; 32], ServerError> {
     }
     let mut seed = [0_u8; 32];
     for (index, output) in seed.iter_mut().enumerate() {
-        *output = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
-            .map_err(|_| ServerError::MissingProvider { provider: "configuration_signer" })?;
+        *output = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).map_err(|_| {
+            ServerError::MissingProvider {
+                provider: "configuration_signer",
+            }
+        })?;
     }
     Ok(seed)
 }
@@ -363,10 +365,7 @@ pub fn build_app(state: ServerState) -> Router {
 }
 
 pub async fn health_live() -> (StatusCode, Json<HealthResponse>) {
-    (
-        StatusCode::OK,
-        Json(HealthResponse { status: "ok" }),
-    )
+    (StatusCode::OK, Json(HealthResponse { status: "ok" }))
 }
 
 pub async fn health_ready(
@@ -378,10 +377,7 @@ pub async fn health_ready(
     } else {
         "not_ready"
     };
-    (
-        report.status,
-        Json(HealthResponse { status }),
-    )
+    (report.status, Json(HealthResponse { status }))
 }
 
 /// Confirms that a bound server exposes the final versioned tracer namespace.
@@ -488,9 +484,7 @@ mod tests {
         }
         struct Repository;
         impl ServerRepository for Repository {
-            fn route_repository(
-                &self,
-            ) -> Arc<dyn crate::repository::RouteRepositoryPort> {
+            fn route_repository(&self) -> Arc<dyn crate::repository::RouteRepositoryPort> {
                 Arc::new(crate::repository::RouteRepository::default())
             }
         }
@@ -500,7 +494,8 @@ mod tests {
             async fn enroll(
                 &self,
                 _submission: crate::enrollment::EnrollmentSubmission,
-            ) -> Result<crate::pki::IssuedDeviceCredential, crate::enrollment::EnrollmentError> {
+            ) -> Result<crate::pki::IssuedDeviceCredential, crate::enrollment::EnrollmentError>
+            {
                 Ok(crate::pki::IssuedDeviceCredential {
                     certificate_chain_pem: String::new(),
                     serial: vec![],
@@ -514,7 +509,8 @@ mod tests {
             async fn provision(
                 &self,
                 request: dlp_protocol::ProvisionDeviceRequestV1,
-            ) -> Result<dlp_protocol::ProvisionDeviceResponseV1, crate::enrollment::EnrollmentError> {
+            ) -> Result<dlp_protocol::ProvisionDeviceResponseV1, crate::enrollment::EnrollmentError>
+            {
                 dlp_protocol::ProvisionDeviceResponseV1::new(1, request.device_id(), "token")
                     .map_err(|_| crate::enrollment::EnrollmentError::IntegrityFailure)
             }

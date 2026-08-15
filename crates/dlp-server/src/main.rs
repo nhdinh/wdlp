@@ -5,6 +5,11 @@ use dlp_server::{
 
 #[tokio::main]
 async fn main() -> Result<(), dlp_server::ServerError> {
+    // Select the ring crypto provider explicitly. Several dependencies enable
+    // rustls with default features (aws-lc-rs), so Cargo unifies both provider
+    // features and rustls refuses to auto-select. Installing ring here keeps the
+    // server pure-Rust on Windows and matches the project's crypto provider choice.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     if arguments
         .first()

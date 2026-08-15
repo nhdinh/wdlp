@@ -12,14 +12,18 @@ use crate::{
 use axum::{
     Json, Router,
     extract::{ConnectInfo, DefaultBodyLimit, Extension, State},
-    http::{Request, StatusCode},
+    http::{Request, StatusCode, header::CONTENT_TYPE},
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
+use dlp_agent_core::serialize_signed_configuration;
 use dlp_crypto::ConfigurationSigner;
 use dlp_domain::{BundleVersion, DeviceId};
-use dlp_protocol::{ConfigurationEnvelopeV1, ProvisionDeviceRequestV1, ProvisionDeviceResponseV1, SignedConfigurationV1};
+use dlp_protocol::{
+    ConfigurationEnvelopeV1, ProvisionDeviceRequestV1, ProvisionDeviceResponseV1,
+    SignedConfigurationV1,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -160,7 +164,10 @@ impl From<RouteRepositoryError> for RouteError {
 /// handler and does not accept any HTTP-provided certificate header.
 pub fn api_v1_router(state: RouteState) -> Router {
     let admin_routes = Router::new()
-        .route("/api/v1/admin/provisioning", post(admin_provisioning_contract))
+        .route(
+            "/api/v1/admin/provisioning",
+            post(admin_provisioning_contract),
+        )
         .route_layer(middleware::from_fn(require_administrator));
     let device_routes = Router::new()
         .route("/api/v1/device/configuration", get(fetch_configuration))
@@ -200,7 +207,10 @@ async fn require_active_device(
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let peer = connection.identity().cloned().ok_or(StatusCode::UNAUTHORIZED)?;
+    let peer = connection
+        .identity()
+        .cloned()
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let credential_status = state
         .repository
         .credential_status(peer.subject(), peer.serial())
@@ -221,7 +231,7 @@ async fn require_active_device(
 async fn bootstrap_enrollment_contract(
     State(state): State<RouteState>,
     Json(request): Json<BootstrapEnrollmentRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<Json<BootstrapEnrollmentResponse>, StatusCode> {
     if request.version != 1
         || request.device_id.is_empty()
         || request.device_id.len() > 128
@@ -232,31 +242,23 @@ async fn bootstrap_enrollment_contract(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let observation = ProvisionDeviceRequestV1::new(
-        1,
-        request.device_id,
-        1,
-        [0; 32],
-        vec![0; 16],
-        vec![0; 16],
-        "device.lab.local",
-        "LAB",
-        'P',
-    )
-    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let prior_serial = decode_prior_serial(request.prior_serial.as_deref())?;
     let submission = EnrollmentSubmission::new(
-        observation,
+        request.device_id,
         request.token,
         request.csr_pem,
-        None,
+        prior_serial,
     )
     .map_err(|_| StatusCode::BAD_REQUEST)?;
-    state
+    let issued = state
         .enrollment_service
         .enroll(submission)
         .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Ok(StatusCode::OK)
+    Ok(Json(BootstrapEnrollmentResponse {
+        version: 1,
+        credential_chain: issued.certificate_chain_pem,
+    }))
 }
 
 async fn admin_provisioning_contract(
@@ -279,7 +281,10 @@ async fn admin_provisioning_contract(
         1,
         request.device_id,
         1,
-        request.fingerprint_digest.try_into().map_err(|_| StatusCode::BAD_REQUEST)?,
+        request
+            .fingerprint_digest
+            .try_into()
+            .map_err(|_| StatusCode::BAD_REQUEST)?,
         guid.to_vec(),
         request.ad_object_sid,
         "device.lab.local",
@@ -302,12 +307,16 @@ async fn admin_provisioning_contract(
 async fn fetch_configuration(
     State(state): State<RouteState>,
     Extension(device): Extension<AuthenticatedDevice>,
-) -> Result<Json<ConfigurationResponse>, StatusCode> {
+) -> Result<Response, StatusCode> {
     let configuration = state
         .signed_configuration_for(&device)
         .await
         .map_err(route_error_status)?;
-    Ok(Json(ConfigurationResponse::from(configuration)))
+    Ok((
+        [(CONTENT_TYPE, "application/vnd.dlp.signed-configuration.v1")],
+        serialize_signed_configuration(&configuration),
+    )
+        .into_response())
 }
 
 async fn post_health(
@@ -333,33 +342,6 @@ fn route_error_status(error: RouteError) -> StatusCode {
 }
 
 #[derive(Serialize)]
-struct ConfigurationResponse {
-    version: u16,
-    schema_version: u16,
-    bundle_version: String,
-    key_id: String,
-    canonical_bytes: Vec<u8>,
-    signature: Vec<u8>,
-    content_digest: Vec<u8>,
-    audience: String,
-}
-
-impl From<SignedConfigurationV1> for ConfigurationResponse {
-    fn from(value: SignedConfigurationV1) -> Self {
-        Self {
-            version: value.version(),
-            schema_version: value.envelope().schema_version(),
-            bundle_version: value.envelope().bundle_version().to_wire().to_owned(),
-            key_id: value.key_id().to_owned(),
-            canonical_bytes: value.envelope().canonical_bytes(),
-            signature: value.signature().to_vec(),
-            content_digest: value.content_digest().to_vec(),
-            audience: value.audience().to_wire().to_owned(),
-        }
-    }
-}
-
-#[derive(Serialize)]
 struct ProvisioningResponse {
     version: u16,
     device_id: String,
@@ -378,6 +360,32 @@ struct BootstrapEnrollmentRequest {
     device_id: String,
     token: String,
     csr_pem: String,
+    #[serde(default)]
+    prior_serial: Option<String>,
+}
+
+/// Public enrollment material only. The endpoint never returns a private key.
+#[derive(Serialize)]
+struct BootstrapEnrollmentResponse {
+    version: u16,
+    credential_chain: String,
+}
+
+/// Decodes the replacement credential serial without accepting an ambiguous or
+/// silently truncated representation from the untrusted bootstrap request.
+fn decode_prior_serial(value: Option<&str>) -> Result<Option<Vec<u8>>, StatusCode> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.len() < 2 || value.len() > 40 || value.len() % 2 != 0 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut serial = Vec::with_capacity(value.len() / 2);
+    for pair in value.as_bytes().chunks_exact(2) {
+        let pair = std::str::from_utf8(pair).map_err(|_| StatusCode::BAD_REQUEST)?;
+        serial.push(u8::from_str_radix(pair, 16).map_err(|_| StatusCode::BAD_REQUEST)?);
+    }
+    Ok(Some(serial))
 }
 
 #[derive(Deserialize)]
@@ -508,9 +516,11 @@ mod route_tests {
                 "preferred_drive_letter": "P",
             }),
         );
-        request.extensions_mut().insert(ConnectInfo(
-            TlsConnectionInfo::from_verified_peer(PeerIdentity::admin_for_test("admin-test")),
-        ));
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(TlsConnectionInfo::from_verified_peer(
+                PeerIdentity::admin_for_test("admin-test"),
+            )));
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -531,9 +541,11 @@ mod route_tests {
                 "preferred_drive_letter": "P",
             }),
         );
-        request.extensions_mut().insert(ConnectInfo(
-            TlsConnectionInfo::from_verified_peer(PeerIdentity::admin_for_test("admin-test")),
-        ));
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(TlsConnectionInfo::from_verified_peer(
+                PeerIdentity::admin_for_test("admin-test"),
+            )));
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -550,12 +562,11 @@ mod route_tests {
             .uri("/api/v1/device/configuration")
             .body(Body::empty())
             .unwrap();
-        request.extensions_mut().insert(ConnectInfo(
-            TlsConnectionInfo::from_verified_peer(PeerIdentity::device_for_test(
-                "device-test",
-                vec![1, 2, 3],
-            )),
-        ));
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(TlsConnectionInfo::from_verified_peer(
+                PeerIdentity::device_for_test("device-test", vec![1, 2, 3]),
+            )));
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }

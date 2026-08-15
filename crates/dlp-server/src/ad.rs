@@ -85,12 +85,7 @@ impl LdapDirectoryVerifier {
             return Err(DirectoryError::NotFound);
         }
         let primary = lookup(&self.primary_ldaps_url, &self.base_dn, computer_dns_name).await;
-        let secondary = lookup(
-            &self.secondary_ldaps_url,
-            &self.base_dn,
-            computer_dns_name,
-        )
-        .await;
+        let secondary = lookup(&self.secondary_ldaps_url, &self.base_dn, computer_dns_name).await;
         self.corroborate(primary, secondary)
     }
 
