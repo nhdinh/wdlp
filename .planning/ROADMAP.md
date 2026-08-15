@@ -183,7 +183,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. First Encrypted-Drive Vertical Slice | 9/11 | In Progress|  |
-| 1.1. Add env-var docs | 1/1 | Complete | 2026-08-13 |
+| 1.1. Add env-var docs | 1/1 | Complete | 2026-08-15 |
 | 1.2. Automatic enrollment token acquisition | 1/1 | Complete | 2026-08-13 |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
