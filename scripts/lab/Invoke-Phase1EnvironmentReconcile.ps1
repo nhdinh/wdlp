@@ -1,9 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][string]$ServerVm,
-    [Parameter(Mandatory)][string]$SecondaryDcVm,
-    [Parameter(Mandatory)][string]$EndpointVm,
+    [Parameter(Mandatory)][ValidateSet('LAB-DC01')][string]$ServerVm,
+    [Parameter(Mandatory)][ValidateSet('LAB-DC02')][string]$SecondaryDcVm,
+    [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$EndpointVm,
     [Parameter()][switch]$Apply
 )
 
