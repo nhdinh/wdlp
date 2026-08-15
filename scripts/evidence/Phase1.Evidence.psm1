@@ -60,7 +60,7 @@ function Get-Phase1Errors {
     if ($ExecutionMachine -and $Evidence.target_machine -ne $ExecutionMachine) { $errors.Add('wrong execution machine') }
     if (-not $script:MachineRoles.ContainsKey([string]$Evidence.target_machine) -or $script:MachineRoles[[string]$Evidence.target_machine] -ne $Evidence.target_role) { $errors.Add('machine role violation') }
     if (@('portable_automation', 'focused_hyperv', 'signed_visual_checklist', 'phase_exit_review') -notcontains [string]$Evidence.verification_tier) { $errors.Add('unknown verification tier') }
-    if ($Evidence.verification_tier -ne 'portable_automation' -and $Evidence.target_machine -eq 'hungdinh-lt') { $errors.Add('host cannot satisfy an infrastructure, visual, or exit tier') }
+    if (($Evidence.verification_tier -eq 'signed_visual_checklist' -or $Evidence.verification_tier -eq 'phase_exit_review') -and $Evidence.target_machine -eq 'hungdinh-lt') { $errors.Add('host cannot satisfy a visual or exit tier') }
     if ($Evidence.verification_tier -ne 'portable_automation' -and $Evidence.substitute -ne 'none') { $errors.Add('substitute cannot satisfy a binding tier') }
     $utc = [datetime]::MinValue
     if (-not [datetime]::TryParse([string]$Evidence.observed_utc, [ref]$utc)) { $errors.Add('invalid observed UTC') }

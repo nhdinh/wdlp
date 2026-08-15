@@ -48,7 +48,7 @@
                                             "server-route"
                                         ],
                              "substitute_policy":  "no mocks or fakes",
-                             "current_evidence_id":  "11111111-1111-1111-1111-111111111111",
+                             "current_evidence_id":  "34e62a17-ce7b-4523-b662-5bd86b0fd5c5",
                              "status":  "pass"
                          },
                          {
@@ -58,7 +58,7 @@
                                             "device-enrollment"
                                         ],
                              "substitute_policy":  "no mocks or fakes",
-                             "current_evidence_id":  "22222222-2222-2222-2222-222222222222",
+                             "current_evidence_id":  "ed99db33-2f8e-4445-aab2-e87f99c1b8e3",
                              "status":  "pass"
                          },
                          {
@@ -78,7 +78,7 @@
                                             "server-readiness"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "33333333-3333-3333-3333-333333333333",
+                             "current_evidence_id":  "25eafcd6-743f-42e3-ada8-b6c63b7247c0",
                              "status":  "pass"
                          },
                          {
@@ -288,7 +288,7 @@
                                             "enrollment integration"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "44444444-4444-4444-4444-444444444444",
+                             "current_evidence_id":  "228d4e64-e6e0-449d-b4a3-c88783c2a246",
                              "status":  "pass"
                          },
                          {
