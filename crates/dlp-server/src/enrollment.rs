@@ -2,6 +2,7 @@
 //! one-time token consumption, and constrained credential issuance form one authority flow.
 
 use crate::{
+    ad::{DirectoryError, DirectoryVerifier},
     pki::{IssuedDeviceCredential, RcgenDeviceCertificateIssuer},
     repository::{PgAuthorityRepository, RepositoryError, TestAuthorityRepository},
 };
@@ -147,11 +148,20 @@ pub trait EnrollmentServicePort: Send + Sync {
 pub struct EnrollmentService {
     repository: PgAuthorityRepository,
     issuer: RcgenDeviceCertificateIssuer,
+    directory: Arc<dyn DirectoryVerifier>,
 }
 
 impl EnrollmentService {
-    pub fn new(repository: PgAuthorityRepository, issuer: RcgenDeviceCertificateIssuer) -> Self {
-        Self { repository, issuer }
+    pub fn new(
+        repository: PgAuthorityRepository,
+        issuer: RcgenDeviceCertificateIssuer,
+        directory: Arc<dyn DirectoryVerifier>,
+    ) -> Self {
+        Self {
+            repository,
+            issuer,
+            directory,
+        }
     }
 }
 
@@ -161,6 +171,14 @@ impl EnrollmentServicePort for EnrollmentService {
         &self,
         submission: EnrollmentSubmission,
     ) -> Result<IssuedDeviceCredential, EnrollmentError> {
+        self.directory
+            .corroborate_computer(&submission.device_id)
+            .await
+            .map_err(|error| match error {
+                DirectoryError::InvalidConfiguration => EnrollmentError::IntegrityFailure,
+                DirectoryError::Unavailable => EnrollmentError::IntegrityFailure,
+                DirectoryError::NotFound | DirectoryError::Disabled | DirectoryError::Disagreement => EnrollmentError::Denied,
+            })?;
         let issuer = &self.issuer;
         self.repository
             .consume_and_activate(

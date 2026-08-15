@@ -17,6 +17,8 @@ pub mod repository;
 pub mod routes;
 pub mod tls;
 
+pub use crate::ad::{DirectoryError, DirectoryVerifier, LdapDirectoryAdapter, LdapDirectoryVerifier, VerifiedComputerIdentity};
+
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,6 +56,9 @@ pub fn check_environment_file(path: impl AsRef<std::path::Path>) -> Result<(), S
         "DLP_AD_PRIMARY_LDAPS_URL",
         "DLP_AD_SECONDARY_LDAPS_URL",
         "DLP_AD_BASE_DN",
+        "DLP_AD_BIND_DN",
+        "DLP_AD_BIND_PASSWORD",
+        "DLP_AD_DOMAIN",
         "DLP_AD_CA_CERT_PEM",
         "DLP_SERVER_CERT_PEM",
         "DLP_SERVER_KEY_PEM",
@@ -121,29 +126,11 @@ impl ProductionProviders {
     /// directory endpoint, PostgreSQL URL, issuer, signer, clock, or TLS path
     /// fails before migrations or listener binding.
     pub fn from_environment(config: &ServerConfig) -> Result<Self, ServerError> {
-        // Directory verification is optional for scenarios that only exercise
-        // readiness/liveness (e.g. the 01-13 Tracer). When AD configuration is
-        // absent, the server starts without it; full provisioning paths still
-        // fail at runtime if the provider is None.
-        let directory: Option<Arc<dyn DirectoryVerifier>> =
-            if std::env::var("DLP_AD_PRIMARY_LDAPS_URL")
-                .ok()
-                .filter(|value| !value.is_empty())
-                .is_some()
-            {
-                Some(Arc::new(RuntimeDirectory(
-                    ad::LdapDirectoryVerifier::new(
-                        required_environment("DLP_AD_PRIMARY_LDAPS_URL")?,
-                        required_environment("DLP_AD_SECONDARY_LDAPS_URL")?,
-                        required_environment("DLP_AD_BASE_DN")?,
-                    )
-                    .map_err(|_| ServerError::MissingProvider {
-                        provider: "directory_verifier",
-                    })?,
-                )))
-            } else {
-                None
-            };
+        let directory: Arc<dyn DirectoryVerifier> = Arc::new(
+            ad::LdapDirectoryAdapter::from_environment().map_err(|_| ServerError::MissingProvider {
+                provider: "directory_verifier",
+            })?,
+        );
         let pool = PgPoolOptions::new()
             .connect_lazy(&config.database_url)
             .map_err(|_| ServerError::DatabaseUnavailable)?;
@@ -168,12 +155,13 @@ impl ProductionProviders {
         let enrollment_service = Arc::new(enrollment::EnrollmentService::new(
             authority_repository.clone(),
             issuer.clone(),
+            Arc::clone(&directory),
         ));
         let provisioning_service = Arc::new(enrollment::AdminProvisioningService::new(
             authority_repository,
         ));
         Ok(Self {
-            directory_verifier: directory,
+            directory_verifier: Some(directory),
             certificate_issuer: Some(Arc::new(RuntimeIssuer(issuer))),
             configuration_signer: Some(Arc::new(RuntimeSigner(Arc::new(
                 dlp_crypto::ConfigurationSigner::from_seed("phase1-runtime", seed),
@@ -213,9 +201,6 @@ fn decode_signing_seed(value: &str) -> Result<[u8; 32], ServerError> {
 }
 
 #[allow(dead_code)]
-struct RuntimeDirectory(ad::LdapDirectoryVerifier);
-impl DirectoryVerifier for RuntimeDirectory {}
-#[allow(dead_code)]
 struct RuntimeIssuer(pki::RcgenDeviceCertificateIssuer);
 impl DeviceCertificateIssuer for RuntimeIssuer {}
 struct RuntimeSigner(Arc<dlp_crypto::ConfigurationSigner>);
@@ -235,7 +220,6 @@ impl ServerRepository for RuntimeRepository {
 struct RuntimeClock;
 impl Clock for RuntimeClock {}
 
-pub trait DirectoryVerifier: Send + Sync {}
 pub trait DeviceCertificateIssuer: Send + Sync {}
 pub trait ConfigurationSigner: Send + Sync {
     fn route_signer(&self) -> Arc<dlp_crypto::ConfigurationSigner>;
@@ -315,8 +299,11 @@ impl ServerState {
 }
 
 fn validate_providers(providers: &ProductionProviders) -> Result<(), ServerError> {
-    // Directory verification is optional for health-only / Tracer scenarios.
-    // Provisioning routes that require it fail at runtime when it is None.
+    if providers.directory_verifier.is_none() {
+        return Err(ServerError::MissingProvider {
+            provider: "directory_verifier",
+        });
+    }
     if providers.certificate_issuer.is_none() {
         return Err(ServerError::MissingProvider {
             provider: "certificate_issuer",
@@ -473,7 +460,21 @@ mod tests {
         assert!(ServerState::production(config, Default::default()).is_err());
 
         struct Directory;
-        impl DirectoryVerifier for Directory {}
+        #[async_trait::async_trait]
+        impl DirectoryVerifier for Directory {
+            async fn corroborate_computer(
+                &self,
+                _computer_dns_name: &str,
+            ) -> Result<crate::VerifiedComputerIdentity, crate::DirectoryError> {
+                Ok(crate::VerifiedComputerIdentity {
+                    object_guid: vec![1; 16],
+                    object_sid: vec![2; 16],
+                    dns_name: "device.lab.local".into(),
+                    domain: "LAB".into(),
+                    enabled: true,
+                })
+            }
+        }
         struct CertificateIssuer;
         impl DeviceCertificateIssuer for CertificateIssuer {}
         struct Signer;
