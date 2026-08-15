@@ -53,7 +53,7 @@ def main():
         # constrained above and passed as psql variables rather than spliced
         # into either the remote shell command or SQL text.
         command = (
-            "sudo -S -u postgres psql -X -v ON_ERROR_STOP=1 "
+            "sudo -S -p '' -u postgres psql -X -v ON_ERROR_STOP=1 "
             f"-v db_name={db_name} -v db_owner={db_owner} -f -"
         )
         stdin, stdout, stderr = client.exec_command(command, get_pty=False)
