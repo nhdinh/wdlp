@@ -37,3 +37,7 @@ path = "../../tests/e2e/server_enrollment.rs"
 [[test]]
 name = "compose"
 path = "../../tests/e2e/compose.rs"
+
+[[test]]
+name = "phase1_vertical_slice"
+path = "../../tests/e2e/phase1_vertical_slice.rs"
