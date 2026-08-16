@@ -24,6 +24,9 @@ fn production_vertical_slice_has_a_fail_closed_matrix_runner() {
         "LAB-SERVER01",
         "VerticalSlice",
         "Runtime",
+        "dlp-drive-host.exe",
+        "C:\\\\Program Files\\\\DLP\\\\dlp-drive-host.exe",
+        "Get-FileHash",
     ] {
         assert!(
             runner.contains(required_contract),
