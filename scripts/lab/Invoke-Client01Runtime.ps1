@@ -1001,25 +1001,58 @@ function Invoke-Client01TrustedProvisioning {
 }
 
 function Install-Client01ServiceBinary {
-    $localBinary = Join-Path $RepoRoot 'target/release/dlp-windows-service.exe'
+    $localServiceBinary = Join-Path $RepoRoot 'target/release/dlp-windows-service.exe'
+    $localDriveHostBinary = Join-Path $RepoRoot 'target/release/dlp-drive-host.exe'
     # Always rebuild so a Tracer rerun deploys the current source instead of a
     # stale release binary left by an earlier lab attempt.
     Write-Host 'Building dlp-windows-service release binary on hungdinh-lt...'
     $proc = Start-Process -FilePath 'cargo' -ArgumentList @('build', '--release', '-p', 'dlp-windows-service') -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
     if ($proc.ExitCode -ne 0) { Stop-Client01 'cargo_build_failed' }
-    Assert-Client01 (Test-Path -LiteralPath $localBinary) 'release_binary_missing'
+    Write-Host 'Building dlp-drive-host release binary on hungdinh-lt...'
+    $hostProc = Start-Process -FilePath 'cargo' -ArgumentList @('build', '--release', '-p', 'dlp-windows-drive', '--bin', 'dlp-drive-host') -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
+    if ($hostProc.ExitCode -ne 0) { Stop-Client01 'drive_host_build_failed' }
+    Assert-Client01 (Test-Path -LiteralPath $localServiceBinary) 'service_release_binary_missing'
+    Assert-Client01 (Test-Path -LiteralPath $localDriveHostBinary) 'drive_host_release_binary_missing'
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         New-Item -ItemType Directory -Path 'C:\dlp\agent' -Force | Out-Null
         New-Item -ItemType Directory -Path 'C:\dlp\agent\data' -Force | Out-Null
         New-Item -ItemType Directory -Path 'C:\dlp\agent\cache' -Force | Out-Null
+        New-Item -ItemType Directory -Path 'C:\Program Files\DLP' -Force | Out-Null
     }
 
     # Stop any running service before replacing the binary.
     Stop-Client01Service
 
-    $remoteBinary = 'C:\dlp\agent\dlp-windows-service.exe'
-    Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $localBinary -DestinationPath $remoteBinary
+    $remoteServiceBinary = 'C:\dlp\agent\dlp-windows-service.exe'
+    # This is the service's existing default host path; keeping the host beside
+    # the approved product installation avoids a second deployment mechanism.
+    $remoteDriveHostBinary = 'C:\Program Files\DLP\dlp-drive-host.exe'
+    Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $localServiceBinary -DestinationPath $remoteServiceBinary
+    Copy-VMFileOrStream -VMName $ExecutionMachine -SourcePath $localDriveHostBinary -DestinationPath $remoteDriveHostBinary
+
+    $expectedServiceHash = Get-Phase1Sha256 $localServiceBinary
+    $expectedDriveHostHash = Get-Phase1Sha256 $localDriveHostBinary
+    $remoteHashes = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+        param($ServicePath, $HostPath)
+        $ErrorActionPreference = 'Stop'
+        function Get-RemoteSha256([string]$Path) {
+            $sha256 = [System.Security.Cryptography.SHA256]::Create()
+            try {
+                return ([System.BitConverter]::ToString($sha256.ComputeHash([System.IO.File]::ReadAllBytes($Path)))).Replace('-', '')
+            } finally {
+                $sha256.Dispose()
+            }
+        }
+        if (-not (Test-Path -LiteralPath $ServicePath)) { throw 'service_binary_missing_after_deploy' }
+        if (-not (Test-Path -LiteralPath $HostPath)) { throw 'drive_host_binary_missing_after_deploy' }
+        [pscustomobject]@{
+            service_hash = Get-RemoteSha256 $ServicePath
+            drive_host_hash = Get-RemoteSha256 $HostPath
+        }
+    } -ArgumentList @($remoteServiceBinary, $remoteDriveHostBinary)
+    Assert-Client01 ($remoteHashes.service_hash -eq $expectedServiceHash) 'service_binary_hash_mismatch'
+    Assert-Client01 ($remoteHashes.drive_host_hash -eq $expectedDriveHostHash) 'drive_host_binary_hash_mismatch'
 }
 
 function Stop-Client01Service {
