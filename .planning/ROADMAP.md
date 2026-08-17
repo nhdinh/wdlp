@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 9/11 plans executed source-complete
+**Plans**: 9/12 plans executed source-complete
 
 Plans:
 **Wave 1**
@@ -70,11 +70,15 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
-- [ ] 01-16-PLAN.md (Wave 10) — Execute the four-machine production vertical slice and complete the D-16 through D-18 Office, operation, and size matrix
+- [ ] 01-24-PLAN.md (Wave 10) — Close the 01-16 blocker with real same-session host launch, authenticated key/bootstrap IPC, retained WinFsp lifetime, safe letter selection, cleanup, restart, and LAB-CLIENT01 proof
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
-- [ ] 01-21-PLAN.md (Wave 11) — Execute D-19 failure recovery, seal requirement-indexed evidence, and require independent Phase 1 review
+- [ ] 01-16-PLAN.md (Wave 11) — Execute the four-machine production vertical slice and complete the D-16 through D-18 Office, operation, and size matrix
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 01-21-PLAN.md (Wave 12) — Execute D-19 failure recovery, seal requirement-indexed evidence, and require independent Phase 1 review
 
 ### Phase 01.3: Make a background app that run in devices to collect log and provide the result through a HTTP port for easier debugging (INSERTED)
 

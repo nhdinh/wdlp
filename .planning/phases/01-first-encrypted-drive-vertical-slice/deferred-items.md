@@ -14,3 +14,6 @@
 - **Required follow-up:** Plan and implement the missing session actor launch,
   authenticated IPC/key handoff, and real user-session mount lifecycle before
   reattempting the Phase 01 production matrix.
+- **Resolution plan:** `01-24-PLAN.md` now owns the implementation and real
+  LAB-CLIENT01 proof. `01-16-PLAN.md` depends on 01-24 and resumes only after
+  the corrective plan publishes passing runtime evidence.
