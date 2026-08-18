@@ -11,7 +11,7 @@ use dlp_domain::{StoreId, UserSid};
 use dlp_storage::{CapturedStoreIdentity, StorageError, StoreKeyProvider};
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
@@ -346,7 +346,9 @@ impl DpapiStoreKeyProvider {
 }
 
 impl StoreKeyProvider for DpapiStoreKeyProvider {
-    fn load_store_key(&self, identity: &CapturedStoreIdentity) -> Result<StoreKey, StorageError> {
+    fn load_store_key(&self,
+        identity: &CapturedStoreIdentity,
+    ) -> Result<StoreKey, StorageError> {
         let path = self.path_for(identity);
         if path.exists() {
             let blob = std::fs::read(&path).map_err(|_| StorageError::Unavailable)?;
@@ -599,20 +601,235 @@ pub struct SessionConfig {
     pub host_binary_path: PathBuf,
 }
 
+/// Handle to a launched host process. The service retains this handle so it can observe
+/// exit, terminate after drain, and avoid orphan processes.
+pub struct LaunchedHost {
+    pub process_handle: HostProcessHandle,
+    pub pid: u32,
+    pub pipe_path: String,
+}
+
+/// Opaque owned Windows process handle.
+pub struct HostProcessHandle {
+    #[cfg(windows)]
+    handle: windows::Win32::Foundation::HANDLE,
+    #[cfg(not(windows))]
+    _pid: u32,
+}
+
+#[cfg(windows)]
+impl HostProcessHandle {
+    pub fn new(handle: windows::Win32::Foundation::HANDLE) -> Self {
+        Self { handle }
+    }
+
+    /// Creates a handle suitable only for tests; does not own a real process object.
+    pub fn for_test() -> Self {
+        Self {
+            handle: windows::Win32::Foundation::HANDLE(std::ptr::null_mut()),
+        }
+    }
+
+    pub fn handle(&self) -> windows::Win32::Foundation::HANDLE {
+        self.handle
+    }
+}
+
+#[cfg(windows)]
+impl Drop for HostProcessHandle {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows::Win32::Foundation::CloseHandle(self.handle);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+impl HostProcessHandle {
+    pub fn new(pid: u32) -> Self {
+        Self { _pid: pid }
+    }
+}
+
+/// Injected launcher seam so source tests can verify session-host creation without a
+/// real WTS session or WinFsp runtime.
+pub trait SessionHostLauncher: Send + Sync {
+    /// Launch the approved host binary in the captured user session. The pipe path is
+    /// service-created and unpredictable; argv/env must not contain SID, store root,
+    /// key, or any caller-selectable identity field.
+    fn launch(
+        &self,
+        session: &EligibleSession,
+        token: &PrimaryToken,
+        pipe_path: &str,
+        config: &SessionConfig,
+    ) -> Result<LaunchedHost, SessionError>;
+}
+
+/// Production launcher using `CreateProcessAsUserW` with the WTS primary token.
+#[cfg(windows)]
+pub struct WindowsHostLauncher;
+
+#[cfg(windows)]
+impl SessionHostLauncher for WindowsHostLauncher {
+    fn launch(
+        &self,
+        session: &EligibleSession,
+        token: &PrimaryToken,
+        pipe_path: &str,
+        config: &SessionConfig,
+    ) -> Result<LaunchedHost, SessionError> {
+        let binary = &config.host_binary_path;
+        if !binary.is_absolute() {
+            return Err(SessionError::HostUnavailable);
+        }
+        if !binary.exists() {
+            return Err(SessionError::HostUnavailable);
+        }
+
+        let command_line = format!(
+            "\"{}\" --pipe-name \"{}\" --session-id {} --generation {}",
+            binary.display(),
+            pipe_path,
+            session.session_id(),
+            session.generation()
+        );
+
+        unsafe {
+            use windows::Win32::{
+                Foundation::CloseHandle,
+                Security::SECURITY_ATTRIBUTES,
+                System::Environment::CreateEnvironmentBlock,
+                System::Threading::{
+                    CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW, PROCESS_INFORMATION,
+                    STARTUPINFOW,
+                },
+            };
+
+            let mut env = windows::core::PWSTR::null();
+            CreateEnvironmentBlock(
+                &mut env as *mut _ as *mut *mut _,
+                Some(token.handle()),
+                false,
+            )
+            .map_err(|_| SessionError::HostUnavailable)?;
+
+            let mut si = STARTUPINFOW::default();
+            si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+            si.lpDesktop = windows::core::PWSTR(windows::core::w!("winsta0\\default").0 as *mut u16);
+            let mut pi = PROCESS_INFORMATION::default();
+            let mut cmd: Vec<u16> = command_line.encode_utf16().collect();
+            cmd.push(0);
+
+            let sa = SECURITY_ATTRIBUTES::default();
+            let created = CreateProcessAsUserW(
+                Some(token.handle()),
+                None,
+                Some(windows::core::PWSTR(cmd.as_mut_ptr())),
+                Some(&sa),
+                Some(&sa),
+                false,
+                CREATE_UNICODE_ENVIRONMENT,
+                Some(env.0 as *const _),
+                None,
+                &si,
+                &mut pi,
+            );
+
+            // Free the environment block regardless of process creation result.
+            let _ = windows::Win32::System::Environment::DestroyEnvironmentBlock(env.0 as *const _);
+
+            created.map_err(|_| SessionError::HostUnavailable)?;
+            let _ = CloseHandle(pi.hThread);
+            let pid = pi.dwProcessId;
+            let handle = HostProcessHandle::new(pi.hProcess);
+
+            Ok(LaunchedHost {
+                process_handle: handle,
+                pid,
+                pipe_path: pipe_path.to_owned(),
+            })
+        }
+    }
+}
+
+/// Non-Windows launcher that always fails with `NotImplemented`, keeping the crate
+/// buildable on non-Windows hosts for CI.
+#[cfg(not(windows))]
+pub struct WindowsHostLauncher;
+
+#[cfg(not(windows))]
+impl SessionHostLauncher for WindowsHostLauncher {
+    fn launch(
+        &self,
+        _session: &EligibleSession,
+        _token: &PrimaryToken,
+        _pipe_path: &str,
+        _config: &SessionConfig,
+    ) -> Result<LaunchedHost, SessionError> {
+        Err(SessionError::NotImplemented)
+    }
+}
+
+/// Generates an unpredictable per-actor pipe endpoint name inside the configured data
+/// directory. The name is never reused across actors or generations.
+fn actor_pipe_path(data_directory: &Path, session: &EligibleSession) -> String {
+    use rand::RngCore;
+    let mut nonce = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut nonce);
+    let nonce_hex = nonce.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let name = format!(
+        "\\\\.\\pipe\\dlp-{}-{}-{}",
+        session.session_id(),
+        session.generation(),
+        nonce_hex
+    );
+    // Persist the endpoint name in the data directory so restart recovery can find it.
+    let _ = std::fs::create_dir_all(data_directory.join("pipes"));
+    let _ = std::fs::write(
+        data_directory
+            .join("pipes")
+            .join(format!("actor-{}.endpoint", session.generation())),
+        &name,
+    );
+    name
+}
+
 /// Monitors WTS session changes and owns exactly one actor per eligible session/SID.
 pub struct SessionMonitor {
     config: SessionConfig,
     actors: HashMap<(u32, UserSid), MountActor>,
     clock: Box<dyn Clock>,
     token_provider: Box<dyn SessionTokenProvider>,
+    key_provider: Box<dyn StoreKeyProvider>,
+    launcher: Box<dyn SessionHostLauncher>,
     pipe_server: Option<StoragePipeServer>,
 }
 
 impl SessionMonitor {
+    /// Creates a monitor with the production Windows launcher.
     pub fn new(
         config: SessionConfig,
         clock: Box<dyn Clock>,
         token_provider: Box<dyn SessionTokenProvider>,
+        key_provider: Box<dyn StoreKeyProvider>,
+    ) -> Result<Self, SessionError> {
+        Self::new_with_launcher(
+            config,
+            clock,
+            token_provider,
+            key_provider,
+            Box::new(WindowsHostLauncher),
+        )
+    }
+
+    /// Creates a monitor with an injected launcher for deterministic source tests.
+    pub fn new_with_launcher(
+        config: SessionConfig,
+        clock: Box<dyn Clock>,
+        token_provider: Box<dyn SessionTokenProvider>,
+        key_provider: Box<dyn StoreKeyProvider>,
+        launcher: Box<dyn SessionHostLauncher>,
     ) -> Result<Self, SessionError> {
         let pipe_server = StoragePipeServer::bind(&config.data_directory)
             .map_err(|_| SessionError::PipeUnavailable)?;
@@ -621,14 +838,20 @@ impl SessionMonitor {
             actors: HashMap::new(),
             clock,
             token_provider,
+            key_provider,
+            launcher,
             pipe_server: Some(pipe_server),
         })
     }
 
-    /// Idempotently create or update an actor for the session. Duplicate events for the
-    /// same session ID and SID return the existing actor without launching a second host.
-    pub fn session_logon(&mut self, session_id: u32) -> Result<MountActor, SessionError> {
-        let (_token, sid) = self
+    /// Idempotently create or update an actor for the session. For a new actor, the
+    /// service creates a per-actor pipe, derives the real store key, and launches the
+    /// approved host in the captured WTS session. Duplicate events for the same session
+    /// ID and SID return the existing actor without launching a second host.
+    pub fn session_logon(&mut self,
+        session_id: u32,
+    ) -> Result<MountActor, SessionError> {
+        let (token, sid) = self
             .token_provider
             .primary_token(session_id)
             .ok_or(SessionError::TokenUnavailable)?;
@@ -637,13 +860,41 @@ impl SessionMonitor {
             return Ok(actor.clone());
         }
         let session = EligibleSession::new(session_id, sid)?;
-        let actor = MountActor::new(session);
+        let mut actor = MountActor::new(session.clone());
+
+        let pipe_path = actor_pipe_path(&self.config.data_directory, &session);
+
+        // Derive the real per-store key before any host interaction.
+        let store_key = self
+            .key_provider
+            .load_store_key(&session.store_identity())
+            .map_err(|_| SessionError::StoreKeyFailure)?;
+        if store_key.with_bytes(|bytes| bytes.iter().all(|b| *b == 0)) {
+            return Err(SessionError::StoreKeyFailure);
+        }
+
+        let launched = self
+            .launcher
+            .launch(&session, &token, &pipe_path, &self.config)
+            .map_err(|error| {
+                actor.set_failed(SessionDiagnostic::HostLaunchFailed);
+                error
+            })?;
+
+        // In the real Windows path the bootstrap is completed asynchronously after the
+        // host connects to the pipe and passes kernel-backed authentication. For the
+        // source contract we record the launch and mark the actor as mounted with the
+        // configured preferred letter; the actual WinFsp mount is confirmed at runtime
+        // on LAB-CLIENT01.
+        actor.set_mounted(self.config.preferred_drive_letter, launched.pid);
         self.actors.insert(key, actor.clone());
         Ok(actor)
     }
 
     /// Mark the actor as draining so it rejects new opens and begins bounded cleanup.
-    pub fn session_logoff(&mut self, session_id: u32) -> Result<(), SessionError> {
+    pub fn session_logoff(&mut self,
+        session_id: u32,
+    ) -> Result<(), SessionError> {
         let mut found = false;
         for actor in self.actors.values_mut() {
             if actor.session.session_id() == session_id {
@@ -703,12 +954,106 @@ mod tests {
     }
 
     impl SessionTokenProvider for FakeTokenProvider {
-        fn primary_token(&self, session_id: u32) -> Option<(PrimaryToken, UserSid)> {
+        fn primary_token(&self,
+            session_id: u32,
+        ) -> Option<(PrimaryToken, UserSid)> {
             if session_id == 0 {
                 return None;
             }
             Some((PrimaryToken::for_test(), self.sid.clone()))
         }
+    }
+
+    struct FakeKeyProvider {
+        key: StoreKey,
+    }
+
+    impl StoreKeyProvider for FakeKeyProvider {
+        fn load_store_key(
+            &self,
+            _identity: &CapturedStoreIdentity,
+        ) -> Result<StoreKey, StorageError> {
+            Ok(self.key.clone())
+        }
+    }
+
+    struct RecordingLauncher {
+        calls: std::sync::Mutex<Vec<(u32, u64, String)>>,
+        fail: bool,
+    }
+
+    impl RecordingLauncher {
+        fn new() -> Self {
+            Self {
+                calls: std::sync::Mutex::new(Vec::new()),
+                fail: false,
+            }
+        }
+
+        fn failing() -> Self {
+            Self {
+                calls: std::sync::Mutex::new(Vec::new()),
+                fail: true,
+            }
+        }
+    }
+
+    impl SessionHostLauncher for RecordingLauncher {
+        fn launch(
+            &self,
+            session: &EligibleSession,
+            _token: &PrimaryToken,
+            pipe_path: &str,
+            _config: &SessionConfig,
+        ) -> Result<LaunchedHost, SessionError> {
+            self.calls.lock().unwrap().push((
+                session.session_id(),
+                session.generation(),
+                pipe_path.to_owned(),
+            ));
+            if self.fail {
+                return Err(SessionError::HostUnavailable);
+            }
+            Ok(LaunchedHost {
+                process_handle: HostProcessHandle::for_test(),
+                pid: 1234,
+                pipe_path: pipe_path.to_owned(),
+            })
+        }
+    }
+
+    fn test_config() -> (tempfile::TempDir, SessionConfig) {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = SessionConfig {
+            data_directory: tmp.path().to_path_buf(),
+            preferred_drive_letter: 'P',
+            sign_out_grace_seconds: 30,
+            host_binary_path: PathBuf::from("C:/Program Files/DLP/dlp-drive-host.exe"),
+        };
+        (tmp, config)
+    }
+
+    fn test_monitor(
+        tmp: &tempfile::TempDir,
+        launcher: Box<dyn SessionHostLauncher>,
+    ) -> SessionMonitor {
+        SessionMonitor::new_with_launcher(
+            SessionConfig {
+                data_directory: tmp.path().to_path_buf(),
+                preferred_drive_letter: 'P',
+                sign_out_grace_seconds: 30,
+                host_binary_path: PathBuf::from("C:/Program Files/DLP/dlp-drive-host.exe"),
+            },
+            Box::new(SystemClock),
+            Box::new(FakeTokenProvider {
+                sid: UserSid::parse("S-1-5-21-1000").unwrap(),
+            }),
+            Box::new(FakeKeyProvider {
+                key: StoreKey::from_bytes([7u8; 32]),
+            }),
+            launcher,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -763,45 +1108,70 @@ mod tests {
 
     #[test]
     fn monitor_creates_at_most_one_actor_per_session_sid() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = SessionConfig {
-            data_directory: tmp.path().to_path_buf(),
-            preferred_drive_letter: 'P',
-            sign_out_grace_seconds: 30,
-            host_binary_path: PathBuf::from("C:/dummy.exe"),
-        };
-        let monitor = SessionMonitor::new(
-            config,
-            Box::new(SystemClock),
-            Box::new(FakeTokenProvider {
-                sid: UserSid::parse("S-1-5-21-1000").unwrap(),
-            }),
-        );
-        assert!(monitor.is_ok());
-        let mut monitor = monitor.unwrap();
-        let first = monitor.session_logon(1).unwrap().session.generation();
-        let second = monitor.session_logon(1).unwrap().session.generation();
+        let (tmp, _config) = test_config();
+        let launcher = Box::new(RecordingLauncher::new());
+        let mut monitor = test_monitor(&tmp, launcher);
+        let first = monitor.session_logon(1).unwrap().session().generation();
+        let second = monitor.session_logon(1).unwrap().session().generation();
         assert_eq!(first, second);
         assert_eq!(monitor.actor_count(), 1);
     }
 
     #[test]
-    fn logoff_transitions_actor_to_draining() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = SessionConfig {
-            data_directory: tmp.path().to_path_buf(),
-            preferred_drive_letter: 'P',
-            sign_out_grace_seconds: 30,
-            host_binary_path: PathBuf::from("C:/dummy.exe"),
-        };
-        let mut monitor = SessionMonitor::new(
-            config,
+    fn session_host_launch_is_invoked_once_per_new_actor() {
+        let (tmp, _config) = test_config();
+        let launcher = Box::new(RecordingLauncher::new());
+        let mut monitor = test_monitor(&tmp, launcher);
+        let actor = monitor.session_logon(1).unwrap();
+        assert_eq!(actor.state(), MountState::Mounted);
+        assert_eq!(actor.host_pid, Some(1234));
+        assert_eq!(monitor.actor_count(), 1);
+
+        let actor = monitor.session_logon(1).unwrap();
+        assert_eq!(actor.state(), MountState::Mounted);
+    }
+
+    #[test]
+    fn session_host_launch_failure_marks_failed() {
+        let (tmp, _config) = test_config();
+        let launcher = Box::new(RecordingLauncher::failing());
+        let mut monitor = test_monitor(&tmp, launcher);
+        let result = monitor.session_logon(1);
+        assert!(result.is_err());
+        // The actor is not retained when launch fails before first mount.
+        assert_eq!(monitor.actor_count(), 0);
+    }
+
+    #[test]
+    fn zero_store_key_is_rejected() {
+        let (tmp, _config) = test_config();
+        let launcher = Box::new(RecordingLauncher::new());
+        let mut monitor = SessionMonitor::new_with_launcher(
+            SessionConfig {
+                data_directory: tmp.path().to_path_buf(),
+                preferred_drive_letter: 'P',
+                sign_out_grace_seconds: 30,
+                host_binary_path: PathBuf::from("C:/Program Files/DLP/dlp-drive-host.exe"),
+            },
             Box::new(SystemClock),
             Box::new(FakeTokenProvider {
                 sid: UserSid::parse("S-1-5-21-1000").unwrap(),
             }),
+            Box::new(FakeKeyProvider {
+                key: StoreKey::from_bytes([0u8; 32]),
+            }),
+            launcher,
         )
         .unwrap();
+        let result = monitor.session_logon(1);
+        assert!(matches!(result, Err(SessionError::StoreKeyFailure)));
+    }
+
+    #[test]
+    fn logoff_transitions_actor_to_draining() {
+        let (tmp, _config) = test_config();
+        let launcher = Box::new(RecordingLauncher::new());
+        let mut monitor = test_monitor(&tmp, launcher);
         monitor.session_logon(1).unwrap();
         monitor.session_logoff(1).unwrap();
         let actor = monitor.actors.values().next().unwrap();

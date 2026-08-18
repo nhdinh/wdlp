@@ -100,7 +100,7 @@ impl StoreFileIdentity {
 pub const CHUNK_SIZE: usize = 4 * 1024 * 1024;
 
 /// Resolves a key only for the captured store identity.
-pub trait StoreKeyProvider {
+pub trait StoreKeyProvider: Send + Sync {
     fn load_store_key(&self, identity: &CapturedStoreIdentity) -> Result<StoreKey, StorageError>;
 }
 
