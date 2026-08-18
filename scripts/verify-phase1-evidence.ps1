@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-SERVER01', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart', 'SignInMount', 'LetterRetrySignOutRestart', 'WinFspIntegrityRecovery')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart', 'SignInMount', 'LetterRetrySignOutRestart', 'WinFspIntegrityRecovery', 'SecureSessionHostLifecycle')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -326,6 +326,44 @@ function Invoke-WinFspIntegrityRecovery {
     Assert-Phase1 ($approval[0].manifest_digest -eq '0699b0e3dab91f85da5e5e3d354fe909e7fd6a33424b9e34c02a4d37b1bfc465') '01-20 approval digest does not bind the approved manifest'
 }
 
+function Invoke-SecureSessionHostLifecycle {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'SecureSessionHostLifecycle verifier must run on hungdinh-lt'
+
+    # Source contracts for 01-24
+    $session = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/session.rs') -Raw
+    $pipe = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/src/pipe.rs') -Raw
+    $hostBin = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-drive/src/bin/dlp-drive-host.rs') -Raw
+    $fs = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-drive/src/filesystem.rs') -Raw
+    $tests = Get-Content -LiteralPath (Join-Path $repoRoot 'crates/dlp-windows-service/tests/session_lifecycle.rs') -Raw
+    $smoke = Get-Content -LiteralPath (Join-Path $repoRoot 'tests/windows/Invoke-ServiceSessionSmoke.ps1') -Raw
+
+    Assert-Phase1 ($session -match 'WTSQueryUserToken' -and $session -match 'CreateProcessAsUserW' -and $session -match 'CreateEnvironmentBlock') 'session.rs lacks WTS-token launch contract'
+    Assert-Phase1 ($pipe -match 'CreateNamedPipe' -and $pipe -match 'GetNamedPipeClientProcessId' -and $pipe -match 'ImpersonateNamedPipeClient') 'pipe.rs lacks kernel-backed client authentication'
+    Assert-Phase1 ($hostBin -match 'pipe' -and $hostBin -match 'WinFspMountHost' -and $hostBin -match 'LocalEncryptedStore') 'drive host lacks authenticated bootstrap and mount'
+    Assert-Phase1 ($fs -match 'admission' -and $fs -match 'handle_count' -and $fs -match 'begin_drain') 'filesystem.rs lacks drain admission gate'
+    Assert-Phase1 ($tests -match 'session_host_command_line_contains_no_secrets' -and $tests -match 'occupied_preferred_chooses_deterministic_next_free' -and $tests -match 'logoff_rejects_new_opens_and_drains') 'session lifecycle tests do not cover 01-24 invariants'
+    Assert-Phase1 ($smoke -match "'SecureSessionHostLifecycle'") 'service session smoke test lacks SecureSessionHostLifecycle scenario'
+
+    # Privilege manifest and approval binding
+    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $manifest = @($config.privilege_manifests | Where-Object { $_.plan_id -eq '01-24' })
+    Assert-Phase1 ($manifest.Count -eq 1) '01-24 privilege manifest is missing'
+    Assert-Phase1 ($manifest[0].approval_digest -eq '9a53eacb73c4498657c2b5cc399b1e0884cacd746a4b2f8cc0636dafae26c197') '01-24 manifest digest mismatch'
+    $approval = @($config.privilege_approvals | Where-Object { $_.plan_id -eq '01-24' })
+    Assert-Phase1 ($approval.Count -eq 1) '01-24 privilege approval is missing'
+    Assert-Phase1 ($approval[0].manifest_digest -eq $manifest[0].approval_digest) '01-24 approval digest does not bind manifest'
+
+    # Evidence validation and publication
+    Publish-LatestEvidence -Pattern 'secure-session-host-lifecycle-*.json' -TargetMachine 'LAB-CLIENT01'
+
+    # Matrix rows
+    $matrix = Get-Content -LiteralPath $matrixPath -Raw | ConvertFrom-Json
+    foreach ($req in @('DRV-01', 'DRV-02', 'DRV-03', 'DRV-04', 'DRV-09', 'CRY-01', 'CRY-04', 'AGT-01', 'AGT-07', 'TST-03', 'TST-08')) {
+        $row = @($matrix.requirements | Where-Object { $_.id -eq $req })
+        Assert-Phase1 ($row.Count -eq 1 -and $row[0].status -eq 'pass') "$req matrix row is not pass"
+    }
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
@@ -346,6 +384,7 @@ switch ($Scenario) {
     'SignInMount' { Invoke-SignInMount }
     'LetterRetrySignOutRestart' { Invoke-LetterRetrySignOutRestart }
     'WinFspIntegrityRecovery' { Invoke-WinFspIntegrityRecovery }
+    'SecureSessionHostLifecycle' { Invoke-SecureSessionHostLifecycle }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json

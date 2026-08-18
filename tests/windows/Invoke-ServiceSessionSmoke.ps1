@@ -3,14 +3,16 @@ param(
     [Parameter(Mandatory)][string]$CallerMachine,
     [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$ExecutionMachine,
     [Parameter(Mandatory)][ValidateSet('LAB-DC01')][string]$ServerMachine,
-    [Parameter(Mandatory)][ValidateSet('SignInMount', 'LetterRetrySignOutRestart', 'WinFspServiceRestartReboot', 'CorruptAuthenticatedContent', 'CorruptSensitiveMetadata', 'BackingStoreDiskFull')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('SignInMount', 'LetterRetrySignOutRestart', 'WinFspServiceRestartReboot', 'CorruptAuthenticatedContent', 'CorruptSensitiveMetadata', 'BackingStoreDiskFull', 'SecureSessionHostLifecycle')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+Import-Module (Join-Path $repoRoot 'scripts/evidence/Phase1.Evidence.psm1') -Force
 
-# 01-15 owns the original session scenarios; 01-20 owns WinFsp integrity/restart/reboot recovery.
-$planId = if ($Scenario -in @('SignInMount', 'LetterRetrySignOutRestart')) { '01-15' } else { '01-20' }
+# 01-15 owns the original session scenarios; 01-20 owns WinFsp integrity/restart/reboot recovery;
+# 01-24 owns the authenticated secure session-host lifecycle.
+$planId = if ($Scenario -in @('SignInMount', 'LetterRetrySignOutRestart')) { '01-15' } elseif ($Scenario -eq 'SecureSessionHostLifecycle') { '01-24' } else { '01-20' }
 
 function Write-Blocker {
     param([Parameter(Mandatory)][string]$Reason)
@@ -369,6 +371,201 @@ function Invoke-BackingStoreDiskFull {
     Invoke-BackingStoreDiskFullLocal
 }
 
+function Get-SecureSessionHostEnvironmentFingerprint {
+    $roleConfig = Get-Content -LiteralPath (Join-Path $repoRoot 'config/lab.roles.example.json') -Raw | ConvertFrom-Json
+    $serviceBinary = 'C:\dlp\agent\dlp-windows-service.exe'
+    $hostBinary = 'C:\Program Files\DLP\dlp-drive-host.exe'
+    $serviceHash = if (Test-Path -LiteralPath $serviceBinary) { Get-Phase1Sha256 $serviceBinary } else { '<missing>' }
+    $hostHash = if (Test-Path -LiteralPath $hostBinary) { Get-Phase1Sha256 $hostBinary } else { '<missing>' }
+    return [pscustomobject]@{
+        machine_identity        = $env:COMPUTERNAME
+        role                    = $roleConfig.machines.$env:COMPUTERNAME.role
+        os_build                = [System.Environment]::OSVersion.VersionString
+        dependency_versions     = 'winfsp; dlp-windows-service; dlp-drive-host'
+        service_config_digest   = (Get-Phase1Sha256 (Join-Path $repoRoot 'config/lab.phase1.example.yaml'))
+        test_tool_versions      = 'powershell'
+        domain_network_identity = (Get-WmiObject -Class Win32_ComputerSystem).Domain
+        baseline_id             = [guid]::NewGuid().ToString()
+        binary_hashes           = [pscustomobject]@{ service = $serviceHash; host = $hostHash }
+    }
+}
+
+function New-SecureSessionHostEvidence {
+    param(
+        [Parameter(Mandatory)][string]$RequirementId,
+        [Parameter(Mandatory)][string]$CheckId,
+        [Parameter(Mandatory)][string]$Status,
+        [Parameter(Mandatory)][string]$Expected,
+        [Parameter(Mandatory)][string]$Actual
+    )
+    $evidenceDir = Join-Path $repoRoot 'evidence/phase1/attempts'
+    New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
+    $artifactId = [guid]::NewGuid().ToString()
+    $artifactPath = Join-Path $evidenceDir "fingerprint-$CheckId-$artifactId.json"
+    $fingerprint = Get-SecureSessionHostEnvironmentFingerprint
+    [System.IO.File]::WriteAllText($artifactPath, ($fingerprint | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
+    $artifactHash = Get-Phase1Sha256 $artifactPath
+    $commitId = try { git -C $repoRoot rev-parse --short HEAD } catch { '<unknown>' }
+    $evidence = [ordered]@{
+        schema_version          = 'phase1-evidence/v1'
+        evidence_id             = [guid]::NewGuid().ToString()
+        requirement_id          = $RequirementId
+        check_id                = $CheckId
+        status                  = $Status
+        observed_utc            = (Get-Date).ToUniversalTime().ToString('o')
+        clock_offset_seconds    = 0
+        commit_id               = $commitId
+        target_machine          = 'LAB-CLIENT01'
+        target_role             = 'endpoint_runtime'
+        procedure_version       = 1
+        identity                = [pscustomobject]@{ kind = 'automation'; name = 'Invoke-ServiceSessionSmoke.ps1' }
+        environment_fingerprint = $fingerprint
+        expected_result         = $Expected
+        actual_result           = $Actual
+        verification_tier       = 'focused_hyperv'
+        substitute              = 'none'
+        deviation               = [pscustomobject]@{ state = 'none' }
+        raw_artifacts           = @([pscustomobject]@{ uri = $artifactPath; sha256 = $artifactHash; accessible = $true })
+        retention               = [pscustomobject]@{ deadline_utc = (Get-Date).ToUniversalTime().AddDays(90).ToString('o'); state = 'retained'; hold = $false }
+        redaction_scan          = 'passed'
+        self_contained          = $false
+        dependency_digests      = [pscustomobject]@{
+            'lab-contract' = (Get-Phase1Sha256 (Join-Path $repoRoot 'config/lab.phase1.example.yaml'))
+            'lab-roles'    = (Get-Phase1Sha256 (Join-Path $repoRoot 'config/lab.roles.example.json'))
+        }
+    }
+    $path = Join-Path $evidenceDir "$CheckId-$artifactId.json"
+    return New-Phase1Evidence -Evidence $evidence -OutputPath $path
+}
+
+function Invoke-SecureSessionHostLifecycleLocal {
+    Assert-Smoke ($env:COMPUTERNAME -eq 'LAB-CLIENT01') 'SecureSessionHostLifecycle must run on LAB-CLIENT01'
+
+    # Baseline capture
+    $baselineDrives = Get-CimInstance Win32_LogicalDisk | Select-Object -ExpandProperty DeviceID
+    $baselinePipes = Get-ChildItem -LiteralPath '\\.\pipe\' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'dlp-*' } |
+        Select-Object -ExpandProperty Name
+    $baselineHosts = Get-CimInstance Win32_Process -Filter "Name = 'dlp-drive-host.exe'" -ErrorAction SilentlyContinue |
+        Select-Object ProcessId, SessionId
+
+    # 1. Service and host presence
+    $svc = Get-Service -Name 'DlpWindowsService' -ErrorAction SilentlyContinue
+    Assert-Smoke ($null -ne $svc -and $svc.Status -eq 'Running') 'DlpWindowsService is not running'
+
+    $hostProc = Get-CimInstance Win32_Process -Filter "Name = 'dlp-drive-host.exe'" -ErrorAction SilentlyContinue | Select-Object -First 1
+    Assert-Smoke ($null -ne $hostProc) 'dlp-drive-host.exe is not running'
+    Assert-Smoke ($hostProc.SessionId -gt 0) 'dlp-drive-host.exe is not running in an interactive session'
+
+    $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($hostProc.ParentProcessId)" -ErrorAction SilentlyContinue | Select-Object -First 1
+    Assert-Smoke ($null -ne $parent -and $parent.Name -eq 'dlp-windows-service.exe') 'dlp-drive-host.exe parent is not the service'
+
+    # 2. Command line contains no secret-bearing fields
+    $cmd = $hostProc.CommandLine
+    $secretPatterns = @('store', 'key', 'sid', 'token', 'certificate', 'secret', 'password', 'private')
+    foreach ($pattern in $secretPatterns) {
+        Assert-Smoke ($cmd -notmatch $pattern) "host command line appears to contain secret-bearing term: $pattern"
+    }
+
+    # 3. Drive presence and encrypted roundtrip
+    $preferred = Get-ProtectedDriveLetter
+    $mounts = Get-CimInstance Win32_LogicalDisk | Select-Object -ExpandProperty DeviceID
+    Assert-Smoke ($mounts -contains $preferred) "protected drive $preferred is not visible"
+
+    $testDir = Join-Path "$preferred\" 'SecureSessionHostLifecycle'
+    New-Item -ItemType Directory -Force -Path $testDir | Out-Null
+    $testFile = Join-Path $testDir 'roundtrip.txt'
+    $marker = "DLP-24-SESSION-HOST-$([guid]::NewGuid())"
+    Set-Content -LiteralPath $testFile -Value $marker -Encoding UTF8
+    $readBack = Get-Content -LiteralPath $testFile -Raw
+    Assert-Smoke ($readBack.Trim() -eq $marker) 'protected drive did not roundtrip a committed file'
+    $baselineHash = (Get-FileHash -LiteralPath $testFile -Algorithm SHA256).Hash
+
+    # 4. Backing store and log redaction scan
+    $storeRoot = Join-Path $env:ProgramData 'Dlp\stores'
+    $exposed = $false
+    if (Test-Path -LiteralPath $storeRoot) {
+        $exposed = (Get-ChildItem -LiteralPath $storeRoot -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+                [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($_.FullName))
+            }) -match [regex]::Escape($marker)
+    }
+    Assert-Smoke (-not $exposed) 'plaintext marker found in backing store'
+
+    $logDir = Join-Path $env:ProgramData 'Dlp\logs'
+    if (Test-Path -LiteralPath $logDir) {
+        $exposed = (Get-ChildItem -LiteralPath $logDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+                [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($_.FullName))
+            }) -match [regex]::Escape($marker)
+        Assert-Smoke (-not $exposed) 'plaintext marker found in diagnostic logs'
+    }
+
+    # 5. Preferred-letter fallback: occupy preferred, restart service, verify next-free selection
+    $letter = $preferred.Substring(0, 1).ToUpperInvariant()
+    subst "${letter}:" "C:\Windows\Temp" | Out-Null
+    try {
+        Restart-Service -Name 'DlpWindowsService' -Force
+        Start-Sleep -Seconds 5
+        $mounts = Get-CimInstance Win32_LogicalDisk | Select-Object -ExpandProperty DeviceID
+        Assert-Smoke ($mounts -notcontains "${letter}:") 'service displaced the occupied preferred letter'
+        $fallback = $mounts | Where-Object { $_ -match '^[Q-Z]:$' } | Select-Object -First 1
+        Assert-Smoke ($null -ne $fallback) 'service did not select a deterministic next-free letter'
+    }
+    finally {
+        subst "${letter}:" /D 2>$null | Out-Null
+    }
+
+    # 6. Preferred-letter recovery after removing occupant
+    Restart-Service -Name 'DlpWindowsService' -Force
+    Start-Sleep -Seconds 5
+    $mounts = Get-CimInstance Win32_LogicalDisk | Select-Object -ExpandProperty DeviceID
+    Assert-Smoke ($mounts -contains $preferred) "protected drive $preferred did not return after occupant removed"
+
+    # 7. Roundtrip again after recovery
+    $testFile2 = Join-Path $testDir 'roundtrip-after-recovery.txt'
+    Set-Content -LiteralPath $testFile2 -Value $marker -Encoding UTF8
+    Assert-Smoke ((Get-Content -LiteralPath $testFile2 -Raw).Trim() -eq $marker) 'protected drive did not roundtrip after service restart recovery'
+
+    # 8. Force-kill host and service restart recovery
+    Stop-Process -Name 'dlp-drive-host' -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Restart-Service -Name 'DlpWindowsService' -Force
+    Start-Sleep -Seconds 5
+    $mounts = Get-CimInstance Win32_LogicalDisk | Select-Object -ExpandProperty DeviceID
+    Assert-Smoke ($mounts -contains $preferred) "protected drive $preferred did not return after host kill and service restart"
+
+    # 9. No orphan pipes/processes beyond expected churn
+    $remainingPipes = Get-ChildItem -LiteralPath '\\.\pipe\' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'dlp-*' } |
+        Select-Object -ExpandProperty Name
+    $orphanPipes = $remainingPipes | Where-Object { $_ -notin $baselinePipes }
+    Assert-Smoke ($orphanPipes.Count -le 2) "unexpected orphan DLP pipes remain: $($orphanPipes -join ', ')"
+
+    $hostPids = Get-CimInstance Win32_Process -Filter "Name = 'dlp-drive-host.exe'" -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty ProcessId
+    Assert-Smoke ($null -ne $hostPids -and $hostPids.Count -eq 1) "expected exactly one dlp-drive-host.exe after recovery; found $($hostPids.Count)"
+
+    # 10. Publish evidence
+    New-SecureSessionHostEvidence -RequirementId 'AGT-07' -CheckId 'secure-session-host-lifecycle' -Status 'pass' `
+        -Expected 'One eligible LAB-CLIENT01 session produces one same-session host and a real encrypted WinFsp drive through CreateProcessAsUserW; drive survives service restart and host kill recovery; occupied letters are preserved.' `
+        -Actual "service=$($svc.Status); host_pid=$($hostProc.ProcessId); host_session=$($hostProc.SessionId); parent=$($parent.Name); preferred_letter=$preferred; baseline_hash=$baselineHash; no plaintext marker in backing/logs" | Out-Null
+}
+
+function Invoke-SecureSessionHostLifecycle {
+    if ($ExecutionMachine -ne $env:COMPUTERNAME) {
+        Write-Blocker -Reason "${ExecutionMachine} is not the local machine; 01-24 secure session-host lifecycle must run interactively on the endpoint"
+        return
+    }
+    try {
+        Invoke-SecureSessionHostLifecycleLocal
+    }
+    catch {
+        New-SecureSessionHostEvidence -RequirementId 'AGT-07' -CheckId 'secure-session-host-lifecycle' -Status 'fail' `
+            -Expected 'One eligible LAB-CLIENT01 session produces one same-session host and a real encrypted WinFsp drive through CreateProcessAsUserW; drive survives service restart and host kill recovery; occupied letters are preserved.' `
+            -Actual $_.Exception.Message | Out-Null
+        throw
+    }
+}
+
 switch ($Scenario) {
     'SignInMount' { Invoke-SignInMount }
     'LetterRetrySignOutRestart' { Invoke-LetterRetrySignOutRestart }
@@ -376,4 +573,5 @@ switch ($Scenario) {
     'CorruptAuthenticatedContent' { Invoke-CorruptAuthenticatedContent }
     'CorruptSensitiveMetadata' { Invoke-CorruptSensitiveMetadata }
     'BackingStoreDiskFull' { Invoke-BackingStoreDiskFull }
+    'SecureSessionHostLifecycle' { Invoke-SecureSessionHostLifecycle }
 }

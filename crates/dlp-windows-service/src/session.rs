@@ -234,7 +234,7 @@ impl SessionTokenProvider for WtsSessionTokenProvider {
 #[cfg(windows)]
 pub fn active_session_ids() -> Vec<u32> {
     use windows::Win32::System::RemoteDesktop::{
-        WTS_CONNECTSTATE_CLASS, WTS_SESSION_INFOW, WTSEnumerateSessionsW, WTSFreeMemory,
+        WTS_SESSION_INFOW, WTSEnumerateSessionsW, WTSFreeMemory,
     };
     unsafe {
         let mut info: *mut WTS_SESSION_INFOW = std::ptr::null_mut();
@@ -249,8 +249,11 @@ pub fn active_session_ids() -> Vec<u32> {
         let ids: Vec<u32> = sessions
             .iter()
             .filter_map(|s| {
-                if s.State == WTS_CONNECTSTATE_CLASS(0) {
-                    // WTSActive
+                // Treat both WTSActive (0) and WTSConnected (1) sessions as eligible so a
+                // console session that has not yet reached Active state (e.g. immediately
+                // after service restart while a user is already signed in) can be reconciled.
+                let state = s.State.0;
+                if state == 0 || state == 1 {
                     Some(s.SessionId)
                 } else {
                     None
