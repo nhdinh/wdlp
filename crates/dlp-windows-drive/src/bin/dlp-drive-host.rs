@@ -296,6 +296,7 @@ fn run_control_loop(_pipe_name: &str) -> Result<(), String> {
     }
 }
 
+#[allow(dead_code)]
 fn stable_sid_digest(sid: &UserSid) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(sid.to_wire().as_bytes());

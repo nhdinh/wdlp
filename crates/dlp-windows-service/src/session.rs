@@ -714,9 +714,11 @@ impl SessionHostLauncher for WindowsHostLauncher {
             )
             .map_err(|_| SessionError::HostUnavailable)?;
 
-            let mut si = STARTUPINFOW::default();
-            si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
-            si.lpDesktop = windows::core::PWSTR(windows::core::w!("winsta0\\default").0 as *mut u16);
+            let si = STARTUPINFOW {
+                cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+                lpDesktop: windows::core::PWSTR(windows::core::w!("winsta0\\default").0 as *mut u16),
+                ..Default::default()
+            };
             let mut pi = PROCESS_INFORMATION::default();
             let mut cmd: Vec<u16> = command_line.encode_utf16().collect();
             cmd.push(0);
@@ -876,9 +878,8 @@ impl SessionMonitor {
         let launched = self
             .launcher
             .launch(&session, &token, &pipe_path, &self.config)
-            .map_err(|error| {
+            .inspect_err(|_error| {
                 actor.set_failed(SessionDiagnostic::HostLaunchFailed);
-                error
             })?;
 
         // In the real Windows path the bootstrap is completed asynchronously after the
