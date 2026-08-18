@@ -7,7 +7,7 @@
 
 use crate::credential::{CredentialStore, DpapiCredentialStore};
 use crate::session::{
-    MountAttempt, SessionConfig, SessionEvent, SessionMonitor, SystemClock,
+    DpapiStoreKeyProvider, MountAttempt, SessionConfig, SessionEvent, SessionMonitor, SystemClock,
     WtsSessionTokenProvider, active_session_ids,
 };
 use dlp_agent_core::{
@@ -473,10 +473,26 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
         let _service_state = startup_state(matches!(mode, EnrollmentMode::Existing));
 
         let session_config = build_session_config(&context.config.data_directory);
+        let key_provider = match DpapiStoreKeyProvider::new(
+            context.config.data_directory.join("keys"),
+        ) {
+            Ok(p) => p,
+            Err(error) => {
+                service_log("ERROR", format!("store key provider creation failed: {error}"));
+                let _ = handler.set_service_status(build_status(
+                    ScmState::Stopped,
+                    0,
+                    Duration::default(),
+                    ServiceExitCode::Win32(1),
+                ));
+                return;
+            }
+        };
         let mut monitor = match SessionMonitor::new(
             session_config,
             Box::new(SystemClock),
             Box::new(WtsSessionTokenProvider),
+            Box::new(key_provider),
         ) {
             Ok(m) => m,
             Err(error) => {

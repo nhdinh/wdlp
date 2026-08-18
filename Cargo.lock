@@ -746,8 +746,12 @@ version = "0.1.0"
 dependencies = [
  "dlp-domain",
  "dlp-storage",
+ "serde",
+ "serde_json",
  "sha2 0.11.0",
+ "windows 0.62.2",
  "winfsp",
+ "zeroize",
 ]
 
 [[package]]
