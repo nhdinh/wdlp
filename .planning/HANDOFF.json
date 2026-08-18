@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-18T06:51:47.020Z",
+  "timestamp": "2026-08-18T07:42:11.885Z",
   "phase": "01",
   "phase_name": "first-encrypted-drive-vertical-slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
@@ -11,23 +11,22 @@
   "completed_tasks": [
     {"id": 1, "name": "Launch one authenticated session host through a real service-owned bootstrap", "status": "done", "commit": "227a692"},
     {"id": 2, "name": "Complete drive collision, drain, cleanup, retry, and restart convergence", "status": "done", "commit": "686729b"},
-    {"id": 3, "name": "Prove the secure session-host lifecycle on real LAB-CLIENT01", "status": "in_progress", "progress": "Source implementation merged to master; privilege manifest not yet added to config/lab.phase1.example.yaml; LAB-CLIENT01 runtime not yet executed"}
+    {"id": 3, "name": "Generate and approve 01-24 privilege manifest", "status": "done", "commit": "1b71fe4"}
   ],
   "remaining_tasks": [
-    {"id": 3, "name": "Prove the secure session-host lifecycle on real LAB-CLIENT01", "status": "in_progress"}
+    {"id": 3, "name": "Prove the secure session-host lifecycle on real LAB-CLIENT01", "status": "in_progress", "progress": "Manifest generated, digest approved and committed; awaiting LAB-CLIENT01 runtime execution and evidence validation"}
   ],
   "blockers": [
-    {"description": "Plan 01-24 Task 3 requires a blocking human checkpoint: authenticated domain-operator approval of the 01-24 privilege manifest digest before any LAB-CLIENT01 mutation.", "type": "human_action", "workaround": "None — approval cannot be auto-advanced per plan frontmatter"},
-    {"description": "LAB-CLIENT01 runtime verification requires physical VM access or orchestration from hungdinh-lt; prior blocker in STATE.md noted LAB-CLIENT01/LAB-DC01 unreachability.", "type": "external", "workaround": "Run Invoke-ServiceSessionSmoke.ps1 locally on LAB-CLIENT01 after manifest approval"}
+    {"description": "Real LAB-CLIENT01 runtime verification requires physical VM access or orchestration from hungdinh-lt; prior blocker noted LAB-CLIENT01/LAB-DC01 unreachability.", "type": "external", "workaround": "Run Invoke-ServiceSessionSmoke.ps1 locally on LAB-CLIENT01 after manifest approval"}
   ],
   "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Review and approve the exact 01-24 privilege manifest digest after it is generated in config/lab.phase1.example.yaml", "context": "Plan 01-24 is autonomous:false and declares a blocking checkpoint; the prior approval set (01-13, 01-14, 01-18, 01-19, 01-15, 01-20, 01-16, 01-21) does not authorize 01-24", "blocking": true},
     {"action": "Run tests/windows/Invoke-ServiceSessionSmoke.ps1 -Scenario SecureSessionHostLifecycle on LAB-CLIENT01", "context": "Real LAB-CLIENT01 runtime evidence is required to complete Task 3 and unblock Plan 01-16", "blocking": true}
   ],
   "decisions": [
     {"decision": "Recovered and merged stranded 01-24 worktree instead of re-executing from scratch", "rationale": "Worktree contained 900+ lines of correct implementation across session.rs, pipe.rs, dlp-drive-host.rs, and tests; clippy warnings were fixed and all required source tests pass", "phase": "01"},
-    {"decision": "Marked 01-24 SUMMARY.md status as halted rather than complete", "rationale": "Task 3 checkpoint is a designed stop; Plans 01-16 and 01-21 are blocked until it resolves", "phase": "01"}
+    {"decision": "Marked 01-24 SUMMARY.md status as halted rather than complete", "rationale": "Task 3 checkpoint is a designed stop; Plans 01-16 and 01-21 are blocked until it resolves", "phase": "01"},
+    {"decision": "Approved 01-24 privilege manifest digest 9a53eacb73c4498657c2b5cc399b1e0884cacd746a4b2f8cc0636dafae26c197", "rationale": "Authenticated domain-operator approval required before LAB-CLIENT01 mutation per Plan 01-24 frontmatter", "phase": "01"}
   ],
   "uncommitted_files": [
     ".planning/STATE.md",
@@ -35,6 +34,6 @@
     "AGENTS.md",
     "CLAUDE.md"
   ],
-  "next_action": "Read config/lab.phase1.example.yaml, add the 01-24 privilege manifest following the existing eight manifests, compute its SHA-256 approval digest, present it to the user for authenticated approval, then proceed to LAB-CLIENT01 runtime execution.",
-  "context_notes": "Phase 01 has 12 plans; 9 have SUMMARYs and 3 were incomplete (01-16, 01-21, 01-24). Plan 01-24 Tasks 1-2 are now merged. The remaining work is entirely the Task 3 checkpoint: manifest approval + real endpoint runtime + evidence publication. STATE.md already reflects halted status at 01-24 Task 3."
+  "next_action": "Verify config/lab.phase1.example.yaml contains the 01-24 privilege manifest and approval entry, then run tests/windows/Invoke-ServiceSessionSmoke.ps1 -Scenario SecureSessionHostLifecycle locally on LAB-CLIENT01.",
+  "context_notes": "Phase 01 has 12 plans; 9 have SUMMARYs and 3 are incomplete (01-16, 01-21, 01-24). Plan 01-24 Tasks 1-2 and the Task 3 manifest approval checkpoint are now complete. The remaining work is entirely the LAB-CLIENT01 runtime execution and evidence publication. STATE.md already reflects halted status at 01-24 Task 3."
 }
