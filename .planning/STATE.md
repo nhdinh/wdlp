@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
-status: executing
-stopped_at: Completed 01-23-PLAN.md
-last_updated: "2026-08-15T18:34:43.135Z"
-last_activity: 2026-08-16
-last_activity_desc: Completed Plan 01-23; published production directory/TLS/provider source and trusted-provisioning artifacts with evidence for SRV-01/SRV-03/SRV-12/TST-05
+status: halted
+stopped_at: Completed 01-13-PLAN.md
+last_updated: "2026-08-18T05:02:56.679Z"
+last_activity: 2026-08-18
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 16
-  completed_plans: 14
+  total_plans: 17
+  completed_plans: 13
+last_activity_desc: Completed Plan 01-13; reconciled lab roles, removed developer-host residue, proved LAB-SERVER01 PostgreSQL migrations/readiness through LAB-DC01, and executed trusted dual-DC Kerberos provisioning for LAB-CLIENT01.
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -24,7 +24,7 @@ progress:
 - **MVP boundary**: Enroll → signed config → mount → copy → encrypted store → read back → survive restart; policy blocking and toast follow.
 - **Constraints**: Rust for endpoint agent and core domain; PostgreSQL server persistence; Docker Compose server deployment; WinFsp user-mode virtual drive; no kernel-mode filtering or signed driver; safe Rust in portable domain crates.
 
-Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundary and isolated Windows SCM lifecycle
+Last activity: 2026-08-18
 
 ## Quick Tasks Completed
 
@@ -49,10 +49,10 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 ## Current Position
 
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — EXECUTING
-- **Plan:** 23 — COMPLETED (source-only verification)
+- **Plan:** 24 of 24 (01-24)
 - **Task:** 3 of 3
-- **Status:** Stopped after 01-23 completion per operator instruction
-- **Progress:** [█████████░] 88%
+- **Status:** halted at Task 3 checkpoint — awaiting 01-24 privilege-manifest approval and LAB-CLIENT01 runtime
+- **Progress:** [████████░░] 92%
 - **Next plan:** 01-16 production-provider encrypted-drive vertical slice and D-16/D-17/D-18 matrix (pending operator go-ahead)
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 runtime verification remains blocked by VM reachability.
 
@@ -89,6 +89,7 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 | Phase 01-first-encrypted-drive-vertical-slice P17 | 15min | 3 tasks | 2 files |
 | Phase 01-first-encrypted-drive-vertical-slice P22 | 25m | 2 tasks | 7 files |
 | Phase 01-first-encrypted-drive-vertical-slice P23 | 45m | 3 tasks | 14 files |
+| Phase 01-first-encrypted-drive-vertical-slice P13 | 75min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -120,8 +121,8 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 
 **Resume file:** None
 
-**Last session:** 2026-08-15T18:34:43.116Z
-**Stopped at:** Completed 01-23-PLAN.md
+**Last session:** 2026-08-15T23:13:35.451Z
+**Stopped at:** Completed 01-13-PLAN.md
 
 **Current session:** 2026-08-16
 **Resumed at:** /gsd-execute-phase 1 — executed Plan 01-23 source-only verification and evidence publication.
@@ -192,6 +193,9 @@ Last activity: 2026-08-15 - Completed plan 01.3-02: peer-authorized HTTP boundar
 - [Phase ?]: Production startup must construct and validate every provider (directory, PostgreSQL pool, certificate issuer, signer, repository, services, TLS paths) before running migrations or binding the listener.
 - [Phase ?]: Bootstrap peer identity may be absent only at the TLS boundary; administrator and device route middleware require verified certificate roles.
 - [Phase ?]: Trusted provisioning hands the one-time token only to a runtime secret provider; it is never written to stdout, argv, environment files, logs, Debug output, or evidence.
+- [Phase ?]: Validated the approved 01-13 privilege-manifest digest before every mutating scenario.
+- [Phase ?]: Resolved provisioning PEM file paths to inline content on the orchestrator host before passing them into LAB-DC01.
+- [Phase ?]: Copied dlpctl.exe to LAB-DC01 and set DLP_PROVISIONING_DLPCTL_PATH instead of relying on VM PATH.
 
 ### Blockers
 
