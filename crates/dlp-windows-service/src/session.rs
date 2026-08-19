@@ -16,7 +16,10 @@ use std::{
     time::Duration,
 };
 
-use crate::pipe::StoragePipeServer;
+use crate::pipe::{PipeFactory, StorageBootstrap, WindowsPipeFactory};
+
+#[cfg(test)]
+use crate::pipe::PipeBootstrap;
 
 /// Unique generation counter for mount actors. Increments are monotonic per process.
 static ACTOR_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -612,6 +615,13 @@ pub struct LaunchedHost {
     pub pipe_path: String,
 }
 
+/// Owned runtime resources for an authenticated actor. Kept separate from the cloneable
+/// `MountActor` snapshot so health reporting does not carry raw handles.
+pub struct ActorRuntime {
+    pub host: LaunchedHost,
+    pub pipe: crate::pipe::AuthenticatedPipe,
+}
+
 /// Opaque owned Windows process handle.
 pub struct HostProcessHandle {
     #[cfg(windows)]
@@ -636,7 +646,22 @@ impl HostProcessHandle {
     pub fn handle(&self) -> windows::Win32::Foundation::HANDLE {
         self.handle
     }
+
+    /// Terminates the child process. Used only when authentication fails or drain times out.
+    pub fn terminate(&self) -> Result<(), SessionError> {
+        use windows::Win32::System::Threading::TerminateProcess;
+        unsafe {
+            TerminateProcess(self.handle, 1).map_err(|_| SessionError::HostUnavailable)
+        }
+    }
 }
+
+// The handle is an owned kernel object; transferring it across threads is safe
+// because no other code owns the same HANDLE value.
+#[cfg(windows)]
+unsafe impl Send for HostProcessHandle {}
+#[cfg(windows)]
+unsafe impl Sync for HostProcessHandle {}
 
 #[cfg(windows)]
 impl Drop for HostProcessHandle {
@@ -651,6 +676,10 @@ impl Drop for HostProcessHandle {
 impl HostProcessHandle {
     pub fn new(pid: u32) -> Self {
         Self { _pid: pid }
+    }
+
+    pub fn terminate(&self) -> Result<(), SessionError> {
+        Ok(())
     }
 }
 
@@ -804,15 +833,16 @@ fn actor_pipe_path(data_directory: &Path, session: &EligibleSession) -> String {
 pub struct SessionMonitor {
     config: SessionConfig,
     actors: HashMap<(u32, UserSid), MountActor>,
+    runtimes: HashMap<u64, ActorRuntime>,
     clock: Box<dyn Clock>,
     token_provider: Box<dyn SessionTokenProvider>,
     key_provider: Box<dyn StoreKeyProvider>,
     launcher: Box<dyn SessionHostLauncher>,
-    pipe_server: Option<StoragePipeServer>,
+    pipe_factory: Box<dyn PipeFactory>,
 }
 
 impl SessionMonitor {
-    /// Creates a monitor with the production Windows launcher.
+    /// Creates a monitor with the production Windows launcher and pipe factory.
     pub fn new(
         config: SessionConfig,
         clock: Box<dyn Clock>,
@@ -825,27 +855,29 @@ impl SessionMonitor {
             token_provider,
             key_provider,
             Box::new(WindowsHostLauncher),
+            Box::new(WindowsPipeFactory),
         )
     }
 
-    /// Creates a monitor with an injected launcher for deterministic source tests.
+    /// Creates a monitor with an injected launcher and pipe factory for deterministic
+    /// source tests.
     pub fn new_with_launcher(
         config: SessionConfig,
         clock: Box<dyn Clock>,
         token_provider: Box<dyn SessionTokenProvider>,
         key_provider: Box<dyn StoreKeyProvider>,
         launcher: Box<dyn SessionHostLauncher>,
+        pipe_factory: Box<dyn PipeFactory>,
     ) -> Result<Self, SessionError> {
-        let pipe_server = StoragePipeServer::bind(&config.data_directory)
-            .map_err(|_| SessionError::PipeUnavailable)?;
         Ok(Self {
             config,
             actors: HashMap::new(),
+            runtimes: HashMap::new(),
             clock,
             token_provider,
             key_provider,
             launcher,
-            pipe_server: Some(pipe_server),
+            pipe_factory,
         })
     }
 
@@ -860,14 +892,20 @@ impl SessionMonitor {
             .token_provider
             .primary_token(session_id)
             .ok_or(SessionError::TokenUnavailable)?;
-        let key = (session_id, sid.clone());
-        if let Some(actor) = self.actors.get(&key) {
+        let actor_key = (session_id, sid.clone());
+        if let Some(actor) = self.actors.get(&actor_key) {
             return Ok(actor.clone());
         }
         let session = EligibleSession::new(session_id, sid)?;
         let mut actor = MountActor::new(session.clone());
 
         let pipe_path = actor_pipe_path(&self.config.data_directory, &session);
+
+        // Create the per-actor pipe before launching the host so the child can connect.
+        let pipe = self
+            .pipe_factory
+            .create_pipe(&pipe_path, session.user_sid())
+            .map_err(|_| SessionError::PipeUnavailable)?;
 
         // Derive the real per-store key before any host interaction.
         let store_key = self
@@ -878,6 +916,16 @@ impl SessionMonitor {
             return Err(SessionError::StoreKeyFailure);
         }
 
+        let bootstrap = StorageBootstrap::new(
+            session.session_id(),
+            session.generation(),
+            session.user_sid().clone(),
+            session.store_id().clone(),
+            self.config.data_directory.clone(),
+            self.config.preferred_drive_letter,
+            store_key,
+        );
+
         let launched = self
             .launcher
             .launch(&session, &token, &pipe_path, &self.config)
@@ -885,14 +933,45 @@ impl SessionMonitor {
                 actor.set_failed(SessionDiagnostic::HostLaunchFailed);
             })?;
 
-        // In the real Windows path the bootstrap is completed asynchronously after the
-        // host connects to the pipe and passes kernel-backed authentication. For the
-        // source contract we record the launch and mark the actor as mounted with the
-        // configured preferred letter; the actual WinFsp mount is confirmed at runtime
-        // on LAB-CLIENT01.
-        actor.set_mounted(self.config.preferred_drive_letter, launched.pid);
-        self.actors.insert(key, actor.clone());
-        Ok(actor)
+        // Authenticate the connected child on a dedicated thread; the handshake blocks
+        // until the host connects and passes kernel-backed identity checks.
+        let expected_pid = launched.pid;
+        let expected_sid = session.user_sid().clone();
+        let expected_session = session.session_id();
+        let expected_generation = session.generation();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = pipe.authenticate(
+                expected_pid,
+                &expected_sid,
+                expected_session,
+                expected_generation,
+                bootstrap,
+            );
+            let _ = tx.send(result);
+        });
+
+        let timeout = std::time::Duration::from_secs(30);
+        match rx.recv_timeout(timeout) {
+            Ok(Ok((authenticated_pipe, drive_letter))) => {
+                self.runtimes.insert(
+                    session.generation(),
+                    ActorRuntime {
+                        host: launched,
+                        pipe: authenticated_pipe,
+                    },
+                );
+                actor.set_mounted(drive_letter, expected_pid);
+                self.actors.insert(actor_key, actor.clone());
+                Ok(actor)
+            }
+            Ok(Err(_)) | Err(_) => {
+                let _ = launched.process_handle.terminate();
+                actor.set_failed(SessionDiagnostic::PipeAuthFailed);
+                self.actors.insert(actor_key, actor.clone());
+                Err(SessionError::PipeUnavailable)
+            }
+        }
     }
 
     /// Mark the actor as draining so it rejects new opens and begins bounded cleanup.
@@ -918,9 +997,8 @@ impl SessionMonitor {
         for actor in self.actors.values_mut() {
             actor.stop();
         }
-        if let Some(pipe) = self.pipe_server.take() {
-            let _ = pipe.close();
-        }
+        // Closing the authenticated pipes causes the hosts to see EOF and unmount.
+        self.runtimes.clear();
     }
 
     /// Returns a snapshot of current actors for health reporting.
@@ -1026,6 +1104,32 @@ mod tests {
         }
     }
 
+    struct FakePipeFactory;
+    struct FakePipeBootstrap;
+
+    impl PipeBootstrap for FakePipeBootstrap {
+        fn authenticate(
+            self: Box<Self>,
+            _expected_pid: u32,
+            _expected_sid: &UserSid,
+            _expected_session: u32,
+            _expected_generation: u64,
+            _bootstrap: StorageBootstrap,
+        ) -> Result<(crate::pipe::AuthenticatedPipe, char), crate::pipe::PipeAuthError> {
+            Ok((crate::pipe::AuthenticatedPipe::for_test(), 'P'))
+        }
+    }
+
+    impl PipeFactory for FakePipeFactory {
+        fn create_pipe(
+            &self,
+            _pipe_path: &str,
+            _user_sid: &UserSid,
+        ) -> Result<Box<dyn PipeBootstrap>, crate::pipe::PipeAuthError> {
+            Ok(Box::new(FakePipeBootstrap))
+        }
+    }
+
     fn test_config() -> (tempfile::TempDir, SessionConfig) {
         let tmp = tempfile::tempdir().unwrap();
         let config = SessionConfig {
@@ -1040,6 +1144,14 @@ mod tests {
     fn test_monitor(
         tmp: &tempfile::TempDir,
         launcher: Box<dyn SessionHostLauncher>,
+    ) -> SessionMonitor {
+        test_monitor_with_pipe(tmp, launcher, Box::new(FakePipeFactory))
+    }
+
+    fn test_monitor_with_pipe(
+        tmp: &tempfile::TempDir,
+        launcher: Box<dyn SessionHostLauncher>,
+        pipe_factory: Box<dyn PipeFactory>,
     ) -> SessionMonitor {
         SessionMonitor::new_with_launcher(
             SessionConfig {
@@ -1056,6 +1168,7 @@ mod tests {
                 key: StoreKey::from_bytes([7u8; 32]),
             }),
             launcher,
+            pipe_factory,
         )
         .unwrap()
     }
@@ -1165,6 +1278,7 @@ mod tests {
                 key: StoreKey::from_bytes([0u8; 32]),
             }),
             launcher,
+            Box::new(FakePipeFactory),
         )
         .unwrap();
         let result = monitor.session_logon(1);

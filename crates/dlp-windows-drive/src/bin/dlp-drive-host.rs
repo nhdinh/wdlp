@@ -63,6 +63,13 @@ impl Drop for HostBootstrap {
     }
 }
 
+/// Local mirror of the service's drive-letter report. Kept byte-compatible with the
+/// service-side `DriveLetterReport`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct DriveLetterReport {
+    drive_letter: char,
+}
+
 fn main() {
     let args = match parse_args() {
         Some(a) => a,
@@ -72,7 +79,10 @@ fn main() {
         }
     };
 
-    let bootstrap = match authenticate_to_service(&args.pipe_name, args.session_id, args.generation) {
+    let (bootstrap, mut pipe_file) = match authenticate_to_service(&args.pipe_name,
+        args.session_id,
+        args.generation,
+    ) {
         Ok(b) => b,
         Err(error) => {
             eprintln!("pipe_auth_failed: {error}");
@@ -134,7 +144,13 @@ fn main() {
         }
     };
 
-    let target = select_drive_letter(bootstrap.preferred_letter);
+    let target = match select_drive_letter(bootstrap.preferred_letter) {
+        Some(letter) => letter,
+        None => {
+            eprintln!("no_free_drive_letter");
+            std::process::exit(8);
+        }
+    };
     let host = match WinFspMountHost::new(format!("{target}:")) {
         Ok(h) => h,
         Err(error) => {
@@ -151,12 +167,19 @@ fn main() {
         }
     };
 
+    // Report the real selected letter back to the service before entering the
+    // long-running control loop.
+    if let Err(error) = send_drive_letter_ack(&mut pipe_file, target) {
+        eprintln!("drive_letter_ack_failed: {error}");
+        std::process::exit(9);
+    }
+
     println!("mounted {target}:");
 
     // The volume stays mounted while the authenticated control channel remains open.
     // On pipe EOF or service stop, the control loop exits and the owned volume is
     // dropped, causing clean unmount.
-    match run_control_loop(&args.pipe_name) {
+    match run_control_loop(pipe_file) {
         Ok(_) => {}
         Err(error) => {
             eprintln!("control_loop_exit: {error}");
@@ -170,16 +193,16 @@ fn authenticate_to_service(
     pipe_name: &str,
     session_id: u32,
     generation: u64,
-) -> Result<HostBootstrap, String> {
+) -> Result<(HostBootstrap, std::fs::File), String> {
     #[cfg(windows)]
     {
         use std::io::{Read, Write};
-        use std::os::windows::io::{FromRawHandle, IntoRawHandle};
+        use std::os::windows::io::FromRawHandle;
         use windows::Win32::{
             Foundation::{ERROR_PIPE_BUSY, GetLastError},
             Storage::FileSystem::{
                 CreateFileW, FILE_CREATION_DISPOSITION, FILE_FLAGS_AND_ATTRIBUTES,
-                FILE_FLAG_OVERLAPPED, FILE_SHARE_MODE,
+                FILE_SHARE_MODE,
             },
             System::Pipes::WaitNamedPipeW,
         };
@@ -210,9 +233,7 @@ fn authenticate_to_service(
                 FILE_SHARE_MODE(0),
                 None,
                 FILE_CREATION_DISPOSITION(OPEN_EXISTING),
-                FILE_FLAGS_AND_ATTRIBUTES(
-                    SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION | FILE_FLAG_OVERLAPPED.0,
-                ),
+                FILE_FLAGS_AND_ATTRIBUTES(SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION),
                 None,
             )
             .map_err(|_| "pipe_open_failed".to_string())?;
@@ -266,9 +287,9 @@ fn authenticate_to_service(
             let bootstrap: HostBootstrap = serde_json::from_slice(&bootstrap_buf)
                 .map_err(|_| "bootstrap_decode_failed".to_string())?;
 
-            // Keep the pipe open; ownership transfers to the control loop.
-            let _ = file.into_raw_handle();
-            Ok(bootstrap)
+            // Return the open pipe so the control loop can block on it and the service
+            // can send drain/stop messages.
+            Ok((bootstrap, file))
         }
     }
     #[cfg(not(windows))]
@@ -278,7 +299,20 @@ fn authenticate_to_service(
     }
 }
 
-fn run_control_loop(_pipe_name: &str) -> Result<(), String> {
+fn send_drive_letter_ack(
+    file: &mut std::fs::File,
+    drive_letter: char,
+) -> Result<(), String> {
+    use std::io::Write;
+    let ack = DriveLetterReport { drive_letter };
+    let ack_bytes = serde_json::to_vec(&ack).map_err(|_| "ack_encode_failed".to_string())?;
+    let length = (ack_bytes.len() as u32).to_be_bytes();
+    file.write_all(&length)
+        .and_then(|_| file.write_all(&ack_bytes))
+        .map_err(|_| "ack_write_failed".to_string())
+}
+
+fn run_control_loop(_pipe_file: std::fs::File) -> Result<(), String> {
     // In production this blocks reading control messages (BeginDrain, Stop) from the
     // service. EOF means the service disconnected or stopped; returning drops the volume.
     // For source compilation on non-Windows hosts the loop returns immediately.
@@ -307,11 +341,23 @@ fn stable_sid_digest(sid: &UserSid) -> String {
         .to_owned()
 }
 
-fn select_drive_letter(preferred: char) -> char {
-    // Real implementation enumerates the user session's drive letters via safe
-    // `std::path::Path::try_exists` probes and selects preferred then next-free.
-    // Source stub returns preferred; Task 2 adds collision-aware selection.
-    preferred.to_ascii_uppercase()
+fn drive_letter_candidates(preferred: char) -> impl Iterator<Item = char> {
+    let candidates: Vec<char> = ('C'..='Z').collect();
+    let preferred = preferred.to_ascii_uppercase();
+    let start = candidates
+        .iter()
+        .position(|c| *c == preferred)
+        .unwrap_or(0);
+    (0..candidates.len())
+        .map(move |offset| candidates[(start + offset) % candidates.len()])
+}
+
+fn select_drive_letter(preferred: char) -> Option<char> {
+    drive_letter_candidates(preferred).find(|letter| {
+        let path_string = format!("{letter}:\\");
+        let path = std::path::Path::new(&path_string);
+        matches!(path.try_exists(), Ok(false))
+    })
 }
 
 #[cfg(test)]
@@ -367,5 +413,28 @@ mod tests {
             session_id: session_id?,
             generation: generation?,
         })
+    }
+
+    #[test]
+    fn drive_letter_selection_candidates_start_with_preferred() {
+        let mut iter = drive_letter_candidates('P');
+        assert_eq!(iter.next(), Some('P'));
+        assert_eq!(iter.next(), Some('Q'));
+        assert_eq!(iter.next(), Some('R'));
+    }
+
+    #[test]
+    fn drive_letter_selection_candidates_wrap_after_z() {
+        let collected: Vec<char> = drive_letter_candidates('Y').take(4).collect();
+        assert_eq!(collected, vec!['Y', 'Z', 'C', 'D']);
+    }
+
+    #[test]
+    fn drive_letter_selection_candidates_include_all_letters() {
+        let collected: std::collections::HashSet<char> = drive_letter_candidates('M').collect();
+        assert_eq!(collected.len(), 24);
+        for letter in 'C'..='Z' {
+            assert!(collected.contains(&letter));
+        }
     }
 }

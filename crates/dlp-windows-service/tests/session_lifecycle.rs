@@ -11,6 +11,7 @@ use dlp_windows_service::session::{
     RetryTimer, SessionConfig, SessionError, SessionHostLauncher, SessionMonitor,
     SessionTokenProvider,
 };
+use dlp_windows_service::pipe::{PipeBootstrap, PipeFactory};
 use std::{path::PathBuf, time::Duration};
 
 struct FakeTokenProvider {
@@ -90,6 +91,32 @@ impl SessionHostLauncher for RecordingLauncher {
     }
 }
 
+struct FakePipeFactory;
+struct FakePipeBootstrap;
+
+impl PipeBootstrap for FakePipeBootstrap {
+    fn authenticate(
+        self: Box<Self>,
+        _expected_pid: u32,
+        _expected_sid: &UserSid,
+        _expected_session: u32,
+        _expected_generation: u64,
+        _bootstrap: dlp_windows_service::pipe::StorageBootstrap,
+    ) -> Result<(dlp_windows_service::pipe::AuthenticatedPipe, char), dlp_windows_service::pipe::PipeAuthError> {
+        Ok((dlp_windows_service::pipe::AuthenticatedPipe::for_test(), 'P'))
+    }
+}
+
+impl PipeFactory for FakePipeFactory {
+    fn create_pipe(
+        &self,
+        _pipe_path: &str,
+        _user_sid: &UserSid,
+    ) -> Result<Box<dyn PipeBootstrap>, dlp_windows_service::pipe::PipeAuthError> {
+        Ok(Box::new(FakePipeBootstrap))
+    }
+}
+
 fn test_config() -> (tempfile::TempDir, SessionConfig) {
     let tmp = tempfile::tempdir().unwrap();
     let config = SessionConfig {
@@ -120,6 +147,7 @@ fn test_monitor(
             key: StoreKey::from_bytes([7u8; 32]),
         }),
         launcher,
+        Box::new(FakePipeFactory),
     )
     .unwrap()
 }
@@ -352,6 +380,7 @@ fn session_host_zero_store_key_is_rejected() {
             key: StoreKey::from_bytes([0u8; 32]),
         }),
         Box::new(RecordingLauncher::new()),
+        Box::new(FakePipeFactory),
     )
     .unwrap();
     let result = monitor.session_logon(1);
