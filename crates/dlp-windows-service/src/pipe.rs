@@ -4,6 +4,8 @@
 //! impersonation. Malformed, oversized, or unauthenticated messages are rejected before
 //! any storage access.
 
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use dlp_crypto::StoreKey;
 use dlp_domain::{StoreId, UserSid};
 use serde::{Deserialize, Serialize};
@@ -44,7 +46,7 @@ pub struct StorageBootstrap {
     pub store_id: String,
     pub store_root: PathBuf,
     pub preferred_letter: char,
-    /// 32-byte DPAPI-unwrapped random store key. Kept in a Vec<u8> only for the
+    /// 32-byte DPAPI-unwrapped random store key. Kept in a `Vec<u8>` only for the
     /// wire serde step and zeroized after construction of `StoreKey` on both ends.
     pub store_key: Vec<u8>,
 }
@@ -182,6 +184,394 @@ impl StoragePipeServer {
         }
         serde_json::from_slice(bytes).map_err(|_| PipeAuthError::InvalidMessage)
     }
+}
+
+#[cfg(windows)]
+mod windows_pipe {
+    use super::*;
+    use std::ffi::c_void;
+    use std::io::{Read, Write};
+    use std::os::windows::io::{FromRawHandle, IntoRawHandle};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use windows::Win32::{
+        Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree, FALSE},
+        Security::{
+            ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, AddAccessAllowedAce, InitializeAcl,
+            InitializeSecurityDescriptor, PSID, PSECURITY_DESCRIPTOR, RevertToSelf,
+            SetSecurityDescriptorDacl,
+        },
+        Security::Authorization::{ConvertStringSidToSidW},
+        Storage::FileSystem::{FILE_FLAGS_AND_ATTRIBUTES, PIPE_ACCESS_DUPLEX},
+        System::Pipes::{
+            ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId,
+            ImpersonateNamedPipeClient, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_WAIT,
+        },
+        System::Threading::OpenThreadToken,
+    };
+
+    const GENERIC_READ: u32 = 0x80000000;
+    const GENERIC_WRITE: u32 = 0x40000000;
+    const FILE_FLAG_FIRST_PIPE_INSTANCE: u32 = 0x00080000;
+    const SECURITY_DESCRIPTOR_REVISION_VALUE: u32 = 1;
+
+    /// Owned server-side named pipe handle that remains open so the authenticated
+    /// control channel stays alive. Dropping it closes the handle.
+    pub struct AuthenticatedPipe {
+        handle: HANDLE,
+    }
+
+    impl AuthenticatedPipe {
+        fn new(handle: HANDLE) -> Self {
+            Self { handle }
+        }
+
+        pub fn close(&mut self) {
+            if !self.handle.is_invalid() {
+                unsafe {
+                    let _ = CloseHandle(self.handle);
+                }
+                self.handle = HANDLE(std::ptr::null_mut());
+            }
+        }
+    }
+
+    impl Drop for AuthenticatedPipe {
+        fn drop(&mut self) {
+            self.close();
+        }
+    }
+
+    // The handle is an owned kernel object; transferring it across threads is safe
+    // because no other code owns the same HANDLE value.
+    unsafe impl Send for AuthenticatedPipe {}
+    unsafe impl Sync for AuthenticatedPipe {}
+
+    /// A server-side pipe instance created before the host is launched. The service
+    /// uses `CreateNamedPipeW`, `ConnectNamedPipe`, `GetNamedPipeClientProcessId`,
+    /// and `ImpersonateNamedPipeClient` to authenticate the child before sending the
+    /// real store bootstrap.
+    pub struct ActorPipe {
+        handle: HANDLE,
+        handle_value: Arc<AtomicUsize>,
+    }
+
+    impl ActorPipe {
+        /// Creates a first-instance duplex named pipe with a DACL that allows only the
+        /// captured user SID to connect. The path is the unpredictable per-actor name.
+        pub fn create(pipe_name: &str, user_sid: &UserSid) -> Result<Self, PipeAuthError> {
+            let security = PipeSecurity::for_user(user_sid)?;
+            let name_wide: Vec<u16> = pipe_name.encode_utf16().chain(Some(0)).collect();
+
+            unsafe {
+                let handle = CreateNamedPipeW(
+                    windows::core::PCWSTR(name_wide.as_ptr()),
+                    PIPE_ACCESS_DUPLEX | FILE_FLAGS_AND_ATTRIBUTES(FILE_FLAG_FIRST_PIPE_INSTANCE),
+                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                    1,
+                    MAX_MESSAGE_BYTES as u32,
+                    MAX_MESSAGE_BYTES as u32,
+                    0,
+                    Some(&security.attributes),
+                );
+                if handle.is_invalid() {
+                    return Err(PipeAuthError::PipeUnavailable);
+                }
+
+                let handle_value = Arc::new(AtomicUsize::new(handle.0 as usize));
+                Ok(Self {
+                    handle,
+                    handle_value,
+                })
+            }
+        }
+
+        pub fn raw_handle(&self) -> HANDLE {
+            self.handle
+        }
+
+        pub fn handle_value(&self) -> Arc<AtomicUsize> {
+            self.handle_value.clone()
+        }
+
+        /// Blocks until the launched host connects, then authenticates it via kernel
+        /// identity checks. If any check fails the pipe is closed and the child sees
+        /// EOF on its end. On success the bootstrap is sent and an `AuthenticatedPipe`
+        /// is returned.
+        pub fn accept_and_authenticate(
+            self,
+            expected_pid: u32,
+            expected_sid: &UserSid,
+            expected_session: u32,
+            expected_generation: u64,
+            bootstrap: StorageBootstrap,
+        ) -> Result<AuthenticatedPipe, PipeAuthError> {
+            unsafe {
+                // Wait for the host process to connect.
+                let connect_result = ConnectNamedPipe(self.handle, None);
+                if let Err(error) = connect_result {
+                    let code = error.code().0 as u32;
+                    // ERROR_PIPE_CONNECTED (535) means a client connected before we called
+                    // ConnectNamedPipe; that is acceptable.
+                    if code != 535 {
+                        return Err(PipeAuthError::PipeUnavailable);
+                    }
+                }
+
+                // Kernel-backed client PID check.
+                let mut client_pid = 0u32;
+                GetNamedPipeClientProcessId(self.handle, &mut client_pid)
+                    .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+                if client_pid != expected_pid {
+                    return Err(PipeAuthError::WrongIdentity);
+                }
+
+                // Impersonate the connecting client and read its SID and session.
+                ImpersonateNamedPipeClient(self.handle)
+                    .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+                let token_result = open_thread_token_sid_session();
+                let _ = RevertToSelf();
+                let (client_sid, client_session) =
+                    token_result.map_err(|_| PipeAuthError::AuthenticationFailed)?;
+
+                if client_session != expected_session {
+                    return Err(PipeAuthError::WrongIdentity);
+                }
+                if client_sid != expected_sid.to_wire() {
+                    return Err(PipeAuthError::WrongIdentity);
+                }
+
+                // Wrap the handle in a std::fs::File for length-framed I/O. The handle
+                // is reclaimed with `into_raw_handle` before this function returns.
+                let mut file = std::fs::File::from_raw_handle(self.handle.0 as *mut _);
+
+                // Read the host's authentication request.
+                let mut len_buf = [0u8; 4];
+                file.read_exact(&mut len_buf)
+                    .map_err(|_| PipeAuthError::InvalidMessage)?;
+                let request_len = u32::from_be_bytes(len_buf) as usize;
+                if request_len > MAX_MESSAGE_BYTES {
+                    return Err(PipeAuthError::Oversized);
+                }
+                let mut request_buf = vec![0u8; request_len];
+                file.read_exact(&mut request_buf)
+                    .map_err(|_| PipeAuthError::InvalidMessage)?;
+                let request: StorageRequest =
+                    serde_json::from_slice(&request_buf).map_err(|_| PipeAuthError::InvalidMessage)?;
+                StoragePipeServer::validate_request(
+                    expected_sid,
+                    expected_session,
+                    expected_generation,
+                    &request,
+                )?;
+
+                // Send acceptance.
+                let response = StorageResponse {
+                    accepted: true,
+                    code: "ok".to_string(),
+                };
+                let response_bytes =
+                    serde_json::to_vec(&response).map_err(|_| PipeAuthError::BootstrapFailed)?;
+                file.write_all(&encode_frame(&response_bytes))
+                    .map_err(|_| PipeAuthError::BootstrapFailed)?;
+
+                // Send the bootstrap payload.
+                let mut bootstrap = bootstrap;
+                let bootstrap_bytes =
+                    serde_json::to_vec(&bootstrap).map_err(|_| PipeAuthError::BootstrapFailed)?;
+                file.write_all(&encode_frame(&bootstrap_bytes))
+                    .map_err(|_| PipeAuthError::BootstrapFailed)?;
+                bootstrap.zeroize_key();
+
+                // Reclaim the handle so it stays open for the control channel.
+                let handle = HANDLE(file.into_raw_handle() as *mut _);
+                let _ = self.handle_value.load(Ordering::SeqCst);
+                Ok(AuthenticatedPipe::new(handle))
+            }
+        }
+    }
+
+    impl Drop for ActorPipe {
+        fn drop(&mut self) {
+            if !self.handle.is_invalid() {
+                unsafe {
+                    let _ = CloseHandle(self.handle);
+                }
+                self.handle = HANDLE(std::ptr::null_mut());
+            }
+            self.handle_value.store(0, Ordering::SeqCst);
+        }
+    }
+
+    unsafe impl Send for ActorPipe {}
+    unsafe impl Sync for ActorPipe {}
+
+    /// Builds a SECURITY_ATTRIBUTES block with a DACL allowing only the given user SID
+    /// generic read/write access to the pipe.
+    struct PipeSecurity {
+        #[allow(dead_code)]
+        _sid: Vec<u8>,
+        #[allow(dead_code)]
+        _acl: Vec<u8>,
+        #[allow(dead_code)]
+        _descriptor: Vec<u8>,
+        attributes: windows::Win32::Security::SECURITY_ATTRIBUTES,
+    }
+
+    impl PipeSecurity {
+        fn for_user(user_sid: &UserSid) -> Result<Self, PipeAuthError> {
+            unsafe {
+                let sid_text = user_sid.to_wire();
+                let sid_wide: Vec<u16> = sid_text.encode_utf16().chain(Some(0)).collect();
+                let mut psid = PSID::default();
+                ConvertStringSidToSidW(
+                    windows::core::PCWSTR(sid_wide.as_ptr()),
+                    &mut psid,
+                )
+                .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+
+                let sid_len = windows::Win32::Security::GetLengthSid(psid) as usize;
+                let mut sid = vec![0u8; sid_len];
+                std::ptr::copy_nonoverlapping(psid.0 as *const u8, sid.as_mut_ptr(), sid_len);
+                let _ = LocalFree(Some(HLOCAL(psid.0 as *mut _)));
+                let psid = PSID(sid.as_ptr() as *mut _);
+
+                let acl_size = std::mem::size_of::<ACL>()
+                    + std::mem::size_of::<ACCESS_ALLOWED_ACE>()
+                    - std::mem::size_of::<u32>()
+                    + sid_len;
+                let mut acl = vec![0u8; acl_size];
+                let pacl = acl.as_mut_ptr() as *mut ACL;
+                InitializeAcl(pacl, acl_size as u32, ACL_REVISION)
+                    .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+                AddAccessAllowedAce(pacl, ACL_REVISION, GENERIC_READ | GENERIC_WRITE, psid)
+                    .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+
+                let mut descriptor = vec![0u8; 512];
+                let psd = PSECURITY_DESCRIPTOR(descriptor.as_mut_ptr() as *mut _);
+                InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION_VALUE)
+                    .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+                SetSecurityDescriptorDacl(psd, true, Some(pacl), false)
+                    .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+
+                let attributes = windows::Win32::Security::SECURITY_ATTRIBUTES {
+                    nLength: std::mem::size_of::<windows::Win32::Security::SECURITY_ATTRIBUTES>()
+                        as u32,
+                    lpSecurityDescriptor: psd.0 as *mut c_void,
+                    bInheritHandle: FALSE,
+                };
+
+                Ok(Self {
+                    _sid: sid,
+                    _acl: acl,
+                    _descriptor: descriptor,
+                    attributes,
+                })
+            }
+        }
+    }
+
+    /// Opens the current thread token while impersonating and returns the user SID
+    /// string and token session ID.
+    unsafe fn open_thread_token_sid_session() -> Result<(String, u32), PipeAuthError> {
+        use windows::Win32::{
+            Foundation::LocalFree,
+            Security::{
+                Authorization::ConvertSidToStringSidW, GetTokenInformation, TOKEN_USER,
+                TOKEN_QUERY, TokenSessionId, TokenUser,
+            },
+            System::Threading::GetCurrentThread,
+        };
+
+        let mut token = HANDLE::default();
+        OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, true, &mut token)
+            .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+
+        // SID
+        let mut size = 0u32;
+        let _ = GetTokenInformation(token, TokenUser, None, 0, &mut size);
+        if size == 0 {
+            let _ = CloseHandle(token);
+            return Err(PipeAuthError::AuthenticationFailed);
+        }
+        let mut buffer = vec![0u8; size as usize];
+        GetTokenInformation(
+            token,
+            TokenUser,
+            Some(buffer.as_mut_ptr() as *mut _),
+            size,
+            &mut size,
+        )
+        .map_err(|_| {
+            let _ = CloseHandle(token);
+            PipeAuthError::AuthenticationFailed
+        })?;
+        let user = &*(buffer.as_ptr() as *const TOKEN_USER);
+        let mut string_sid = windows::core::PWSTR::null();
+        ConvertSidToStringSidW(user.User.Sid, &mut string_sid)
+            .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+        let sid = pwstr_to_string(string_sid).map_err(|_| PipeAuthError::AuthenticationFailed)?;
+        let _ = LocalFree(Some(HLOCAL(string_sid.0 as *mut _)));
+
+        // Session ID
+        let mut session = 0u32;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        GetTokenInformation(
+            token,
+            TokenSessionId,
+            Some(&mut session as *mut u32 as *mut _),
+            size,
+            &mut size,
+        )
+        .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+
+        let _ = CloseHandle(token);
+        Ok((sid, session))
+    }
+
+    unsafe fn pwstr_to_string(pwstr: windows::core::PWSTR) -> Result<String, PipeAuthError> {
+        if pwstr.0.is_null() {
+            return Err(PipeAuthError::AuthenticationFailed);
+        }
+        let mut len = 0usize;
+        while *pwstr.0.add(len) != 0 {
+            len += 1;
+        }
+        let slice = std::slice::from_raw_parts(pwstr.0, len);
+        String::from_utf16(slice).map_err(|_| PipeAuthError::AuthenticationFailed)
+    }
+}
+
+#[cfg(windows)]
+pub use windows_pipe::{ActorPipe, AuthenticatedPipe};
+
+#[cfg(not(windows))]
+pub struct ActorPipe;
+
+#[cfg(not(windows))]
+impl ActorPipe {
+    pub fn create(_pipe_name: &str, _user_sid: &UserSid) -> Result<Self, PipeAuthError> {
+        Err(PipeAuthError::PipeUnavailable)
+    }
+
+    pub fn accept_and_authenticate(
+        self,
+        _expected_pid: u32,
+        _expected_sid: &UserSid,
+        _expected_session: u32,
+        _expected_generation: u64,
+        _bootstrap: StorageBootstrap,
+    ) -> Result<AuthenticatedPipe, PipeAuthError> {
+        Err(PipeAuthError::PipeUnavailable)
+    }
+}
+
+#[cfg(not(windows))]
+pub struct AuthenticatedPipe;
+
+#[cfg(not(windows))]
+impl AuthenticatedPipe {
+    pub fn close(&mut self) {}
 }
 
 #[cfg(test)]
