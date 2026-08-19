@@ -34,6 +34,13 @@ pub struct StorageResponse {
     pub code: String,
 }
 
+/// Host-to-service acknowledgement of the selected drive letter. Sent after the host
+/// successfully starts WinFsp so the service health snapshot reports the real letter.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DriveLetterReport {
+    pub drive_letter: char,
+}
+
 /// Service-derived bootstrap payload sent to an authenticated host. This is the only
 /// point at which the real store key, store root, and captured identity cross the
 /// service-to-host boundary. All fields are erased from transient buffers after use.
@@ -186,16 +193,72 @@ impl StoragePipeServer {
     }
 }
 
+/// A created server-side pipe awaiting authentication. Implementations may perform
+/// blocking kernel-backed identity checks; the monitor launches the host before calling
+/// `authenticate` on a dedicated thread.
+pub trait PipeBootstrap: Send {
+    fn authenticate(
+        self: Box<Self>,
+        expected_pid: u32,
+        expected_sid: &UserSid,
+        expected_session: u32,
+        expected_generation: u64,
+        bootstrap: StorageBootstrap,
+    ) -> Result<(AuthenticatedPipe, char), PipeAuthError>;
+}
+
+/// Factory for creating per-actor server-side pipes. The production implementation uses
+/// `CreateNamedPipeW`; source tests inject a fake that returns immediately.
+pub trait PipeFactory: Send + Sync {
+    fn create_pipe(
+        &self,
+        pipe_path: &str,
+        user_sid: &UserSid,
+    ) -> Result<Box<dyn PipeBootstrap>, PipeAuthError>;
+}
+
+/// Production pipe factory backed by a real Windows named pipe.
+pub struct WindowsPipeFactory;
+
+impl PipeFactory for WindowsPipeFactory {
+    fn create_pipe(
+        &self,
+        pipe_path: &str,
+        user_sid: &UserSid,
+    ) -> Result<Box<dyn PipeBootstrap>, PipeAuthError> {
+        Ok(Box::new(ActorPipe::create(pipe_path, user_sid)?))
+    }
+}
+
+#[cfg(windows)]
+impl PipeBootstrap for windows_pipe::ActorPipe {
+    fn authenticate(
+        self: Box<Self>,
+        expected_pid: u32,
+        expected_sid: &UserSid,
+        expected_session: u32,
+        expected_generation: u64,
+        bootstrap: StorageBootstrap,
+    ) -> Result<(AuthenticatedPipe, char), PipeAuthError> {
+        self.accept_and_authenticate(
+            expected_pid,
+            expected_sid,
+            expected_session,
+            expected_generation,
+            bootstrap,
+        )
+    }
+}
+
 #[cfg(windows)]
 mod windows_pipe {
     use super::*;
-    use std::ffi::c_void;
     use std::io::{Read, Write};
     use std::os::windows::io::{FromRawHandle, IntoRawHandle};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use windows::Win32::{
-        Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree, FALSE},
+        Foundation::{CloseHandle, HANDLE, HLOCAL, INVALID_HANDLE_VALUE, LocalFree, FALSE},
         Security::{
             ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, AddAccessAllowedAce, InitializeAcl,
             InitializeSecurityDescriptor, PSID, PSECURITY_DESCRIPTOR, RevertToSelf,
@@ -224,6 +287,12 @@ mod windows_pipe {
     impl AuthenticatedPipe {
         fn new(handle: HANDLE) -> Self {
             Self { handle }
+        }
+
+        /// Creates a dummy authenticated pipe for source tests. The handle is
+        /// `INVALID_HANDLE_VALUE` so the destructor ignores it.
+        pub fn for_test() -> Self {
+            Self::new(INVALID_HANDLE_VALUE)
         }
 
         pub fn close(&mut self) {
@@ -305,7 +374,7 @@ mod windows_pipe {
             expected_session: u32,
             expected_generation: u64,
             bootstrap: StorageBootstrap,
-        ) -> Result<AuthenticatedPipe, PipeAuthError> {
+        ) -> Result<(AuthenticatedPipe, char), PipeAuthError> {
             unsafe {
                 // Wait for the host process to connect.
                 let connect_result = ConnectNamedPipe(self.handle, None);
@@ -383,10 +452,25 @@ mod windows_pipe {
                     .map_err(|_| PipeAuthError::BootstrapFailed)?;
                 bootstrap.zeroize_key();
 
+                // Read the host's drive-letter acknowledgement before reclaiming the handle.
+                let mut ack_len_buf = [0u8; 4];
+                file.read_exact(&mut ack_len_buf)
+                    .map_err(|_| PipeAuthError::InvalidMessage)?;
+                let ack_len = u32::from_be_bytes(ack_len_buf) as usize;
+                if ack_len > MAX_MESSAGE_BYTES {
+                    return Err(PipeAuthError::Oversized);
+                }
+                let mut ack_buf = vec![0u8; ack_len];
+                file.read_exact(&mut ack_buf)
+                    .map_err(|_| PipeAuthError::InvalidMessage)?;
+                let ack: DriveLetterReport =
+                    serde_json::from_slice(&ack_buf).map_err(|_| PipeAuthError::InvalidMessage)?;
+                let drive_letter = ack.drive_letter.to_ascii_uppercase();
+
                 // Reclaim the handle so it stays open for the control channel.
                 let handle = HANDLE(file.into_raw_handle() as *mut _);
                 let _ = self.handle_value.load(Ordering::SeqCst);
-                Ok(AuthenticatedPipe::new(handle))
+                Ok((AuthenticatedPipe::new(handle), drive_letter))
             }
         }
     }
@@ -457,7 +541,7 @@ mod windows_pipe {
                 let attributes = windows::Win32::Security::SECURITY_ATTRIBUTES {
                     nLength: std::mem::size_of::<windows::Win32::Security::SECURITY_ATTRIBUTES>()
                         as u32,
-                    lpSecurityDescriptor: psd.0 as *mut c_void,
+                    lpSecurityDescriptor: psd.0,
                     bInheritHandle: FALSE,
                 };
 
@@ -571,6 +655,10 @@ pub struct AuthenticatedPipe;
 
 #[cfg(not(windows))]
 impl AuthenticatedPipe {
+    pub fn for_test() -> Self {
+        Self
+    }
+
     pub fn close(&mut self) {}
 }
 
