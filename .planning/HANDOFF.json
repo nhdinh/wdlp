@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-18T07:42:11.885Z",
+  "timestamp": "2026-08-19T01:19:00Z",
   "phase": "01",
   "phase_name": "first-encrypted-drive-vertical-slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
@@ -11,29 +11,29 @@
   "completed_tasks": [
     {"id": 1, "name": "Launch one authenticated session host through a real service-owned bootstrap", "status": "done", "commit": "227a692"},
     {"id": 2, "name": "Complete drive collision, drain, cleanup, retry, and restart convergence", "status": "done", "commit": "686729b"},
-    {"id": 3, "name": "Generate and approve 01-24 privilege manifest", "status": "done", "commit": "1b71fe4"}
+    {"id": 3, "name": "Generate and approve 01-24 privilege manifest", "status": "done", "commit": "1b71fe4"},
+    {"id": 3, "name": "Prove the secure session-host lifecycle on real LAB-CLIENT01", "status": "in_progress", "progress": "Console session established and service reconciles; host launch reports success but dlp-drive-host.exe does not remain running. Diagnostic logging added. Need to verify host binary hash and debug host exit/crash."}
   ],
   "remaining_tasks": [
-    {"id": 3, "name": "Prove the secure session-host lifecycle on real LAB-CLIENT01", "status": "in_progress", "progress": "Manifest generated, digest approved and committed; awaiting LAB-CLIENT01 runtime execution and evidence validation"}
+    {"id": 3, "name": "Prove the secure session-host lifecycle on real LAB-CLIENT01", "status": "in_progress"}
   ],
   "blockers": [
-    {"description": "Real LAB-CLIENT01 runtime verification requires physical VM access or orchestration from hungdinh-lt; prior blocker noted LAB-CLIENT01/LAB-DC01 unreachability.", "type": "external", "workaround": "Run Invoke-ServiceSessionSmoke.ps1 locally on LAB-CLIENT01 after manifest approval"}
+    {"description": "dlp-drive-host.exe is not visible after service reports successful session_logon; likely crash, exit, or binary mismatch.", "type": "technical", "workaround": "Verify deployed dlp-drive-host.exe hash matches source build; add host-side logging; check Windows event logs and procmon."},
+    {"description": "Context is at 75% and cannot support deeper debugging in this session.", "type": "external", "workaround": "Pause now and resume in a fresh session."}
   ],
   "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Run tests/windows/Invoke-ServiceSessionSmoke.ps1 -Scenario SecureSessionHostLifecycle on LAB-CLIENT01", "context": "Real LAB-CLIENT01 runtime evidence is required to complete Task 3 and unblock Plan 01-16", "blocking": true}
+    {"action": "Keep LAB-CLIENT01 console signed in as uat-user1 so the active session remains available for debugging.", "context": "Service session reconciliation depends on the console session being WTSActive.", "blocking": true}
   ],
   "decisions": [
-    {"decision": "Recovered and merged stranded 01-24 worktree instead of re-executing from scratch", "rationale": "Worktree contained 900+ lines of correct implementation across session.rs, pipe.rs, dlp-drive-host.rs, and tests; clippy warnings were fixed and all required source tests pass", "phase": "01"},
-    {"decision": "Marked 01-24 SUMMARY.md status as halted rather than complete", "rationale": "Task 3 checkpoint is a designed stop; Plans 01-16 and 01-21 are blocked until it resolves", "phase": "01"},
-    {"decision": "Approved 01-24 privilege manifest digest 9a53eacb73c4498657c2b5cc399b1e0884cacd746a4b2f8cc0636dafae26c197", "rationale": "Authenticated domain-operator approval required before LAB-CLIENT01 mutation per Plan 01-24 frontmatter", "phase": "01"}
+    {"decision": "Added temporary diagnostic logging to service.rs to confirm session enumeration and session_logon outcomes.", "rationale": "The service appeared silent; needed evidence that SessionEvent::Logon was handled and succeeded.", "phase": "01"},
+    {"decision": "Redeployed freshly built dlp-windows-service.exe to LAB-CLIENT01 after discovering deployed binary did not match source.", "rationale": "The deployed binary predated the active_session_ids WTSConnected fix, so session reconciliation would never run.", "phase": "01"}
   ],
   "uncommitted_files": [
     ".planning/STATE.md",
-    ".planning/phases/01-first-encrypted-drive-vertical-slice/01-13-SUMMARY.md",
-    "AGENTS.md",
-    "CLAUDE.md"
+    ".planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md",
+    "crates/dlp-windows-service/src/service.rs"
   ],
-  "next_action": "Verify config/lab.phase1.example.yaml contains the 01-24 privilege manifest and approval entry, then run tests/windows/Invoke-ServiceSessionSmoke.ps1 -Scenario SecureSessionHostLifecycle locally on LAB-CLIENT01.",
-  "context_notes": "Phase 01 has 12 plans; 9 have SUMMARYs and 3 are incomplete (01-16, 01-21, 01-24). Plan 01-24 Tasks 1-2 and the Task 3 manifest approval checkpoint are now complete. The remaining work is entirely the LAB-CLIENT01 runtime execution and evidence publication. STATE.md already reflects halted status at 01-24 Task 3."
+  "next_action": "On LAB-CLIENT01, verify that C:\\Program Files\\DLP\\dlp-drive-host.exe hash matches target/release/dlp-drive-host.exe; if not, redeploy. Then run a manual host launch from an elevated command prompt with the pipe-name/session-id/generation the service logged, and capture the exit code + any console output. Also check Windows Application event log for dlp-drive-host crash entries.",
+  "context_notes": "Plan 01-24 runtime verification is close. The service now correctly enumerates the Active console session and reports session_logon success. The missing piece is why the launched host process does not persist. Possible causes: stale dlp-drive-host binary, CreateProcessAsUserW environment/path issue, host binary crashing on startup, or pipe authentication failing before the process becomes visible. Next session should focus narrowly on host-side diagnostics rather than service logic."
 }

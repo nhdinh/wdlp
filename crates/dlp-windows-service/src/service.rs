@@ -515,11 +515,13 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
             for event in session_rx {
                 match event {
                     SessionEvent::Logon(session_id) => {
-                        if let Err(error) = monitor.session_logon(session_id) {
-                            service_log(
+                        service_log("INFO", format!("handling SessionEvent::Logon({session_id})"));
+                        match monitor.session_logon(session_id) {
+                            Ok(_) => service_log("INFO", format!("session_logon({session_id}) succeeded")),
+                            Err(error) => service_log(
                                 "WARN",
                                 format!("session_logon({session_id}) failed: {error}"),
-                            );
+                            ),
                         }
                     }
                     SessionEvent::Logoff(session_id) => {
@@ -544,7 +546,11 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
 
         // Reconcile any interactive sessions that already existed before the service
         // started (e.g., service restart while a user is signed in).
-        for session_id in active_session_ids() {
+        service_log("INFO", "enumerating active sessions for reconciliation");
+        let active_sessions = active_session_ids();
+        service_log("INFO", format!("found {} active session(s): {:?}", active_sessions.len(), active_sessions));
+        for session_id in active_sessions {
+            service_log("INFO", format!("sending SessionEvent::Logon({session_id})"));
             let _ = session_tx.send(SessionEvent::Logon(session_id));
         }
 
