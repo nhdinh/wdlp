@@ -214,3 +214,11 @@ None — no new external service configuration required. The existing Phase 1 Hy
 ---
 *Phase: 01-first-encrypted-drive-vertical-slice*
 *Completed Task 1: 2026-08-20*
+
+## Self-Check: PASSED
+
+- `.planning/phases/01-first-encrypted-drive-vertical-slice/01-21-SUMMARY.md` exists.
+- `tests/windows/results/phase1-evidence.json` exists.
+- `tests/windows/results/phase1-evidence.sha256` exists.
+- Commits `b61aa67` and `f2475d1` are present in the repository log.
+- Final planning-artifact commit `f2475d1` recorded.
