@@ -5,12 +5,18 @@ param(
     [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$EndpointMachine,
     [Parameter()][ValidateSet('RunAll','CleanServiceRestart','WindowsReboot','ForcedTermination','AbruptLoss')][string]$Scenario = 'RunAll',
     [Parameter()][string]$TestUserPassword = $env:DLP_TEST_USER_PASSWORD,
-    [Parameter()][string]$ResultsDir = (Join-Path $PSScriptRoot 'results'),
+    [Parameter()][string]$ResultsDir = '',
     [Parameter()][string]$DriveLetter = $env:DLP_WINFSP_SMOKE_LETTER
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# $PSScriptRoot can be empty in parameter defaults when invoked through certain
+# callers (e.g., from WSL/bash), so resolve the results directory here.
+if ([string]::IsNullOrWhiteSpace($ResultsDir)) {
+    $ResultsDir = Join-Path $PSScriptRoot 'results'
+}
 
 if ([string]::IsNullOrWhiteSpace($DriveLetter)) { $DriveLetter = 'P' }
 $DriveLetter = $DriveLetter.TrimEnd(':').ToUpperInvariant()
@@ -262,6 +268,9 @@ function Update-EvidenceBundle {
         }
     }
     $list = [System.Collections.Generic.List[object]]::new()
+    if (-not $bundle.PSObject.Properties['abrupt_loss_cases']) {
+        $bundle | Add-Member -NotePropertyName 'abrupt_loss_cases' -NotePropertyValue @() -Force
+    }
     if ($bundle.abrupt_loss_cases) { foreach ($c in $bundle.abrupt_loss_cases) { $list.Add($c) } }
     foreach ($c in $NewCases) { $list.Add($c) }
     $bundle.abrupt_loss_cases = $list
