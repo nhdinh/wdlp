@@ -4,18 +4,18 @@ milestone: v1.0
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 current_plan: 01-21 D-19 failure matrix, evidence sealing, and independent review
-status: paused
-stopped_at: Plan 01-21 Task 1 blocked after harness refactor; P: not mounting on LAB-CLIENT01 despite resolved WinFsp DLL load
-last_updated: "2026-08-20T08:30:00Z"
+status: executing
+stopped_at: Completed Plan 01-21 Task 1; Task 2 pending independent review
+last_updated: "2026-08-20T11:55:00Z"
 last_activity: 2026-08-20
-state_head: c592d333b0510704a5fd837e1a4c4e28e3296e0d
+state_head: b61aa675520c485bdcbf42ec3b5bf692a9f9f3cf
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 17
-  completed_plans: 14
+  completed_plans: 15
 milestone_name: milestone
-last_activity_desc: Completed Plan 01-16; production vertical slice and D-16 through D-18 matrix executed on LAB-CLIENT01.
+last_activity_desc: Completed Plan 01-21 Task 1 D-19 failure matrix on LAB-CLIENT01; all four scenarios pass; Task 2 (final verifier/independent review) pending.
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -52,11 +52,11 @@ Last activity: 2026-08-19
 
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — EXECUTING
 - **Plan:** 12 of 12
-- **Task:** 1 of 2
-- **Status:** Executing Phase 01
-- **Progress:** [██████████] 100% of Plan 01-16
+- **Task:** 2 of 2
+- **Status:** Task 1 complete; Task 2 ready to start
+- **Progress:** [█████░░░░░] 50% of Plan 01-21
 - **Current plan:** 01-21 D-19 failure matrix, evidence sealing, and independent review
-- **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 secure session-host lifecycle and application/operation/size matrix verified.
+- **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 secure session-host lifecycle, application/operation/size matrix, and D-19 failure/recovery matrix verified.
 
 ## Performance Metrics
 
@@ -92,6 +92,7 @@ Last activity: 2026-08-19
 | Phase 01-first-encrypted-drive-vertical-slice P22 | 25m | 2 tasks | 7 files |
 | Phase 01-first-encrypted-drive-vertical-slice P23 | 45m | 3 tasks | 14 files |
 | Phase 01-first-encrypted-drive-vertical-slice P13 | 75min | 3 tasks | 4 files |
+| Phase 01 P21 | 210 | 1 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -121,16 +122,16 @@ Last activity: 2026-08-19
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md
+**Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/01-21-PLAN.md
 
-**Last session:** 2026-08-20T07:18:20.428Z
-**Stopped at:** context exhaustion at 77% (2026-08-20)
+**Last session:** 2026-08-20T11:55:00Z
+**Stopped at:** Completed Plan 01-21 Task 1; Task 2 pending independent review
 
-**Current session:** 2026-08-20T08:30:00Z
-**Resumed at:** /gsd-resume-work — executor worktree; harness refactor committed; P: still not mounting after WinFsp DLL fix.
+**Current session:** 2026-08-20T11:55:00Z
+**Resumed at:** Continuation after context compaction — completed Task 1.
 
-- Last action: Updated HANDOFF.json and STATE.md to pause Plan 01-21 Task 1 and request human decision because dlp-drive-host.exe does not create its named pipe or mount P: in the interactive session.
-- Next action: Wait for human decision on whether to debug/repair production Rust service code and LAB-CLIENT01 infrastructure, or record blocked evidence and exit.
+- Last action: Fixed production Rust service session selection and service/host resilience, reran the D-19 abrupt-loss harness RunAll on LAB-CLIENT01, and verified the evidence bundle.
+- Next action: Implement `scripts/verify-phase1.ps1` per Task 2 and obtain the authenticated independent review/sign-off.
 
 ### Completed Plan 01-23 Evidence
 
@@ -202,4 +203,4 @@ Last activity: 2026-08-19
 
 ### Blockers
 
-- **Plan 01-21 Task 1 blocked** — Harness refactor is committed (6bc049e), `SeBatchLogonRight` granted to `LAB\uat-user1`, and `winfsp-x64.dll` copied next to `dlp-drive-host.exe`. The scheduled-task helper runs protected-drive operations in the interactive console session, but `dlp-drive-host.exe` still does not create its named pipe or mount `P:` even though the service log reports `session_logon(1) succeeded`. The remaining failure appears to require a change to production Rust service code (drive-host/session-token logic) or repair of the LAB-CLIENT01 WinFsp/service infrastructure. Per user instruction, executor is stopping to ask whether to debug/repair or record blocked evidence.
+- None. Plan 01-21 Task 1 is complete. Task 2 (final requirement-indexed verifier and independent review) is pending.
