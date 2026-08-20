@@ -70,7 +70,7 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
-- [ ] 01-24-PLAN.md (Wave 10) — Close the 01-16 blocker with real same-session host launch, authenticated key/bootstrap IPC, retained WinFsp lifetime, safe letter selection, cleanup, restart, and LAB-CLIENT01 proof
+- [x] 01-24-PLAN.md (Wave 10) — Close the 01-16 blocker with real same-session host launch, authenticated key/bootstrap IPC, retained WinFsp lifetime, safe letter selection, cleanup, restart, and LAB-CLIENT01 proof
 
 **Wave 11** *(blocked on Wave 10 completion)*
 

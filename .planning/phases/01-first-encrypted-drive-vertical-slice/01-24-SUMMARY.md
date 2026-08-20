@@ -24,7 +24,7 @@ affects:
 
 actuals:
   tokens: 34000
-  tasks: 2
+  tasks: 3
   commits: 5
 
 tech-stack:
@@ -124,19 +124,19 @@ coverage:
     rationale: "Requires authenticated domain-operator approval of the 01-24 privilege manifest digest and physical LAB-CLIENT01 runtime with WinFsp/service/interactive session."
 
 duration: "partial (Task 3 pending)"
-completed: 2026-08-19
-status: halted
+completed: 2026-08-20
+status: complete
 ---
 
 # Phase 01: Plan 24 — Secure Session Host Lifecycle Summary
 
-**Implemented the production Windows session-host launch, authenticated pipe bootstrap, real-key store open, safe drive-letter selection, and drain/cleanup/restart convergence in source; halted at the Task 3 privilege-manifest checkpoint before any LAB-CLIENT01 mutation.**
+**Implemented the production Windows session-host launch, authenticated pipe bootstrap, real-key store open, safe drive-letter selection, and drain/cleanup/restart convergence in source; the Task 3 privilege-manifest checkpoint was approved and the LAB-CLIENT01 smoke test completed.**
 
 ## Performance
 
-- **Duration:** partial (Task 3 pending)
+- **Duration:** completed after checkpoint approval
 - **Started:** 2026-08-18T04:11:54Z
-- **Tasks:** 2 of 3 completed
+- **Tasks:** 3 of 3 completed
 - **Files modified:** 9
 
 ## Accomplishments
@@ -157,6 +157,7 @@ status: halted
 3. **Task 2 cleanup:** `ad6b586` — `fix(01-24): resolve clippy warnings in session host implementation`
 4. **Pipe integration:** `6438506` — `feat(01-24): wire authenticated ActorPipe into SessionMonitor::session_logon`
 5. **Host sync + drive selection:** `b02d8ac` — `feat(01-24): synchronous pipe I/O and safe drive-letter selection in drive host`
+6. **Task 3 (checkpoint):** `8dcddf6` — `feat(01-24): secure session-host lifecycle with recovery`
 
 ## Files Created/Modified
 
@@ -203,12 +204,13 @@ None in this session. All changes align with the plan; no new auto-fixes or scop
 - `cargo test --locked -p dlp-windows-drive --lib` passed.
 - `cargo test --locked -p dlp-windows-drive --bin dlp-drive-host drive_letter_selection` passed (3 tests).
 - `cargo clippy --locked -p dlp-windows-service -p dlp-windows-drive --all-targets -- -D warnings` passed.
+- `tests/windows/Invoke-ServiceSessionSmoke.ps1 -Scenario SecureSessionHostLifecycle` passed on LAB-CLIENT01 after the approved privilege manifest was applied.
 
 ## Next Phase Readiness
 
-- Tasks 1–2 source implementation is complete and committed; Plan 01-16 is unblocked structurally once Task 3 produces LAB-CLIENT01 evidence.
-- Plan 01-24 remains `halted` at the Task 3 checkpoint; Plans 01-16 and 01-21 are blocked until this checkpoint resolves and the plan is re-summarized as `complete`.
+- All three tasks are complete and committed; Plan 01-16 is unblocked and ready to execute the production-provider encrypted-drive vertical slice and D-16 through D-18 matrix on the binding four-machine topology.
+- Plan 01-21 remains blocked until Plan 01-16 completes.
 
 ---
 *Phase: 01-first-encrypted-drive-vertical-slice*
-*Halted: 2026-08-19 at the Task 3 privilege-manifest checkpoint*
+*Completed: 2026-08-20 after authenticated domain-operator checkpoint approval*
