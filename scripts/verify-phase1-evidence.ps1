@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt', 'LAB-SERVER01', 'LAB-DC01', 'LAB-DC02', 'LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart', 'SignInMount', 'LetterRetrySignOutRestart', 'WinFspIntegrityRecovery', 'SecureSessionHostLifecycle')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('PortableTracer', 'ContractFixtures', 'ContractsAndPrivileges', 'VisualAndReviewFixtures', 'PrivilegeApprovals', 'ServerAuthoritySource', 'ServerEnrollmentSource', 'ServerRouteSource', 'TrustedProvisioningClientSource', 'TrustedProvisioningSource', 'Dc01Tracer', 'Dc01Postgres', 'TrustedProvisioningApproved', 'InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart', 'SignInMount', 'LetterRetrySignOutRestart', 'WinFspIntegrityRecovery', 'SecureSessionHostLifecycle', 'VerticalSlice', 'MatrixEvidence')][string]$Scenario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -304,7 +304,7 @@ function Invoke-WinFspIntegrityRecovery {
     Assert-Phase1 ($mounted -match 'corrupt_authenticated_content_returns_integrity_failure_and_preserves_evidence') 'mounted smoke lacks corrupt content test'
     Assert-Phase1 ($mounted -match 'corrupt_sensitive_metadata_denies_mount_and_preserves_evidence') 'mounted smoke lacks corrupt metadata test'
     Assert-Phase1 ($mounted -match 'backing_store_disk_full_returns_no_space_and_preserves_baseline_hash') 'mounted smoke lacks disk-full test'
-    Assert-Phase1 ($mounted -match 'skip_if_winfsp_unavailable') 'mounted smoke must skip gracefully when WinFsp is absent'
+    Assert-Phase1 ($mounted -match 'try_mount_volume') 'mounted smoke must skip gracefully when WinFsp is absent'
     Assert-Phase1 ($mounted -match 'STATUS_INTEGRITY_FAILURE') 'mounted smoke must reference STATUS_INTEGRITY_FAILURE'
     Assert-Phase1 ($mounted -match 'StorageError::NoSpace') 'mounted smoke must reference StorageError::NoSpace'
 
@@ -364,6 +364,53 @@ function Invoke-SecureSessionHostLifecycle {
     }
 }
 
+function Invoke-VerticalSlice {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'VerticalSlice verifier must run on hungdinh-lt'
+
+    # 01-16 privilege manifest and approval binding
+    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $manifest = @($config.privilege_manifests | Where-Object { $_.plan_id -eq '01-16' })
+    Assert-Phase1 ($manifest.Count -eq 1) '01-16 privilege manifest is missing'
+    Assert-Phase1 ($manifest[0].approval_digest -eq '98294bc196705f27d54365c1f41a1f5b4c4f0d5f1cc9c0f681550d376ac504f8') '01-16 manifest digest mismatch'
+    $approval = @($config.privilege_approvals | Where-Object { $_.plan_id -eq '01-16' })
+    Assert-Phase1 ($approval.Count -eq 1) '01-16 privilege approval is missing'
+    Assert-Phase1 ($approval[0].manifest_digest -eq $manifest[0].approval_digest) '01-16 approval digest does not bind manifest'
+
+    # Source-side contracts that gate the live four-machine run.
+    $runner = Get-Content -LiteralPath (Join-Path $repoRoot 'tests/windows/Invoke-Phase1Matrix.ps1') -Raw
+    Assert-Phase1 ($runner -match 'VerticalSlice' -and $runner -match 'Test-NegativeTrustBoundaries') 'matrix runner lacks vertical slice contracts'
+    foreach ($case in @('wrong_execution_machine', 'wrong_fingerprint', 'dc_cim_disagreement', 'reused_or_racing_token', 'invalid_csr_or_profile', 'revoked_prior_serial', 'wrong_server_identity', 'bad_signed_bundle', 'forged_host_ipc', 'corrupt_ciphertext')) {
+        Assert-Phase1 ($runner -match $case) "matrix runner omits negative-trust case $case"
+    }
+
+    # Evidence produced by the live endpoint tracer run.
+    Publish-LatestEvidence -Pattern 'client01-service-install-*.json' -TargetMachine 'LAB-CLIENT01'
+    Publish-LatestEvidence -Pattern 'client01-tracer-readiness-*.json' -TargetMachine 'LAB-CLIENT01'
+
+    $matrix = Get-Content -LiteralPath $matrixPath -Raw | ConvertFrom-Json
+    foreach ($req in @('SRV-13', 'SRV-14', 'AGT-07')) {
+        $row = @($matrix.requirements | Where-Object { $_.id -eq $req })
+        Assert-Phase1 ($row.Count -eq 1 -and $row[0].status -eq 'pass') "$req matrix row is not pass after vertical slice"
+    }
+}
+
+function Invoke-MatrixEvidence {
+    Assert-Phase1 ($ExecutionMachine -eq 'hungdinh-lt') 'MatrixEvidence verifier must run on hungdinh-lt'
+
+    $manifest = Join-Path $repoRoot 'tests/windows/fixtures/manifest.json'
+    $evidence = Join-Path $repoRoot 'tests/windows/results/phase1-evidence.json'
+    $digest = Join-Path $repoRoot 'tests/windows/results/phase1-evidence.sha256'
+
+    Assert-Phase1 (Test-Path -LiteralPath $manifest) 'D-16/D-17/D-18 fixture manifest is missing'
+    Assert-Phase1 (Test-Path -LiteralPath $evidence) 'matrix evidence bundle is missing'
+    Assert-Phase1 (Test-Path -LiteralPath $digest) 'matrix evidence digest is missing'
+
+    $bundle = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+    Assert-Phase1 ($bundle.schema_version -eq 'phase1-evidence/v1') 'matrix evidence bundle has wrong schema version'
+    Assert-Phase1 ($bundle.cases.Count -gt 0) 'matrix evidence bundle contains no cases'
+    Assert-Phase1 ($bundle.execution_machine -eq 'LAB-CLIENT01') 'matrix evidence must be produced on LAB-CLIENT01'
+}
+
 switch ($Scenario) {
     'PortableTracer' { Invoke-PortableTracer }
     'ContractFixtures' { Invoke-ContractFixtures }
@@ -385,6 +432,8 @@ switch ($Scenario) {
     'LetterRetrySignOutRestart' { Invoke-LetterRetrySignOutRestart }
     'WinFspIntegrityRecovery' { Invoke-WinFspIntegrityRecovery }
     'SecureSessionHostLifecycle' { Invoke-SecureSessionHostLifecycle }
+    'VerticalSlice' { Invoke-VerticalSlice }
+    'MatrixEvidence' { Invoke-MatrixEvidence }
     'PrivilegeApprovals' {
         Invoke-ContractsAndPrivileges
         $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
