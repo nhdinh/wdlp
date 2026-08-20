@@ -1,38 +1,47 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-20T11:55:00.000Z",
+  "timestamp": "2026-08-20T13:45:00.166Z",
   "phase": "01",
   "phase_name": "first-encrypted-drive-vertical-slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
   "plan": 21,
   "task": 2,
   "total_tasks": 2,
-  "status": "resumed",
+  "status": "paused",
   "completed_tasks": [
-    {"id": 1, "name": "Execute restart, reboot, forced-termination, and host-controlled abrupt-loss recovery", "status": "done", "commit": "b61aa67"}
+    {"id": 1, "name": "Execute restart, reboot, forced-termination, and host-controlled abrupt-loss recovery", "status": "done", "commit": "b61aa67"},
+    {"id": 2, "name": "Seal the complete requirement-indexed evidence and independent Phase 1 review", "status": "in_progress", "progress": "verifier implemented; matrix evidence gaps remain"}
   ],
   "remaining_tasks": [
-    {"id": 2, "name": "Seal the complete requirement-indexed evidence and independent Phase 1 review", "status": "not_started"}
+    {"id": 2, "name": "Seal the complete requirement-indexed evidence and independent Phase 1 review", "status": "in_progress"}
   ],
-  "blockers": [],
-  "async_jobs": [
-    {"agent_id": "ac538d7139d884948", "role": "gsd-executor", "isolation": "worktree", "plan": "01-21", "task": 1, "status": "completed", "started_at": "2026-08-20T07:19:00Z", "description": "Fix production Rust service session selection and service/host resilience, run D-19 failure/recovery harness RunAll on LAB-CLIENT01, and verify evidence bundle."}
+  "blockers": [
+    {"description": "20 of 30 required Phase 1 requirements in evidence/phase1/requirement-matrix.yaml are still unverified with no current_evidence_id.", "type": "technical", "workaround": "Backfill from existing evidence manifests or rerun prior plan evidence collection."},
+    {"description": "All 7 success criteria and all 50 D-01..D-50 decisions are unverified.", "type": "technical", "workaround": "Backfill from existing evidence manifests or rerun prior plan evidence collection."},
+    {"description": "No authenticated independent verifier identity has been supplied.", "type": "human_action", "workaround": "Set DLP_INDEPENDENT_VERIFIER_NAME and have the independent verifier sign the D-48 record."}
   ],
+  "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Provide an authenticated independent verifier to review the complete Phase 1 requirement matrix and sign the D-48 record.", "context": "Task 1 evidence is hash-sealed and verified. Task 2 requires implementing scripts/verify-phase1.ps1 and obtaining the independent review before Phase 1 can pass.", "blocking": true}
+    {"action": "Provide an authenticated independent verifier identity (set DLP_INDEPENDENT_VERIFIER_NAME) to review the complete Phase 1 requirement matrix and sign the D-48 record.", "context": "Task 1 evidence is hash-sealed and verified. Task 2 verifier is implemented. Phase 1 exit is blocked by missing matrix evidence and pending independent review.", "blocking": true}
   ],
   "decisions": [
     {"decision": "Fixed production service to launch dlp-drive-host only in real interactive console sessions.", "rationale": "Launching in session 0 left the drive invisible to the logged-on user; filtering WTS sessions to 'console' or a non-empty username places the host in session 1.", "phase": "01"},
     {"decision": "Made the service resilient to configuration verifier and transport failures.", "rationale": "Offline enforcement is a must-have; a rejected verifier or unavailable transport must not stop the service loop.", "phase": "01"},
     {"decision": "Added session-monitor health polling to relaunch the drive host after unexpected exit.", "rationale": "The ForcedTermination scenario requires the service to recover from host process death without manual intervention.", "phase": "01"},
     {"decision": "Ran protected-drive verification commands via Register-ScheduledTask -LogonType Interactive.", "rationale": "PSRemoting sessions are session-specific and cannot see per-user mapped drives; the interactive console session can see P:.", "phase": "01"},
-    {"decision": "Set LAB-CLIENT01 auto-logon DefaultDomainName to lab.local.", "rationale": "Win32_ComputerSystem.Domain returns the DNS domain (lab.local), which must match the registry value for Test-AutoLogon to pass.", "phase": "01"}
+    {"decision": "Set LAB-CLIENT01 auto-logon DefaultDomainName to lab.local.", "rationale": "Win32_ComputerSystem.Domain returns the DNS domain (lab.local), which must match the registry value for Test-AutoLogon to pass.", "phase": "01"},
+    {"decision": "Implemented scripts/verify-phase1.ps1 as the strict FinalGate verifier per Task 2.", "rationale": "The verifier must fail closed on any missing, failed, stale, deviated, inaccessible, hash-mismatched, skewed, unsigned, unsanitized, unreviewed, or unretained required row.", "phase": "01"},
+    {"decision": "Aligned config/lab.phase1.example.yaml machine_roles.hungdinh-lt.role with the evidence schema and lab scripts.", "rationale": "The rest of the project uses developer_orchestrator; developer_host caused privilege-manifest validation failures.", "phase": "01"}
   ],
   "uncommitted_files": [
     ".planning/STATE.md",
     ".planning/HANDOFF.json",
-    ".planning/phases/01-first-encrypted-drive-vertical-slice/01-21-SUMMARY.md"
+    ".planning/phases/01-first-encrypted-drive-vertical-slice/01-21-SUMMARY.md",
+    ".planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md",
+    "scripts/verify-phase1.ps1",
+    "config/lab.phase1.example.yaml",
+    "tests/windows/results/phase1-matrix.sha256"
   ],
-  "next_action": "Resume Plan 01-21 Task 2: implement scripts/verify-phase1.ps1 and coordinate independent review/sign-off.",
-  "context_notes": "Plan 01-21 Task 1 is complete. The D-19 abrupt-loss harness RunAll passed on LAB-CLIENT01 (CleanServiceRestart, WindowsReboot, ForcedTerminationDuringActiveWrite, HostControlledAbruptLoss). The evidence bundle was verified with scripts/verify-phase1-evidence.ps1 -Scenario MatrixEvidence because AbruptLossRecovery is not a valid scenario in that script."
+  "next_action": "Backfill evidence for the 20 unverified required Phase 1 requirements, success criteria, and D-01..D-50 decisions; then obtain the authenticated independent review/sign-off.",
+  "context_notes": "Plan 01-21 Task 1 is complete. Task 2 verifier is implemented and produces a detailed gap report. Current matrix digest: c169e8a2d0680119fc90c3e847df014dd12b5b1513388917bfac5de5cf2734a2. Phase 1 FinalGate fails because 20 requirements, 7 success criteria, and 50 decisions remain unverified."
 }
