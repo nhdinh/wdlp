@@ -4,9 +4,9 @@ milestone: v1.0
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 current_plan: 01-21 D-19 failure matrix, evidence sealing, and independent review
-status: executing
-stopped_at: context exhaustion at 77% (2026-08-20)
-last_updated: "2026-08-20T08:02:12Z"
+status: paused
+stopped_at: Plan 01-21 Task 1 blocked after harness refactor; P: not mounting on LAB-CLIENT01 despite resolved WinFsp DLL load
+last_updated: "2026-08-20T08:30:00Z"
 last_activity: 2026-08-20
 state_head: c592d333b0510704a5fd837e1a4c4e28e3296e0d
 progress:
@@ -126,11 +126,11 @@ Last activity: 2026-08-19
 **Last session:** 2026-08-20T07:18:20.428Z
 **Stopped at:** context exhaustion at 77% (2026-08-20)
 
-**Current session:** 2026-08-20T08:02:12Z
-**Resumed at:** /gsd-resume-work — executor worktree; confirmed `$env:DLP_TEST_USER_PASSWORD` is set; first harness run failed because PSRemoting cannot see the per-user P: drive even as `LAB\uat-user1`.
+**Current session:** 2026-08-20T08:30:00Z
+**Resumed at:** /gsd-resume-work — executor worktree; harness refactor committed; P: still not mounting after WinFsp DLL fix.
 
-- Last action: Proved via a temporary scheduled task that P: is visible only inside the interactive console session; PSRemoting sessions see only `C:\`.
-- Next action: Refactor `tests/windows/Invoke-AbruptLossHarness.ps1` so protected-drive file operations run through a scheduled-task helper in the interactive session, then rerun the harness.
+- Last action: Updated HANDOFF.json and STATE.md to pause Plan 01-21 Task 1 and request human decision because dlp-drive-host.exe does not create its named pipe or mount P: in the interactive session.
+- Next action: Wait for human decision on whether to debug/repair production Rust service code and LAB-CLIENT01 infrastructure, or record blocked evidence and exit.
 
 ### Completed Plan 01-23 Evidence
 
@@ -202,4 +202,4 @@ Last activity: 2026-08-19
 
 ### Blockers
 
-- **Plan 01-21 Task 1 blocked** — `$env:DLP_TEST_USER_PASSWORD` is now set, but `Invoke-AbruptLossHarness.ps1` uses `Invoke-TestCommand` / PSRemoting for protected-drive operations, and PSRemoting sessions cannot see the per-user P: drive even when authenticated as `LAB\uat-user1`. The harness must be refactored to run drive operations through scheduled tasks in the interactive console session (session 4).
+- **Plan 01-21 Task 1 blocked** — Harness refactor is committed (6bc049e), `SeBatchLogonRight` granted to `LAB\uat-user1`, and `winfsp-x64.dll` copied next to `dlp-drive-host.exe`. The scheduled-task helper runs protected-drive operations in the interactive console session, but `dlp-drive-host.exe` still does not create its named pipe or mount `P:` even though the service log reports `session_logon(1) succeeded`. The remaining failure appears to require a change to production Rust service code (drive-host/session-token logic) or repair of the LAB-CLIENT01 WinFsp/service infrastructure. Per user instruction, executor is stopping to ask whether to debug/repair or record blocked evidence.
