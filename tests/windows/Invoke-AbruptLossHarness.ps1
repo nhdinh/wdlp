@@ -65,6 +65,177 @@ function Invoke-AdminCommand {
     Invoke-Command -VMName $VMName -Credential $cred -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
 }
 
+# Runs a PowerShell script as the specified interactive user via a temporary
+# scheduled task. PowerShell remoting sessions cannot see per-user mapped drives
+# (e.g., P:), so drive-level operations must execute inside the console session.
+function Invoke-InteractiveUserCommand {
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$UserName,
+        [Parameter(Mandatory)][string]$ScriptText,
+        [Parameter()][hashtable]$Arguments = @{},
+        [Parameter()][int]$TimeoutSeconds = 120,
+        [Parameter()][switch]$NoWait
+    )
+    $jobId = [guid]::NewGuid().ToString()
+    $scriptPath = "C:\dlp\abrupt-loss-job-$jobId.ps1"
+    $resultPath = "C:\dlp\abrupt-loss-job-$jobId.json"
+    $xmlPath = "C:\dlp\abrupt-loss-job-$jobId.xml"
+    $taskName = "DLP_AbruptLoss_$jobId"
+
+    $handle = @{
+        VMName = $VMName
+        UserName = $UserName
+        JobId = $jobId
+        TaskName = $taskName
+        ScriptPath = $scriptPath
+        ResultPath = $resultPath
+        XmlPath = $xmlPath
+    }
+
+    $scriptBytes = [System.Text.Encoding]::UTF8.GetBytes($ScriptText)
+    $scriptB64 = [System.Convert]::ToBase64String($scriptBytes)
+    $argsJson = $Arguments | ConvertTo-Json -Depth 20
+    $argsBytes = [System.Text.Encoding]::UTF8.GetBytes($argsJson)
+    $argsB64 = [System.Convert]::ToBase64String($argsBytes)
+
+    # Generated script runs in the interactive user session. It decodes the
+    # embedded script and arguments, executes them, and writes a structured
+    # result file that the harness can poll via an admin command.
+    $generatedScript = @"
+`$ErrorActionPreference = 'Stop'
+`$result = [ordered]@{
+    success = `$false
+    value = `$null
+    error = `$null
+    user = '$UserName'
+    observed_utc = (Get-Date).ToUniversalTime().ToString('o')
+}
+try {
+    `$argsJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$argsB64'))
+    `$argsObj = `$argsJson | ConvertFrom-Json
+    `$argTable = @{}
+    if (`$argsObj) {
+        `$argsObj.PSObject.Properties | ForEach-Object { `$argTable[`$_.Name] = `$_.Value }
+    }
+    `$inner = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$scriptB64'))
+    `$sb = [scriptblock]::Create(`$inner)
+    `$result.value = & `$sb @argTable
+    `$result.success = `$true
+} catch {
+    `$result.error = `$_.Exception.Message
+}
+[System.IO.File]::WriteAllText('$resultPath', (`$result | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding(`$false)))
+"@
+
+    $timeLimit = "PT${TimeoutSeconds}S"
+    $xml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>DLP Abrupt Loss interactive job $jobId</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <RegistrationTrigger>
+      <Enabled>true</Enabled>
+    </RegistrationTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>$UserName</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>$timeLimit</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>powershell.exe</Command>
+      <Arguments>-NoProfile -ExecutionPolicy Bypass -File $scriptPath</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"@
+
+    Invoke-AdminCommand -VMName $VMName -ScriptBlock {
+        param($ScriptContent, $ScriptPath, $XmlContent, $XmlPath, $TaskName, $UserName, $Password)
+        New-Item -ItemType Directory -Force -Path 'C:\dlp' | Out-Null
+        [System.IO.File]::WriteAllText($ScriptPath, $ScriptContent, (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($XmlPath, $XmlContent, (New-Object System.Text.UTF8Encoding($false)))
+        $output = schtasks /Create /F /TN $TaskName /XML $XmlPath /RU $UserName /RP $Password 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "schtasks /Create failed: $output" }
+    } -ArgumentList @($generatedScript, $scriptPath, $xml, $xmlPath, $taskName, $UserName, $TestUserPassword)
+
+    Invoke-AdminCommand -VMName $VMName -ScriptBlock {
+        param($TaskName)
+        $output = schtasks /Run /TN $TaskName 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "schtasks /Run failed: $output" }
+    } -ArgumentList @($taskName)
+
+    if ($NoWait) { return $handle }
+
+    try {
+        $value = Receive-InteractiveUserCommand -Handle $handle -TimeoutSeconds $TimeoutSeconds
+        return $value
+    } finally {
+        Remove-InteractiveUserCommandHandle -Handle $handle
+    }
+}
+
+function Receive-InteractiveUserCommand {
+    param(
+        [Parameter(Mandatory)][hashtable]$Handle,
+        [Parameter()][int]$TimeoutSeconds = 120
+    )
+    $result = $null
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $result = Invoke-AdminCommand -VMName $Handle.VMName -ScriptBlock {
+            param($Path)
+            if (Test-Path -LiteralPath $Path) {
+                return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+            }
+            return $null
+        } -ArgumentList @($Handle.ResultPath)
+        if ($result) { break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $result) { throw "InteractiveUserCommand timed out after ${TimeoutSeconds}s for job $($Handle.JobId)" }
+    if (-not $result.success) { throw "InteractiveUserCommand failed for job $($Handle.JobId): $($result.error)" }
+    return $result.value
+}
+
+function Remove-InteractiveUserCommandHandle {
+    param([Parameter(Mandatory)][hashtable]$Handle)
+    try {
+        Invoke-AdminCommand -VMName $Handle.VMName -ScriptBlock {
+            param($TaskName, $ScriptPath, $ResultPath, $XmlPath)
+            schtasks /Delete /F /TN $TaskName | Out-Null
+            if (Test-Path -LiteralPath $ScriptPath) { Remove-Item -LiteralPath $ScriptPath -Force }
+            if (Test-Path -LiteralPath $ResultPath) { Remove-Item -LiteralPath $ResultPath -Force }
+            if (Test-Path -LiteralPath $XmlPath) { Remove-Item -LiteralPath $XmlPath -Force }
+        } -ArgumentList @($Handle.TaskName, $Handle.ScriptPath, $Handle.ResultPath, $Handle.XmlPath) -ErrorAction SilentlyContinue
+    } catch { }
+}
+
 function Invoke-TestCommand {
     param(
         [Parameter(Mandatory)][string]$VMName,
@@ -156,24 +327,24 @@ function Get-FileHashHex(
     [Parameter(Mandatory)][string]$UserName,
     [Parameter(Mandatory)][string]$Path
 ) {
-    Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($Path)
-        if (-not (Test-Path -LiteralPath $Path)) { return $null }
-        $sha = [System.Security.Cryptography.SHA256]::Create()
-        try {
-            $bytes = [System.IO.File]::ReadAllBytes($Path)
-            return ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
-        } finally { $sha.Dispose() }
-    } -ArgumentList @($Path)
+    Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
+param($Path)
+if (-not (Test-Path -LiteralPath $Path)) { return $null }
+$sha = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+} finally { $sha.Dispose() }
+'@ -Arguments @{ Path = $Path }
 }
 
 function Initialize-MarkerDirectory([Parameter(Mandatory)][string]$UserName) {
-    Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($MarkerRoot)
-        if (-not (Test-Path -LiteralPath $MarkerRoot)) {
-            New-Item -ItemType Directory -Force -Path $MarkerRoot | Out-Null
-        }
-    } -ArgumentList @($markerRoot)
+    Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
+param($MarkerRoot)
+if (-not (Test-Path -LiteralPath $MarkerRoot)) {
+    New-Item -ItemType Directory -Force -Path $MarkerRoot | Out-Null
+}
+'@ -Arguments @{ MarkerRoot = $markerRoot }
 }
 
 function New-MarkerContent([int]$LengthBytes = 64) {
@@ -189,10 +360,10 @@ function Write-MarkerFile {
         [Parameter(Mandatory)][string]$Content
     )
     $path = Join-Path $markerRoot $Name
-    Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($Path, $Content)
-        [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding($false)))
-    } -ArgumentList @($path, $Content)
+    Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
+param($Path, $Content)
+[System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding($false)))
+'@ -Arguments @{ Path = $path; Content = $Content }
     return $path
 }
 
@@ -202,11 +373,11 @@ function Read-MarkerFile {
         [Parameter(Mandatory)][string]$Name
     )
     $path = Join-Path $markerRoot $Name
-    Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($Path)
-        if (-not (Test-Path -LiteralPath $Path)) { return $null }
-        return [System.IO.File]::ReadAllText($Path, (New-Object System.Text.UTF8Encoding($false)))
-    } -ArgumentList @($path)
+    Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
+param($Path)
+if (-not (Test-Path -LiteralPath $Path)) { return $null }
+return [System.IO.File]::ReadAllText($Path, (New-Object System.Text.UTF8Encoding($false)))
+'@ -Arguments @{ Path = $path }
 }
 
 function Remove-MarkerFile {
@@ -215,10 +386,10 @@ function Remove-MarkerFile {
         [Parameter(Mandatory)][string]$Name
     )
     $path = Join-Path $markerRoot $Name
-    Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($Path)
-        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
-    } -ArgumentList @($path)
+    Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
+param($Path)
+if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
+'@ -Arguments @{ Path = $path }
 }
 
 function New-Case {
@@ -361,18 +532,18 @@ function Invoke-WindowsReboot {
   <Actions Context="Author">
     <Exec>
       <Command>powershell.exe</Command>
-      <Arguments>-NoProfile -ExecutionPolicy Bypass -Command "&amp; { `$content = Get-Content -LiteralPath '$markerRoot\$markerName' -Raw; `$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath '$markerRoot\$markerName').Hash.ToLowerInvariant(); `$result = [ordered]@{ status = 'pass'; content_hash = `$hash; observed_utc = (Get-Date).ToUniversalTime().ToString('o') }; New-Item -ItemType Directory -Force -Path 'C:\dlp' | Out-Null; [System.IO.File]::WriteAllText('$rebootResultPath', (`$result | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding(`$false))) }"</Arguments>
+      <Arguments>-NoProfile -ExecutionPolicy Bypass -Command "&amp; { `$content = Get-Content -LiteralPath '$markerRoot\$markerName' -Raw; `$bytes = [System.IO.File]::ReadAllBytes('$markerRoot\$markerName'); `$sha = [System.Security.Cryptography.SHA256]::Create(); try { `$hash = ([System.BitConverter]::ToString(`$sha.ComputeHash(`$bytes)) -replace '-', '').ToLowerInvariant() } finally { `$sha.Dispose() }; `$result = [ordered]@{ status = 'pass'; content_hash = `$hash; observed_utc = (Get-Date).ToUniversalTime().ToString('o') }; New-Item -ItemType Directory -Force -Path 'C:\dlp' | Out-Null; [System.IO.File]::WriteAllText('$rebootResultPath', (`$result | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding(`$false))) }"</Arguments>
     </Exec>
   </Actions>
 </Task>
 "@
     $taskPath = 'C:\dlp\abrupt-loss-reboot-task.xml'
     Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
-        param($Xml, $Path)
+        param($Xml, $Path, $UserName, $Password)
         [System.IO.File]::WriteAllText($Path, $Xml, (New-Object System.Text.UTF8Encoding($false)))
-        schtasks /Create /F /TN 'DLP_AbruptLoss_RebootVerify' /XML $Path | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'schtasks_create_failed' }
-    } -ArgumentList @($taskXml, $taskPath)
+        $output = schtasks /Create /F /TN 'DLP_AbruptLoss_RebootVerify' /XML $Path /RU $UserName /RP $Password 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "schtasks create failed: $output" }
+    } -ArgumentList @($taskXml, $taskPath, $UserName, $TestUserPassword)
 
     # Initiate in-guest reboot.
     $rebootUtc = (Get-Date).ToUniversalTime().ToString('o')
@@ -422,75 +593,81 @@ function Invoke-ForcedTermination {
     $newPath = Join-Path $markerRoot $newName
     $chunkSize = 1MB
     $targetSize = 100MB
-    # Start a background writer in the user session and signal when mid-write.
-    $writerJob = Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($Path, $Size, $Chunk, $Signal)
-        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-        $buffer = [System.Byte[]]::new($Chunk)
-        $stream = [System.IO.File]::OpenWrite($Path)
-        try {
-            $written = 0
-            while ($written -lt $Size) {
-                $rng.GetBytes($buffer)
-                $toWrite = [Math]::Min($Chunk, $Size - $written)
-                $stream.Write($buffer, 0, $toWrite)
-                $stream.Flush()
-                $written += $toWrite
-                if ($written -gt ($Size / 2) -and -not (Test-Path -LiteralPath $Signal)) {
-                    New-Item -ItemType File -Path $Signal -Force | Out-Null
-                }
-            }
-        } finally { $stream.Dispose(); $rng.Dispose() }
-        return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
-    } -ArgumentList @($newPath, $targetSize, $chunkSize, $barrierPath)
 
-    # Wait for the barrier signal from the writer.
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($sw.Elapsed.TotalSeconds -lt 60) {
-        $signaled = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+    # Start a background writer in the interactive user session and signal when mid-write.
+    $writerScript = @'
+param($Path, $Size, $Chunk, $Signal)
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$buffer = [System.Byte[]]::new($Chunk)
+$stream = [System.IO.File]::OpenWrite($Path)
+try {
+    $written = 0
+    while ($written -lt $Size) {
+        $rng.GetBytes($buffer)
+        $toWrite = [Math]::Min($Chunk, $Size - $written)
+        $stream.Write($buffer, 0, $toWrite)
+        $stream.Flush()
+        $written += $toWrite
+        if ($written -gt ($Size / 2) -and -not (Test-Path -LiteralPath $Signal)) {
+            New-Item -ItemType File -Path $Signal -Force | Out-Null
+        }
+    }
+} finally { $stream.Dispose(); $rng.Dispose() }
+'@
+    $writerHandle = Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText $writerScript -Arguments @{ Path = $newPath; Size = $targetSize; Chunk = $chunkSize; Signal = $barrierPath } -TimeoutSeconds 300 -NoWait
+
+    try {
+        # Wait for the barrier signal from the writer.
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $signaled = $false
+        while ($sw.Elapsed.TotalSeconds -lt 60) {
+            $signaled = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+                param($Path)
+                return Test-Path -LiteralPath $Path
+            } -ArgumentList @($barrierPath)
+            if ($signaled) { break }
+            Start-Sleep -Milliseconds 200
+        }
+
+        # Kill the drive host while the writer is active.
+        Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+            param($HostName)
+            $proc = Get-Process -Name $HostName -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($proc) { $proc.Kill(); $proc.WaitForExit(5000) }
+        } -ArgumentList @($hostProcessName)
+
+        # Clean up the barrier and wait for service to relaunch host.
+        Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
             param($Path)
-            return Test-Path -LiteralPath $Path
+            if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
         } -ArgumentList @($barrierPath)
-        if ($signaled) { break }
-        Start-Sleep -Milliseconds 200
-    }
 
-    # Kill the drive host while the writer is active.
-    Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
-        param($HostName)
-        $proc = Get-Process -Name $HostName -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($proc) { $proc.Kill(); $proc.WaitForExit(5000) }
-    } -ArgumentList @($hostProcessName)
+        Start-Sleep -Seconds 2
+        if (-not (Wait-DlpServiceAndHost -TimeoutSeconds 120)) {
+            return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'service/host did not recover after forced termination'
+        }
 
-    # Clean up the barrier and wait for service to relaunch host.
-    Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
-        param($Path)
-        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
-    } -ArgumentList @($barrierPath)
+        # The writer job result may have completed or errored; we only care about filesystem state.
+        $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
+        $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+        $newExists = Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
+param($Path)
+return Test-Path -LiteralPath $Path
+'@ -Arguments @{ Path = $newPath }
 
-    Start-Sleep -Seconds 2
-    if (-not (Wait-DlpServiceAndHost -TimeoutSeconds 120)) {
-        return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'service/host did not recover after forced termination'
+        if ($oldReadHash -ne $oldHash) {
+            return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'pre-existing marker was corrupted' -Details @{ old_hash_expected = $oldHash; old_hash_actual = $oldReadHash }
+        }
+        if ($newExists -and $null -ne $newHash -and $newHash -ne $oldHash) {
+            return New-Case -Scenario $scenarioName -Status 'pass' -Rationale 'new-complete file present; old-complete marker preserved; no mixed/partial file observed' -Details @{ old_hash = $oldHash; new_hash = $newHash }
+        }
+        if (-not $newExists) {
+            return New-Case -Scenario $scenarioName -Status 'pass' -Rationale 'new file was not committed; old-complete marker preserved' -Details @{ old_hash = $oldHash }
+        }
+        return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'unrecognized partial or mixed state' -Details @{ old_hash = $oldHash; new_hash = $newHash; new_exists = $newExists }
+    } finally {
+        Remove-InteractiveUserCommandHandle -Handle $writerHandle
     }
-
-    # The writer job result may have completed or errored; we only care about filesystem state.
-    $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
-    $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
-    $newExists = Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($Path)
-        return Test-Path -LiteralPath $Path
-    } -ArgumentList @($newPath)
-
-    if ($oldReadHash -ne $oldHash) {
-        return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'pre-existing marker was corrupted' -Details @{ old_hash_expected = $oldHash; old_hash_actual = $oldReadHash }
-    }
-    if ($newExists -and $null -ne $newHash -and $newHash -ne $oldHash) {
-        return New-Case -Scenario $scenarioName -Status 'pass' -Rationale 'new-complete file present; old-complete marker preserved; no mixed/partial file observed' -Details @{ old_hash = $oldHash; new_hash = $newHash }
-    }
-    if (-not $newExists) {
-        return New-Case -Scenario $scenarioName -Status 'pass' -Rationale 'new file was not committed; old-complete marker preserved' -Details @{ old_hash = $oldHash }
-    }
-    return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'unrecognized partial or mixed state' -Details @{ old_hash = $oldHash; new_hash = $newHash; new_exists = $newExists }
 }
 
 function Invoke-AbruptLoss {
@@ -508,99 +685,105 @@ function Invoke-AbruptLoss {
     $targetSize = 100MB
 
     # Launch a user-session writer that signals when mid-write.
-    Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($Path, $Size, $Chunk, $Signal)
-        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-        $buffer = [System.Byte[]]::new($Chunk)
-        $stream = [System.IO.File]::OpenWrite($Path)
-        try {
-            $written = 0
-            while ($written -lt $Size) {
-                $rng.GetBytes($buffer)
-                $toWrite = [Math]::Min($Chunk, $Size - $written)
-                $stream.Write($buffer, 0, $toWrite)
-                $stream.Flush()
-                $written += $toWrite
-                if ($written -gt ($Size / 2) -and -not (Test-Path -LiteralPath $Signal)) {
-                    New-Item -ItemType File -Path $Signal -Force | Out-Null
+    $writerScript = @'
+param($Path, $Size, $Chunk, $Signal)
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$buffer = [System.Byte[]]::new($Chunk)
+$stream = [System.IO.File]::OpenWrite($Path)
+try {
+    $written = 0
+    while ($written -lt $Size) {
+        $rng.GetBytes($buffer)
+        $toWrite = [Math]::Min($Chunk, $Size - $written)
+        $stream.Write($buffer, 0, $toWrite)
+        $stream.Flush()
+        $written += $toWrite
+        if ($written -gt ($Size / 2) -and -not (Test-Path -LiteralPath $Signal)) {
+            New-Item -ItemType File -Path $Signal -Force | Out-Null
+        }
+    }
+} finally { $stream.Dispose(); $rng.Dispose() }
+'@
+    $writerHandle = Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText $writerScript -Arguments @{ Path = $newPath; Size = $targetSize; Chunk = $chunkSize; Signal = $barrierPath } -TimeoutSeconds 300 -NoWait
+
+    try {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $signaled = $false
+        while ($sw.Elapsed.TotalSeconds -lt 60) {
+            $signaled = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+                param($Path)
+                return Test-Path -LiteralPath $Path
+            } -ArgumentList @($barrierPath)
+            if ($signaled) { break }
+            Start-Sleep -Milliseconds 200
+        }
+        Assert-AbruptLossHarness $signaled 'abrupt_loss_barrier_not_signaled'
+
+        $hostCommandUtc = (Get-Date).ToUniversalTime().ToString('o')
+        Stop-VM -Name $EndpointMachine -TurnOff -Force
+        $hostCommand = "Stop-VM -Name $EndpointMachine -TurnOff -Force"
+
+        # Wait for off and confirm no graceful shutdown event.
+        $off = $false
+        $graceful = $false
+        $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($sw2.Elapsed.TotalSeconds -lt 60) {
+            $state = (Get-VM -Name $EndpointMachine).State
+            if ($state -eq 'Off') { $off = $true; break }
+            Start-Sleep -Seconds 1
+        }
+
+        if ($off) {
+            $graceful = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+                # This command will fail while VM is off; a graceful event would have been logged before power off.
+                return $false
+            } -ErrorAction SilentlyContinue
+        }
+
+        Start-VM -Name $EndpointMachine
+
+        # Wait for VM to be reachable and for the active session to return (requires auto-logon).
+        $reachable = $false
+        $sw3 = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($sw3.Elapsed.TotalMinutes -lt 10) {
+            try {
+                $session = Get-InteractiveSession
+                if ($session -and $session.UserName -eq $UserName) {
+                    $reachable = $true
+                    break
                 }
-            }
-        } finally { $stream.Dispose(); $rng.Dispose() }
-    } -ArgumentList @($newPath, $targetSize, $chunkSize, $barrierPath)
+            } catch { }
+            Start-Sleep -Seconds 10
+        }
 
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($sw.Elapsed.TotalSeconds -lt 60) {
-        $signaled = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
-            param($Path)
-            return Test-Path -LiteralPath $Path
-        } -ArgumentList @($barrierPath)
-        if ($signaled) { break }
-        Start-Sleep -Milliseconds 200
+        if (-not $reachable) {
+            return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'VM did not resume an interactive session after abrupt loss; verify auto-logon' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; graceful_shutdown_observed = $graceful }
+        }
+
+        if (-not (Wait-DlpServiceAndHost -TimeoutSeconds 120)) {
+            return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'service/host did not recover after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc }
+        }
+
+        $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+        $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
+        $newExists = Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
+param($Path)
+return Test-Path -LiteralPath $Path
+'@ -Arguments @{ Path = $newPath }
+
+        if ($oldReadHash -ne $oldHash) {
+            return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'pre-existing marker was corrupted after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; old_hash_expected = $oldHash; old_hash_actual = $oldReadHash }
+        }
+        if ($newExists -and $null -ne $newHash -and $newHash -ne $oldHash) {
+            return New-Case -Scenario $scenarioName -Status 'pass' -Rationale 'host hard-off recovery preserved old-complete marker and exposed only new-complete file' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; graceful_shutdown_observed = $graceful; old_hash = $oldHash; new_hash = $newHash }
+        }
+        if (-not $newExists) {
+            return New-Case -Scenario $scenarioName -Status 'pass' -Rationale 'host hard-off recovery preserved old-complete marker; new file was not committed' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; graceful_shutdown_observed = $graceful; old_hash = $oldHash }
+        }
+        return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'unrecognized partial or mixed state after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; graceful_shutdown_observed = $graceful; old_hash = $oldHash; new_hash = $newHash; new_exists = $newExists }
+    } finally {
+        Remove-InteractiveUserCommandHandle -Handle $writerHandle
     }
-    Assert-AbruptLossHarness $signaled 'abrupt_loss_barrier_not_signaled'
-
-    $hostCommandUtc = (Get-Date).ToUniversalTime().ToString('o')
-    Stop-VM -Name $EndpointMachine -TurnOff -Force
-    $hostCommand = "Stop-VM -Name $EndpointMachine -TurnOff -Force"
-
-    # Wait for off and confirm no graceful shutdown event.
-    $off = $false
-    $graceful = $false
-    $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($sw2.Elapsed.TotalSeconds -lt 60) {
-        $state = (Get-VM -Name $EndpointMachine).State
-        if ($state -eq 'Off') { $off = $true; break }
-        Start-Sleep -Seconds 1
-    }
-
-    if ($off) {
-        $graceful = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
-            # This command will fail while VM is off; a graceful event would have been logged before power off.
-            return $false
-        } -ErrorAction SilentlyContinue
-    }
-
-    Start-VM -Name $EndpointMachine
-
-    # Wait for VM to be reachable and for the active session to return (requires auto-logon).
-    $reachable = $false
-    $sw3 = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($sw3.Elapsed.TotalMinutes -lt 10) {
-        try {
-            $session = Get-InteractiveSession
-            if ($session -and $session.UserName -eq $UserName) {
-                $reachable = $true
-                break
-            }
-        } catch { }
-        Start-Sleep -Seconds 10
-    }
-
-    if (-not $reachable) {
-        return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'VM did not resume an interactive session after abrupt loss; verify auto-logon' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; graceful_shutdown_observed = $graceful }
-    }
-
-    if (-not (Wait-DlpServiceAndHost -TimeoutSeconds 120)) {
-        return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'service/host did not recover after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc }
-    }
-
-    $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
-    $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
-    $newExists = Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
-        param($Path)
-        return Test-Path -LiteralPath $Path
-    } -ArgumentList @($newPath)
-
-    if ($oldReadHash -ne $oldHash) {
-        return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'pre-existing marker was corrupted after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; old_hash_expected = $oldHash; old_hash_actual = $oldReadHash }
-    }
-    if ($newExists -and $null -ne $newHash -and $newHash -ne $oldHash) {
-        return New-Case -Scenario $scenarioName -Status 'pass' -Rationale 'host hard-off recovery preserved old-complete marker and exposed only new-complete file' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; graceful_shutdown_observed = $graceful; old_hash = $oldHash; new_hash = $newHash }
-    }
-    if (-not $newExists) {
-        return New-Case -Scenario $scenarioName -Status 'pass' -Rationale 'host hard-off recovery preserved old-complete marker; new file was not committed' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; graceful_shutdown_observed = $graceful; old_hash = $oldHash }
-    }
-    return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'unrecognized partial or mixed state after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc; graceful_shutdown_observed = $graceful; old_hash = $oldHash; new_hash = $newHash; new_exists = $newExists }
 }
 
 # --- Preconditions and orchestration ---
