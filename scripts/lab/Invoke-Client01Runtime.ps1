@@ -339,6 +339,7 @@ function Test-Client01AdSecretsPresent {
     return -not ([string]::IsNullOrWhiteSpace($env:DLP_AD_PRIMARY_LDAPS_URL) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_SECONDARY_LDAPS_URL) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_BASE_DN) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_DOMAIN) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_BIND_DN) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_BIND_PASSWORD) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_CA_CERT_PEM))
@@ -516,6 +517,7 @@ function Start-Client01Server {
         $envLines.Add("DLP_AD_PRIMARY_LDAPS_URL=$($env:DLP_AD_PRIMARY_LDAPS_URL)")
         $envLines.Add("DLP_AD_SECONDARY_LDAPS_URL=$($env:DLP_AD_SECONDARY_LDAPS_URL)")
         $envLines.Add("DLP_AD_BASE_DN=$($env:DLP_AD_BASE_DN)")
+        $envLines.Add("DLP_AD_DOMAIN=$($env:DLP_AD_DOMAIN)")
         $envLines.Add("DLP_AD_BIND_DN=$($env:DLP_AD_BIND_DN)")
         $envLines.Add("DLP_AD_BIND_PASSWORD=$($env:DLP_AD_BIND_PASSWORD)")
         $envLines.Add('DLP_AD_CA_CERT_PEM=C:\dlp\secrets\ad-ca.pem')
@@ -557,6 +559,7 @@ function Start-Client01Server {
             "DLP_LISTEN_ADDRESS=$([Environment]::GetEnvironmentVariable('DLP_LISTEN_ADDRESS', 'Process'))"
             "DATABASE_URL=$([Environment]::GetEnvironmentVariable('DATABASE_URL', 'Process'))"
             "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX_LENGTH=$(([Environment]::GetEnvironmentVariable('DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX', 'Process')).Length)"
+            "DLP_AD_DOMAIN=$([Environment]::GetEnvironmentVariable('DLP_AD_DOMAIN', 'Process'))"
             "DLP_SERVER_CERT_PEM=$([Environment]::GetEnvironmentVariable('DLP_SERVER_CERT_PEM', 'Process'))"
             "DLP_SERVER_KEY_PEM=$([Environment]::GetEnvironmentVariable('DLP_SERVER_KEY_PEM', 'Process'))"
             "DLP_ADMIN_CA_CERT_PEM=$([Environment]::GetEnvironmentVariable('DLP_ADMIN_CA_CERT_PEM', 'Process'))"
@@ -652,7 +655,10 @@ function Assert-Client01ServerReady {
     # installed on the VM no longer match the orchestrator's current values.
     $serverHost = $script:Dc01Ip
     $localBinary = Join-Path $RepoRoot 'target/release/dlp-server.exe'
-    Assert-Client01 (Test-Path -LiteralPath $localBinary) 'local_server_binary_missing'
+    if (-not (Test-Path -LiteralPath $localBinary)) {
+        Write-Host 'Assert-Client01ServerReady: local server binary missing; building...'
+        Install-Client01ServerBinary
+    }
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
         $bytes = [System.IO.File]::ReadAllBytes($localBinary)
@@ -1301,6 +1307,9 @@ function Invoke-Client01Tracer {
 
     Write-Host 'Tracer: installing service...'
     Invoke-Client01ServiceInstall -EnrollmentToken $enrollmentToken
+
+    Write-Host 'Tracer: ensuring management server is ready on LAB-DC01...'
+    Assert-Client01ServerReady
 
     $serverHost = $script:Dc01Ip
     Write-Host "Tracer: probing management server from $ExecutionMachine via $serverHost..."
