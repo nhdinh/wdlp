@@ -74,7 +74,7 @@ Plans:
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
-- [ ] 01-16-PLAN.md (Wave 11) — Execute the four-machine production vertical slice and complete the D-16 through D-18 Office, operation, and size matrix
+- [x] 01-16-PLAN.md (Wave 11) — Execute the four-machine production vertical slice and complete the D-16 through D-18 Office, operation, and size matrix
 
 **Wave 12** *(blocked on Wave 11 completion)*
 
