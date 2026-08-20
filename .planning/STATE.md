@@ -4,18 +4,18 @@ milestone: v1.0
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 current_plan: 01-21 D-19 failure matrix, evidence sealing, and independent review
-status: executing
-stopped_at: context exhaustion at 75% (2026-08-20)
-last_updated: "2026-08-20T05:00:55.277Z"
-last_activity: 2026-08-20
-state_head: dd6cfdfa161d9f166a8285d545b436e737cd30e7
+status: plan_completed
+stopped_at: FinalGate passed; awaiting merge to master (2026-08-21)
+last_updated: "2026-08-21T07:15:00.000Z"
+last_activity: 2026-08-21
+state_head: dc0aa0fb83fc899a7ec42f1ec8f00f5106f18466
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 17
-  completed_plans: 14
+  completed_plans: 15
 milestone_name: milestone
-last_activity_desc: Completed Plan 01-16; production vertical slice and D-16 through D-18 matrix executed on LAB-CLIENT01.
+last_activity_desc: Completed Plan 01-21 Task 2; FinalGate verifier passes (30/30 requirements, 7/7 success criteria, 50/50 decisions, 9/9 privilege manifests, valid independent review by lab/administrator, matrix digest 5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414).
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -52,11 +52,11 @@ Last activity: 2026-08-19
 
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — EXECUTING
 - **Plan:** 12 of 12
-- **Task:** 1 of 2
-- **Status:** Executing Phase 01
-- **Progress:** [██████████] 100% of Plan 01-16
+- **Task:** 2 of 2
+- **Status:** Plan 01-21 complete; Task 1 and Task 2 done; ready to merge to master
+- **Progress:** [██████████] 100% of Plan 01-21
 - **Current plan:** 01-21 D-19 failure matrix, evidence sealing, and independent review
-- **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 secure session-host lifecycle and application/operation/size matrix verified.
+- **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 secure session-host lifecycle, application/operation/size matrix, and D-19 failure/recovery matrix verified.
 
 ## Performance Metrics
 
@@ -92,6 +92,7 @@ Last activity: 2026-08-19
 | Phase 01-first-encrypted-drive-vertical-slice P22 | 25m | 2 tasks | 7 files |
 | Phase 01-first-encrypted-drive-vertical-slice P23 | 45m | 3 tasks | 14 files |
 | Phase 01-first-encrypted-drive-vertical-slice P13 | 75min | 3 tasks | 4 files |
+| Phase 01 P21 | 210 | 1 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -121,16 +122,16 @@ Last activity: 2026-08-19
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md
+**Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/01-21-PLAN.md
 
-**Last session:** 2026-08-20T05:00:55.215Z
-**Stopped at:** context exhaustion at 75% (2026-08-20)
+**Last session:** 2026-08-20T18:35:33.021Z
+**Stopped at:** context exhaustion at 77% (2026-08-20)
 
-**Current session:** 2026-08-19
-**Resumed at:** /gsd-resume-work — Plan 01-24 Task 3 runtime verification resumed from structured handoff.
+**Current session:** 2026-08-21T07:15:00Z
+**Resumed at:** /gsd-resume-work — completed Plan 01-21 Task 2 and passed FinalGate.
 
-- Last action: Identified that `StoragePipeServer::bind` created no actual named pipe, so `dlp-drive-host.exe` exited immediately on launch. Implemented `ActorPipe` in `crates/dlp-windows-service/src/pipe.rs` using `CreateNamedPipeW`, a user-only DACL, `ConnectNamedPipe`, `GetNamedPipeClientProcessId`, `ImpersonateNamedPipeClient`, and bootstrap send. `cargo check --locked -p dlp-windows-service` passes.
-- Next action: Wire the pipe handshake into `SessionMonitor::session_logon`, update `dlp-drive-host.rs` for synchronous pipe I/O and safe drive-letter selection, build release binaries, redeploy to LAB-CLIENT01, and re-run the smoke test.
+- Last action: Backfilled remaining matrix rows, recorded independent verifier attestation by `lab/administrator`, and re-ran `scripts/verify-phase1.ps1` to a passing FinalGate.
+- Next action: Merge the worktree branch to master and continue to the next phase/milestone.
 
 ### Completed Plan 01-23 Evidence
 
@@ -202,4 +203,4 @@ Last activity: 2026-08-19
 
 ### Blockers
 
-- None — Plan 01-24 complete. Next work (Plan 01-16) awaits operator go-ahead.
+- None. Plan 01-21 is complete and `scripts/verify-phase1.ps1` FinalGate passes.
