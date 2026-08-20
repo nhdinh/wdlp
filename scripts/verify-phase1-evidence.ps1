@@ -94,7 +94,7 @@ function Invoke-ContractFixtures {
 function Invoke-ContractsAndPrivileges {
     Invoke-ContractFixtures
     $matrix = Get-Content -LiteralPath $matrixPath -Raw | ConvertFrom-Json
-    Assert-Phase1 (@($matrix.requirements).Count -eq 30) 'matrix must contain all 30 Phase 1 requirements'
+    Assert-Phase1 (@($matrix.requirements).Count -eq 32) 'matrix must contain all 32 Phase 1 requirements'
     Assert-Phase1 (@($matrix.success_criteria).Count -eq 7) 'matrix must contain all seven success criteria'
     Assert-Phase1 (@($matrix.decisions).Count -eq 50) 'matrix must contain D-01 through D-50'
     Assert-Phase1 ((@($matrix.requirements | Where-Object { $_.current_evidence_id -ne '' }).Count) -ge 1) 'matrix contains no current evidence'
