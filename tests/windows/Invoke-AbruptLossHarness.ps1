@@ -146,8 +146,11 @@ function Start-DlpService {
     } -ArgumentList @($serviceName)
 }
 
-function Get-FileHashHex([Parameter(Mandatory)][string]$Path) {
-    Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+function Get-FileHashHex(
+    [Parameter(Mandatory)][string]$UserName,
+    [Parameter(Mandatory)][string]$Path
+) {
+    Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
         param($Path)
         if (-not (Test-Path -LiteralPath $Path)) { return $null }
         $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -281,7 +284,7 @@ function Invoke-CleanServiceRestart {
     $content = New-MarkerContent
     $markerName = 'clean-service-restart-marker.txt'
     Write-MarkerFile -UserName $UserName -Name $markerName -Content $content | Out-Null
-    $oldHash = Get-FileHashHex -Path (Join-Path $markerRoot $markerName)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $markerName)
 
     Stop-DlpService
     Start-DlpService
@@ -293,7 +296,7 @@ function Invoke-CleanServiceRestart {
     if ($null -eq $readContent) {
         return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'marker file unreadable after restart'
     }
-    $newHash = Get-FileHashHex -Path (Join-Path $markerRoot $markerName)
+    $newHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $markerName)
     if ($readContent -ne $content -or $newHash -ne $oldHash) {
         return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'marker content or hash changed after restart' -Details @{ old_hash = $oldHash; new_hash = $newHash }
     }
@@ -404,7 +407,7 @@ function Invoke-ForcedTermination {
     $oldMarker = 'forced-term-old-marker.txt'
     $oldContent = New-MarkerContent
     Write-MarkerFile -UserName $UserName -Name $oldMarker -Content $oldContent | Out-Null
-    $oldHash = Get-FileHashHex -Path (Join-Path $markerRoot $oldMarker)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
 
     $newName = 'forced-term-new-large.bin'
     $newPath = Join-Path $markerRoot $newName
@@ -462,9 +465,9 @@ function Invoke-ForcedTermination {
     }
 
     # The writer job result may have completed or errored; we only care about filesystem state.
-    $newHash = Get-FileHashHex -Path $newPath
-    $oldReadHash = Get-FileHashHex -Path (Join-Path $markerRoot $oldMarker)
-    $newExists = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+    $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
+    $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+    $newExists = Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
         param($Path)
         return Test-Path -LiteralPath $Path
     } -ArgumentList @($newPath)
@@ -488,7 +491,7 @@ function Invoke-AbruptLoss {
     $oldMarker = 'abrupt-loss-old-marker.txt'
     $oldContent = New-MarkerContent
     Write-MarkerFile -UserName $UserName -Name $oldMarker -Content $oldContent | Out-Null
-    $oldHash = Get-FileHashHex -Path (Join-Path $markerRoot $oldMarker)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
 
     $newName = 'abrupt-loss-new-large.bin'
     $newPath = Join-Path $markerRoot $newName
@@ -572,9 +575,9 @@ function Invoke-AbruptLoss {
         return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'service/host did not recover after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc }
     }
 
-    $oldReadHash = Get-FileHashHex -Path (Join-Path $markerRoot $oldMarker)
-    $newHash = Get-FileHashHex -Path $newPath
-    $newExists = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+    $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+    $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
+    $newExists = Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
         param($Path)
         return Test-Path -LiteralPath $Path
     } -ArgumentList @($newPath)
