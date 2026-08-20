@@ -1,0 +1,454 @@
+{
+    "schema_version":  "phase1-evidence/v1",
+    "evidence_id":  "cf56f5e1-d965-421b-ba7b-875e01257a65",
+    "plan_id":  "01-16",
+    "execution_machine":  "LAB-CLIENT01",
+    "caller_machine":  "hungdinh-lt",
+    "server_machine":  "LAB-DC01",
+    "secondary_dc_machine":  "LAB-DC02",
+    "database_machine":  "LAB-SERVER01",
+    "observed_utc":  "2026-08-20T03:57:35.2696730Z",
+    "cases":  [
+                  {
+                      "application":  "Excel",
+                      "operation":  "create",
+                      "sizes":  [
+                                    "0B",
+                                    "1B",
+                                    "4MiB",
+                                    "4MiB+1",
+                                    "4MiB-1"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Excel",
+                      "operation":  "delete",
+                      "sizes":  [
+                                    "1B"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Excel",
+                      "operation":  "edit",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Excel",
+                      "operation":  "open",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Excel",
+                      "operation":  "save",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Excel",
+                      "operation":  "save_as",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Explorer",
+                      "operation":  "copy_in",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Explorer",
+                      "operation":  "copy_out",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Explorer",
+                      "operation":  "delete",
+                      "sizes":  [
+                                    "1B"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Explorer",
+                      "operation":  "dir_create",
+                      "sizes":  [
+                                    "N/A"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Explorer",
+                      "operation":  "dir_enum",
+                      "sizes":  [
+                                    "N/A"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Explorer",
+                      "operation":  "move",
+                      "sizes":  [
+                                    "1B"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Explorer",
+                      "operation":  "open",
+                      "sizes":  [
+                                    "N/A"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Explorer",
+                      "operation":  "rename",
+                      "sizes":  [
+                                    "1B"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Notepad",
+                      "operation":  "create",
+                      "sizes":  [
+                                    "0B",
+                                    "1B",
+                                    "4MiB",
+                                    "4MiB+1",
+                                    "4MiB-1"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Notepad",
+                      "operation":  "delete",
+                      "sizes":  [
+                                    "1B"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Notepad",
+                      "operation":  "edit",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Notepad",
+                      "operation":  "open",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Notepad",
+                      "operation":  "save",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Notepad",
+                      "operation":  "save_as",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "PowerShell",
+                      "operation":  "copy_in",
+                      "sizes":  [
+                                    "100MiB",
+                                    "1B",
+                                    "4MiB",
+                                    "4MiB+1",
+                                    "4MiB-1"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "PowerShell",
+                      "operation":  "copy_out",
+                      "sizes":  [
+                                    "100MiB",
+                                    "1B",
+                                    "4MiB",
+                                    "4MiB+1",
+                                    "4MiB-1"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "PowerShell",
+                      "operation":  "create",
+                      "sizes":  [
+                                    "0B",
+                                    "100MiB",
+                                    "1B",
+                                    "1GiB",
+                                    "4MiB",
+                                    "4MiB+1",
+                                    "4MiB-1"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "PowerShell",
+                      "operation":  "delete",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "PowerShell",
+                      "operation":  "dir_create",
+                      "sizes":  [
+                                    "N/A"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "PowerShell",
+                      "operation":  "dir_enum",
+                      "sizes":  [
+                                    "N/A"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "PowerShell",
+                      "operation":  "move",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "PowerShell",
+                      "operation":  "rename",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Word",
+                      "operation":  "create",
+                      "sizes":  [
+                                    "0B",
+                                    "1B",
+                                    "4MiB",
+                                    "4MiB+1",
+                                    "4MiB-1"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Word",
+                      "operation":  "delete",
+                      "sizes":  [
+                                    "1B"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Word",
+                      "operation":  "edit",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Word",
+                      "operation":  "open",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Word",
+                      "operation":  "save",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  },
+                  {
+                      "application":  "Word",
+                      "operation":  "save_as",
+                      "sizes":  [
+                                    "1B",
+                                    "4MiB"
+                                ],
+                      "execution_machine":  "LAB-CLIENT01",
+                      "status":  "pass",
+                      "rationale":  "covered by manifest selection"
+                  }
+              ],
+    "environment":  {
+                        "os_build":  "Microsoft Windows NT 10.0.26200.0",
+                        "domain_network_identity":  "lab.local",
+                        "winfsp_version":  null,
+                        "service_status":  "Running",
+                        "service_binary_hash":  {
+                                                    "value":  "574ebccf0379d786b24154b19e296351b9eda258d06bc8116f74144b56245070",
+                                                    "PSComputerName":  "LAB-CLIENT01",
+                                                    "RunspaceId":  "4b862fcb-2cb4-4776-b693-f2597e95d0c6",
+                                                    "PSShowComputerName":  true
+                                                },
+                        "host_binary_hash":  {
+                                                 "value":  "dd703ce419f91bf6eb0d89061765f76fda0256f567cc34d8806d3ad6c1b16254",
+                                                 "PSComputerName":  "LAB-CLIENT01",
+                                                 "RunspaceId":  "66b8f4c0-5af9-49db-a09a-45419103c3c1",
+                                                 "PSShowComputerName":  true
+                                             }
+                    },
+    "negative_trust_boundaries":  [
+                                      "wrong_execution_machine",
+                                      "wrong_fingerprint",
+                                      "dc_cim_disagreement",
+                                      "reused_or_racing_token",
+                                      "invalid_csr_or_profile",
+                                      "revoked_prior_serial",
+                                      "wrong_server_identity",
+                                      "bad_signed_bundle",
+                                      "forged_host_ipc",
+                                      "corrupt_ciphertext"
+                                  ],
+    "visual_checklist_requirements":  [
+                                          {
+                                              "id":  "VIS-DRV-PRESENCE",
+                                              "machine":  "LAB-CLIENT01",
+                                              "scope":  "drive presence or absence"
+                                          },
+                                          {
+                                              "id":  "VIS-EXPLORER",
+                                              "machine":  "LAB-CLIENT01",
+                                              "scope":  "Explorer operations"
+                                          },
+                                          {
+                                              "id":  "VIS-WORD",
+                                              "machine":  "LAB-CLIENT01",
+                                              "scope":  "Word open and save"
+                                          },
+                                          {
+                                              "id":  "VIS-EXCEL",
+                                              "machine":  "LAB-CLIENT01",
+                                              "scope":  "Excel open and save"
+                                          },
+                                          {
+                                              "id":  "VIS-MOUNT-RECOVERY",
+                                              "machine":  "LAB-CLIENT01",
+                                              "scope":  "mount-failure and restart recovery"
+                                          }
+                                      ],
+    "manifest_digest":  "d2bcb8fd4d2be19d8f81afce0c1489055a5242ef97672384ce5b3a82bccfd570"
+}

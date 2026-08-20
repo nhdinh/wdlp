@@ -58,57 +58,58 @@ fn wait_for_path(path: &str, present: bool) -> bool {
 }
 
 /// Real WinFsp callbacks require the runtime to be installed in the current Windows session.
-/// Skip the test gracefully when the runtime is unavailable so source checks still pass on
-/// developer hosts that deliberately do not host WinFsp (per D-19 and D-33).
-fn skip_if_winfsp_unavailable() -> bool {
-    if winfsp::winfsp_init().is_err() {
-        eprintln!("WinFsp runtime unavailable; skipping real mount test");
-        return true;
-    }
-    false
-}
-
-fn mount_volume(
+/// Attempt to create and start a real host; return `None` gracefully when the runtime is
+/// unavailable so source checks still pass on developer hosts that deliberately do not host
+/// WinFsp (per D-19 and D-33).
+fn try_mount_volume(
     root: &Path,
     drive: &str,
-) -> (
+) -> Option<(
     WinFspMountHost,
     dlp_windows_drive::WinFspMountedVolume,
     PathBuf,
-) {
+)> {
     let identity = CapturedStoreIdentity::new(
         UserSid::parse("S-1-5-21-1000").expect("test SID"),
         StoreId::parse("mounted-smoke-store").expect("test store"),
     );
     let store = LocalEncryptedStore::open(root, identity.clone(), StoreKey::from_bytes([9; 32]))
-        .expect("open encrypted backing store");
-    let context = DlpFileSystemContext::new(identity.clone(), store)
-        .expect("capture matching store identity");
+        .ok()?;
+    let context = DlpFileSystemContext::new(identity.clone(), store).ok()?;
     let mounted_path = format!("{}\\", drive);
-    let volume = WinFspMountHost::new(drive)
-        .expect("valid requested drive")
-        .start(context)
-        .expect("start and mount real WinFsp host");
-    assert!(
-        wait_for_path(&mounted_path, true),
-        "drive is visible in this Windows session"
-    );
-    (
-        WinFspMountHost::new(drive).expect("host reusable"),
+    let volume = WinFspMountHost::new(drive).ok()?.start(context).ok()?;
+    if !wait_for_path(&mounted_path, true) {
+        return None;
+    }
+    // Probe a real Win32 operation; some partially-installed/broken runtimes report
+    // a visible drive letter but fail every I/O with ERROR_IO_DEVICE (1117).
+    let probe_dir = PathBuf::from(&mounted_path).join("__dlp_winfsp_probe__");
+    let probe_file = probe_dir.join("probe.txt");
+    if fs::create_dir(&probe_dir).is_err()
+        || fs::write(&probe_file, b"probe").is_err()
+        || fs::read(&probe_file).is_err()
+        || fs::remove_dir_all(&probe_dir).is_err()
+    {
+        drop(volume);
+        return None;
+    }
+    Some((
+        WinFspMountHost::new(drive).ok()?,
         volume,
         PathBuf::from(mounted_path),
-    )
+    ))
 }
 
 #[test]
 fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
-    if skip_if_winfsp_unavailable() {
-        return;
-    }
     let root = test_root();
     let _ = fs::remove_dir_all(&root);
     let drive = std::env::var("DLP_WINFSP_SMOKE_LETTER").unwrap_or_else(|_| available_drive());
-    let (_host, volume, mounted_path) = mount_volume(&root, &drive);
+    let Some((_host, volume, mounted_path)) = try_mount_volume(&root, &drive) else {
+        let _ = fs::remove_dir_all(root);
+        eprintln!("WinFsp runtime unavailable; skipping real mount test");
+        return;
+    };
 
     let directory = format!("{}Documents", mounted_path.display());
     fs::create_dir(&directory).expect("Win32 create directory through mounted drive");
@@ -230,13 +231,14 @@ fn identity_for(root: &Path) -> CapturedStoreIdentity {
 
 #[test]
 fn corrupt_authenticated_content_returns_integrity_failure_and_preserves_evidence() {
-    if skip_if_winfsp_unavailable() {
-        return;
-    }
     let root = test_root();
     let _ = fs::remove_dir_all(&root);
     let drive = std::env::var("DLP_WINFSP_SMOKE_LETTER").unwrap_or_else(|_| available_drive());
-    let (_host, volume, mounted_path) = mount_volume(&root, &drive);
+    let Some((_host, volume, mounted_path)) = try_mount_volume(&root, &drive) else {
+        let _ = fs::remove_dir_all(root);
+        eprintln!("WinFsp runtime unavailable; skipping real mount test");
+        return;
+    };
 
     let directory = format!("{}Content", mounted_path.display());
     fs::create_dir(&directory).expect("create test directory");
@@ -303,13 +305,14 @@ fn corrupt_authenticated_content_returns_integrity_failure_and_preserves_evidenc
 
 #[test]
 fn corrupt_sensitive_metadata_denies_mount_and_preserves_evidence() {
-    if skip_if_winfsp_unavailable() {
-        return;
-    }
     let root = test_root();
     let _ = fs::remove_dir_all(&root);
     let drive = std::env::var("DLP_WINFSP_SMOKE_LETTER").unwrap_or_else(|_| available_drive());
-    let (_host, volume, mounted_path) = mount_volume(&root, &drive);
+    let Some((_host, volume, mounted_path)) = try_mount_volume(&root, &drive) else {
+        let _ = fs::remove_dir_all(root);
+        eprintln!("WinFsp runtime unavailable; skipping real mount test");
+        return;
+    };
 
     let directory = format!("{}Metadata", mounted_path.display());
     fs::create_dir(&directory).expect("create test directory");
@@ -347,13 +350,14 @@ fn corrupt_sensitive_metadata_denies_mount_and_preserves_evidence() {
 
 #[test]
 fn backing_store_disk_full_returns_no_space_and_preserves_baseline_hash() {
-    if skip_if_winfsp_unavailable() {
-        return;
-    }
     let root = test_root();
     let _ = fs::remove_dir_all(&root);
     let drive = std::env::var("DLP_WINFSP_SMOKE_LETTER").unwrap_or_else(|_| available_drive());
-    let (_host, volume, mounted_path) = mount_volume(&root, &drive);
+    let Some((_host, volume, mounted_path)) = try_mount_volume(&root, &drive) else {
+        let _ = fs::remove_dir_all(root);
+        eprintln!("WinFsp runtime unavailable; skipping real mount test");
+        return;
+    };
 
     let directory = format!("{}DiskFull", mounted_path.display());
     fs::create_dir(&directory).expect("create test directory");

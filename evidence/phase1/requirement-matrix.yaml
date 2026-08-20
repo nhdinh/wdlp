@@ -82,6 +82,26 @@
                              "status":  "pass"
                          },
                          {
+                             "id":  "SRV-13",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "client01-service-install"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "970e6612-2fcf-4277-9694-2b360669a056",
+                             "status":  "pass"
+                         },
+                         {
+                             "id":  "SRV-14",
+                             "verification_tier":  "focused_hyperv",
+                             "checks":  [
+                                            "client01-tracer-readiness"
+                                        ],
+                             "substitute_policy":  "no substitute",
+                             "current_evidence_id":  "135439e1-034d-4e9d-81ed-e34777420972",
+                             "status":  "pass"
+                         },
+                         {
                              "id":  "CRY-01",
                              "verification_tier":  "portable_automation",
                              "checks":  [
