@@ -79,7 +79,8 @@ fn main() {
         }
     };
 
-    let (bootstrap, mut pipe_file) = match authenticate_to_service(&args.pipe_name,
+    let (bootstrap, mut pipe_file) = match authenticate_to_service(
+        &args.pipe_name,
         args.session_id,
         args.generation,
     ) {
@@ -151,6 +152,9 @@ fn main() {
             std::process::exit(8);
         }
     };
+
+    ensure_winfsp_dll_path();
+
     let host = match WinFspMountHost::new(format!("{target}:")) {
         Ok(h) => h,
         Err(error) => {
@@ -267,9 +271,9 @@ fn authenticate_to_service(
             file.read_exact(&mut response_buf)
                 .map_err(|_| "pipe_read_failed".to_string())?;
 
-            let accepted: bool = serde_json::from_slice(&response_buf)
+            let accepted: serde_json::Value = serde_json::from_slice(&response_buf)
                 .map_err(|_| "response_decode_failed".to_string())?;
-            if !accepted {
+            if !accepted.get("accepted").and_then(|v| v.as_bool()).unwrap_or(false) {
                 return Err("pipe_auth_rejected".to_string());
             }
 
@@ -312,20 +316,33 @@ fn send_drive_letter_ack(
         .map_err(|_| "ack_write_failed".to_string())
 }
 
-fn run_control_loop(_pipe_file: std::fs::File) -> Result<(), String> {
-    // In production this blocks reading control messages (BeginDrain, Stop) from the
-    // service. EOF means the service disconnected or stopped; returning drops the volume.
-    // For source compilation on non-Windows hosts the loop returns immediately.
+fn run_control_loop(mut pipe_file: std::fs::File) -> Result<(), String> {
+    // Block reading the service control channel. EOF means the service disconnected
+    // or stopped; returning drops the volume and unmounts the drive cleanly.
     #[cfg(windows)]
     {
-        // Real control loop is implemented in Task 2; Task 1 focuses on authenticated
-        // bootstrap and mount start.
+        use std::io::Read;
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(60));
+            let mut len_buf = [0u8; 4];
+            match pipe_file.read_exact(&mut len_buf) {
+                Ok(_) => {}
+                Err(_) => return Ok(()), // EOF or broken pipe -> service stopped
+            }
+            let msg_len = u32::from_be_bytes(len_buf) as usize;
+            if msg_len > 64 * 1024 {
+                return Err("control_message_oversized".to_string());
+            }
+            let mut msg_buf = vec![0u8; msg_len];
+            if let Err(_) = pipe_file.read_exact(&mut msg_buf) {
+                return Ok(()); // EOF mid-message -> service stopped
+            }
+            // Messages are currently ignored; any future drain/stop command will be
+            // handled here. For now the loop only cares about the pipe staying open.
         }
     }
     #[cfg(not(windows))]
     {
+        let _ = pipe_file;
         Ok(())
     }
 }
@@ -359,6 +376,26 @@ fn select_drive_letter(preferred: char) -> Option<char> {
         matches!(path.try_exists(), Ok(false))
     })
 }
+
+#[cfg(windows)]
+fn ensure_winfsp_dll_path() {
+    use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
+    const CANDIDATES: &[&str] = &[
+        r"C:\Program Files (x86)\WinFsp\bin",
+        r"C:\Program Files\WinFsp\bin",
+    ];
+    for path in CANDIDATES {
+        let dll = std::path::Path::new(path).join("winfsp-x64.dll");
+        if dll.exists() {
+            let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+            let _ = unsafe { SetDllDirectoryW(windows::core::PCWSTR(wide.as_ptr())) };
+            return;
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_winfsp_dll_path() {}
 
 #[cfg(test)]
 mod tests {

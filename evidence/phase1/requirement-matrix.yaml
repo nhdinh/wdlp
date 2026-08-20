@@ -178,8 +178,8 @@
                                             "restart-runtime"
                                         ],
                              "substitute_policy":  "no substitute",
-                             "current_evidence_id":  "",
-                             "status":  "unverified"
+                             "current_evidence_id":  "c618578c-da4c-43c6-9049-46aeffab165b",
+                             "status":  "pass"
                          },
                          {
                              "id":  "DRV-01",

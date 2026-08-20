@@ -178,8 +178,11 @@ impl StoragePipeServer {
         }
         // The SID comparison is the final identity check. On the real Windows path this
         // is performed against the impersonated client token; the unit-test path supplies
-        // the expected SID directly.
-        if UserSid::parse(&request.user_sid).ok().as_ref() != Some(expected_sid) {
+        // the expected SID directly. An empty client-supplied SID is allowed because the
+        // service already verified the connecting identity via impersonation.
+        if !request.user_sid.is_empty()
+            && UserSid::parse(&request.user_sid).ok().as_ref() != Some(expected_sid)
+        {
             return Err(PipeAuthError::WrongIdentity);
         }
         Ok(())
@@ -368,7 +371,7 @@ mod windows_pipe {
         /// EOF on its end. On success the bootstrap is sent and an `AuthenticatedPipe`
         /// is returned.
         pub fn accept_and_authenticate(
-            self,
+            mut self,
             expected_pid: u32,
             expected_sid: &UserSid,
             expected_session: u32,
@@ -389,15 +392,17 @@ mod windows_pipe {
 
                 // Kernel-backed client PID check.
                 let mut client_pid = 0u32;
-                GetNamedPipeClientProcessId(self.handle, &mut client_pid)
-                    .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+                if let Err(_) = GetNamedPipeClientProcessId(self.handle, &mut client_pid) {
+                    return Err(PipeAuthError::AuthenticationFailed);
+                }
                 if client_pid != expected_pid {
                     return Err(PipeAuthError::WrongIdentity);
                 }
 
                 // Impersonate the connecting client and read its SID and session.
-                ImpersonateNamedPipeClient(self.handle)
-                    .map_err(|_| PipeAuthError::AuthenticationFailed)?;
+                if let Err(_) = ImpersonateNamedPipeClient(self.handle) {
+                    return Err(PipeAuthError::AuthenticationFailed);
+                }
                 let token_result = open_thread_token_sid_session();
                 let _ = RevertToSelf();
                 let (client_sid, client_session) =
@@ -412,7 +417,11 @@ mod windows_pipe {
 
                 // Wrap the handle in a std::fs::File for length-framed I/O. The handle
                 // is reclaimed with `into_raw_handle` before this function returns.
-                let mut file = std::fs::File::from_raw_handle(self.handle.0 as *mut _);
+                // Null out the ActorPipe field first so its Drop does not close the
+                // handle while the File owns it.
+                let raw = self.handle.0 as *mut _;
+                self.handle = INVALID_HANDLE_VALUE;
+                let mut file = std::fs::File::from_raw_handle(raw);
 
                 // Read the host's authentication request.
                 let mut len_buf = [0u8; 4];

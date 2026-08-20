@@ -654,6 +654,16 @@ impl HostProcessHandle {
             TerminateProcess(self.handle, 1).map_err(|_| SessionError::HostUnavailable)
         }
     }
+
+    /// Waits up to `timeout` for the process to exit.
+    pub fn wait_for_exit(&self, timeout: Duration) -> Result<bool, SessionError> {
+        use windows::Win32::System::Threading::WaitForSingleObject;
+        unsafe {
+            let result = WaitForSingleObject(self.handle, timeout.as_millis() as u32);
+            // WAIT_OBJECT_0 (0) means the object is signaled (process exited).
+            Ok(result.0 == 0)
+        }
+    }
 }
 
 // The handle is an owned kernel object; transferring it across threads is safe
@@ -727,14 +737,25 @@ impl SessionHostLauncher for WindowsHostLauncher {
             session.generation()
         );
 
+        // Prepare a persistent stderr/stdout log so we can diagnose host failures even
+        // when the service has no console.
+        let log_dir = PathBuf::from(r"C:\dlp\agent\logs");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_path = log_dir.join(format!("dlp-drive-host-stderr-{}.log", std::process::id()));
+
         unsafe {
+            use std::os::windows::ffi::OsStrExt;
             use windows::Win32::{
                 Foundation::CloseHandle,
                 Security::SECURITY_ATTRIBUTES,
+                Storage::FileSystem::{
+                    CreateFileW, FILE_CREATION_DISPOSITION, FILE_FLAGS_AND_ATTRIBUTES,
+                    FILE_SHARE_MODE,
+                },
                 System::Environment::CreateEnvironmentBlock,
                 System::Threading::{
                     CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW, PROCESS_INFORMATION,
-                    STARTUPINFOW,
+                    STARTUPINFOW, STARTUPINFOW_FLAGS,
                 },
             };
 
@@ -746,9 +767,38 @@ impl SessionHostLauncher for WindowsHostLauncher {
             )
             .map_err(|_| SessionError::HostUnavailable)?;
 
+            const GENERIC_WRITE: u32 = 0x40000000;
+            const CREATE_ALWAYS: u32 = 2;
+            const STARTF_USESTDHANDLES: u32 = 0x00000100;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+            let log_wide: Vec<u16> = std::path::Path::new(&log_path)
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let mut log_sa = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: std::ptr::null_mut(),
+                bInheritHandle: true.into(),
+            };
+            let log_handle = CreateFileW(
+                windows::core::PCWSTR(log_wide.as_ptr()),
+                GENERIC_WRITE,
+                FILE_SHARE_MODE(0x00000001), // FILE_SHARE_READ
+                Some(&mut log_sa),
+                FILE_CREATION_DISPOSITION(CREATE_ALWAYS),
+                FILE_FLAGS_AND_ATTRIBUTES(0),
+                None,
+            )
+            .map_err(|_| SessionError::HostUnavailable)?;
+
             let si = STARTUPINFOW {
                 cb: std::mem::size_of::<STARTUPINFOW>() as u32,
                 lpDesktop: windows::core::PWSTR(windows::core::w!("winsta0\\default").0 as *mut u16),
+                dwFlags: STARTUPINFOW_FLAGS(STARTF_USESTDHANDLES),
+                hStdOutput: log_handle,
+                hStdError: log_handle,
                 ..Default::default()
             };
             let mut pi = PROCESS_INFORMATION::default();
@@ -762,8 +812,8 @@ impl SessionHostLauncher for WindowsHostLauncher {
                 Some(windows::core::PWSTR(cmd.as_mut_ptr())),
                 Some(&sa),
                 Some(&sa),
-                false,
-                CREATE_UNICODE_ENVIRONMENT,
+                true, // inherit log handle
+                CREATE_UNICODE_ENVIRONMENT | windows::Win32::System::Threading::PROCESS_CREATION_FLAGS(CREATE_NO_WINDOW),
                 Some(env.0 as *const _),
                 None,
                 &si,
@@ -772,6 +822,8 @@ impl SessionHostLauncher for WindowsHostLauncher {
 
             // Free the environment block regardless of process creation result.
             let _ = windows::Win32::System::Environment::DestroyEnvironmentBlock(env.0 as *const _);
+            // Close our copy of the log handle; the child keeps its inherited duplicate.
+            let _ = CloseHandle(log_handle);
 
             created.map_err(|_| SessionError::HostUnavailable)?;
             let _ = CloseHandle(pi.hThread);
@@ -998,7 +1050,16 @@ impl SessionMonitor {
             actor.stop();
         }
         // Closing the authenticated pipes causes the hosts to see EOF and unmount.
-        self.runtimes.clear();
+        // Keep the process handles so we can wait for graceful exit before returning.
+        let handles: Vec<_> = self
+            .runtimes
+            .drain()
+            .map(|(_, runtime)| runtime.host.process_handle)
+            .collect();
+        let timeout = Duration::from_secs(10);
+        for handle in handles {
+            let _ = handle.wait_for_exit(timeout);
+        }
     }
 
     /// Returns a snapshot of current actors for health reporting.
