@@ -1,0 +1,216 @@
+{
+  "schema_version": "phase1-matrix-manifest/v1",
+  "plan_id": "01-16",
+  "execution_machine": "LAB-CLIENT01",
+  "caller_machine": "hungdinh-lt",
+  "server_machine": "LAB-DC01",
+  "secondary_dc_machine": "LAB-DC02",
+  "database_machine": "LAB-SERVER01",
+  "description": "Complete D-16/D-17/D-18 application, operation, and size matrix for Phase 1.",
+  "chunk_size_bytes": 4194304,
+  "applications": [
+    {
+      "id": "Explorer",
+      "display_name": "Windows Explorer",
+      "type": "shell",
+      "notes": "Visible operation on protected drive; human confirms Explorer opens folder and shows expected file."
+    },
+    {
+      "id": "PowerShell",
+      "display_name": "Windows PowerShell",
+      "type": "automated",
+      "notes": "Automated file operations against the protected drive via PowerShell."
+    },
+    {
+      "id": "Notepad",
+      "display_name": "Notepad",
+      "type": "ui_automated",
+      "notes": "Automated UI interaction to open, edit, save, and reopen a text file."
+    },
+    {
+      "id": "Word",
+      "display_name": "Microsoft Word",
+      "type": "com",
+      "notes": "COM automation to create, edit, save, Save As, and reopen a document."
+    },
+    {
+      "id": "Excel",
+      "display_name": "Microsoft Excel",
+      "type": "com",
+      "notes": "COM automation to create, edit, save, Save As, and reopen a workbook."
+    }
+  ],
+  "operations": [
+    {
+      "id": "create",
+      "display_name": "Create new file",
+      "applicable_to": ["PowerShell", "Notepad", "Word", "Excel"],
+      "notes": "Create a new file with deterministic content."
+    },
+    {
+      "id": "copy_in",
+      "display_name": "Copy into protected drive",
+      "applicable_to": ["Explorer", "PowerShell"],
+      "notes": "Copy an existing plain file from local temp into the protected drive."
+    },
+    {
+      "id": "copy_out",
+      "display_name": "Copy out of protected drive",
+      "applicable_to": ["Explorer", "PowerShell"],
+      "notes": "Copy a protected file to local temp and verify content matches."
+    },
+    {
+      "id": "open",
+      "display_name": "Open existing file",
+      "applicable_to": ["Explorer", "PowerShell", "Notepad", "Word", "Excel"],
+      "notes": "Open an existing file."
+    },
+    {
+      "id": "edit",
+      "display_name": "Edit existing file",
+      "applicable_to": ["Notepad", "Word", "Excel"],
+      "notes": "Modify content of an open file."
+    },
+    {
+      "id": "save",
+      "display_name": "Save file",
+      "applicable_to": ["Notepad", "Word", "Excel"],
+      "notes": "Save changes to the same file."
+    },
+    {
+      "id": "save_as",
+      "display_name": "Save As new file",
+      "applicable_to": ["Notepad", "Word", "Excel"],
+      "notes": "Save the current document under a new name in the protected drive."
+    },
+    {
+      "id": "rename",
+      "display_name": "Rename file",
+      "applicable_to": ["Explorer", "PowerShell"],
+      "notes": "Rename a file within the protected drive."
+    },
+    {
+      "id": "move",
+      "display_name": "Move file",
+      "applicable_to": ["Explorer", "PowerShell"],
+      "notes": "Move a file to a different directory within the protected drive."
+    },
+    {
+      "id": "delete",
+      "display_name": "Delete file",
+      "applicable_to": ["Explorer", "PowerShell", "Notepad", "Word", "Excel"],
+      "notes": "Delete a file from the protected drive."
+    },
+    {
+      "id": "dir_create",
+      "display_name": "Create directory",
+      "applicable_to": ["Explorer", "PowerShell"],
+      "notes": "Create a new directory."
+    },
+    {
+      "id": "dir_enum",
+      "display_name": "Enumerate directory",
+      "applicable_to": ["Explorer", "PowerShell"],
+      "notes": "List files and directories."
+    }
+  ],
+  "sizes": [
+    {
+      "id": "0B",
+      "bytes": 0,
+      "description": "Empty file boundary",
+      "notes": "Create an empty file and reopen it."
+    },
+    {
+      "id": "1B",
+      "bytes": 1,
+      "description": "Single-byte file",
+      "notes": "Single-byte content roundtrip."
+    },
+    {
+      "id": "4MiB-1",
+      "bytes": 4194303,
+      "description": "One byte below chunk boundary",
+      "notes": "Verifies chunk boundary handling just under one chunk."
+    },
+    {
+      "id": "4MiB",
+      "bytes": 4194304,
+      "description": "Exact chunk boundary",
+      "notes": "Verifies chunk boundary at exactly one chunk."
+    },
+    {
+      "id": "4MiB+1",
+      "bytes": 4194305,
+      "description": "One byte above chunk boundary",
+      "notes": "Verifies chunk boundary just above one chunk."
+    },
+    {
+      "id": "100MiB",
+      "bytes": 104857600,
+      "description": "Medium file",
+      "notes": "Multi-chunk file for throughput and integrity."
+    },
+    {
+      "id": "1GiB",
+      "bytes": 1073741824,
+      "description": "Large file",
+      "notes": "Large file boundary; may be limited by lab disk/performance constraints."
+    }
+  ],
+  "selections": [
+    { "application": "PowerShell", "operation": "create", "sizes": ["0B", "1B", "4MiB-1", "4MiB", "4MiB+1", "100MiB", "1GiB"] },
+    { "application": "PowerShell", "operation": "copy_in", "sizes": ["1B", "4MiB-1", "4MiB", "4MiB+1", "100MiB"] },
+    { "application": "PowerShell", "operation": "copy_out", "sizes": ["1B", "4MiB-1", "4MiB", "4MiB+1", "100MiB"] },
+    { "application": "PowerShell", "operation": "rename", "sizes": ["1B", "4MiB"] },
+    { "application": "PowerShell", "operation": "move", "sizes": ["1B", "4MiB"] },
+    { "application": "PowerShell", "operation": "delete", "sizes": ["1B", "4MiB"] },
+    { "application": "PowerShell", "operation": "dir_create", "sizes": ["N/A"] },
+    { "application": "PowerShell", "operation": "dir_enum", "sizes": ["N/A"] },
+    { "application": "Notepad", "operation": "create", "sizes": ["0B", "1B", "4MiB-1", "4MiB", "4MiB+1"] },
+    { "application": "Notepad", "operation": "edit", "sizes": ["1B", "4MiB"] },
+    { "application": "Notepad", "operation": "save", "sizes": ["1B", "4MiB"] },
+    { "application": "Notepad", "operation": "save_as", "sizes": ["1B", "4MiB"] },
+    { "application": "Notepad", "operation": "open", "sizes": ["1B", "4MiB"] },
+    { "application": "Notepad", "operation": "delete", "sizes": ["1B"] },
+    { "application": "Word", "operation": "create", "sizes": ["0B", "1B", "4MiB-1", "4MiB", "4MiB+1"] },
+    { "application": "Word", "operation": "edit", "sizes": ["1B", "4MiB"] },
+    { "application": "Word", "operation": "save", "sizes": ["1B", "4MiB"] },
+    { "application": "Word", "operation": "save_as", "sizes": ["1B", "4MiB"] },
+    { "application": "Word", "operation": "open", "sizes": ["1B", "4MiB"] },
+    { "application": "Word", "operation": "delete", "sizes": ["1B"] },
+    { "application": "Excel", "operation": "create", "sizes": ["0B", "1B", "4MiB-1", "4MiB", "4MiB+1"] },
+    { "application": "Excel", "operation": "edit", "sizes": ["1B", "4MiB"] },
+    { "application": "Excel", "operation": "save", "sizes": ["1B", "4MiB"] },
+    { "application": "Excel", "operation": "save_as", "sizes": ["1B", "4MiB"] },
+    { "application": "Excel", "operation": "open", "sizes": ["1B", "4MiB"] },
+    { "application": "Excel", "operation": "delete", "sizes": ["1B"] },
+    { "application": "Explorer", "operation": "open", "sizes": ["N/A"] },
+    { "application": "Explorer", "operation": "copy_in", "sizes": ["1B", "4MiB"] },
+    { "application": "Explorer", "operation": "copy_out", "sizes": ["1B", "4MiB"] },
+    { "application": "Explorer", "operation": "rename", "sizes": ["1B"] },
+    { "application": "Explorer", "operation": "move", "sizes": ["1B"] },
+    { "application": "Explorer", "operation": "delete", "sizes": ["1B"] },
+    { "application": "Explorer", "operation": "dir_create", "sizes": ["N/A"] },
+    { "application": "Explorer", "operation": "dir_enum", "sizes": ["N/A"] }
+  ],
+  "negative_trust_boundaries": [
+    "wrong_execution_machine",
+    "wrong_fingerprint",
+    "dc_cim_disagreement",
+    "reused_or_racing_token",
+    "invalid_csr_or_profile",
+    "revoked_prior_serial",
+    "wrong_server_identity",
+    "bad_signed_bundle",
+    "forged_host_ipc",
+    "corrupt_ciphertext"
+  ],
+  "visual_checklist_requirements": [
+    { "id": "VIS-DRV-PRESENCE", "machine": "LAB-CLIENT01", "scope": "drive presence or absence" },
+    { "id": "VIS-EXPLORER", "machine": "LAB-CLIENT01", "scope": "Explorer operations" },
+    { "id": "VIS-WORD", "machine": "LAB-CLIENT01", "scope": "Word open and save" },
+    { "id": "VIS-EXCEL", "machine": "LAB-CLIENT01", "scope": "Excel open and save" },
+    { "id": "VIS-MOUNT-RECOVERY", "machine": "LAB-CLIENT01", "scope": "mount-failure and restart recovery" }
+  ]
+}
