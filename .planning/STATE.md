@@ -1,18 +1,20 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
+current_plan: 01-21 D-19 failure matrix, evidence sealing, and independent review
 status: executing
-stopped_at: ""
-last_updated: "2026-08-20T00:00:00Z"
+stopped_at: context exhaustion at 77% (2026-08-20)
+last_updated: "2026-08-20T07:18:20.456Z"
 last_activity: 2026-08-20
+state_head: 51d4e0b5dc30c8061bc5b6b21e9a4836684f1d11
 progress:
-  total_phases: 4
-  completed_phases: 2
+  total_phases: 7
+  completed_phases: 0
   total_plans: 17
-  completed_plans: 17
+  completed_plans: 14
+milestone_name: milestone
 last_activity_desc: Completed Plan 01-16; production vertical slice and D-16 through D-18 matrix executed on LAB-CLIENT01.
 ---
 
@@ -121,14 +123,14 @@ Last activity: 2026-08-19
 
 **Resume file:** .planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md
 
-**Last session:** 2026-08-19T06:24:12.028Z
-**Stopped at:** context exhaustion at 82% (2026-08-19)
+**Last session:** 2026-08-20T07:18:20.428Z
+**Stopped at:** context exhaustion at 77% (2026-08-20)
 
-**Current session:** 2026-08-19
-**Resumed at:** /gsd-resume-work — Plan 01-24 Task 3 runtime verification resumed from structured handoff.
+**Current session:** 2026-08-20T06:51:56.318Z
+**Resumed at:** /gsd-resume-work — entered executor worktree to continue Plan 01-21 Task 1.
 
-- Last action: Identified that `StoragePipeServer::bind` created no actual named pipe, so `dlp-drive-host.exe` exited immediately on launch. Implemented `ActorPipe` in `crates/dlp-windows-service/src/pipe.rs` using `CreateNamedPipeW`, a user-only DACL, `ConnectNamedPipe`, `GetNamedPipeClientProcessId`, `ImpersonateNamedPipeClient`, and bootstrap send. `cargo check --locked -p dlp-windows-service` passes.
-- Next action: Wire the pipe handshake into `SessionMonitor::session_logon`, update `dlp-drive-host.rs` for synchronous pipe I/O and safe drive-letter selection, build release binaries, redeploy to LAB-CLIENT01, and re-run the smoke test.
+- Last action: Continued from `.planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md`; harness fixes for `Invoke-AbruptLossHarness.ps1` are uncommitted in this worktree.
+- Next action: Apply the remaining protected-drive credential fix, rerun the D-19 harness on LAB-CLIENT01, then seal evidence and run the independent-review gate.
 
 ### Completed Plan 01-23 Evidence
 

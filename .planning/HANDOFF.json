@@ -1,43 +1,40 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-19T02:18:53Z",
+  "timestamp": "2026-08-20T07:23:16.984Z",
   "phase": "01",
   "phase_name": "first-encrypted-drive-vertical-slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
-  "plan": 24,
-  "task": 3,
-  "total_tasks": 3,
+  "plan": 21,
+  "task": 1,
+  "total_tasks": 2,
   "status": "paused",
   "completed_tasks": [
-    {"id": 1, "name": "Launch one authenticated session host through a real service-owned bootstrap", "status": "done", "commit": "227a692"},
-    {"id": 2, "name": "Complete drive collision, drain, cleanup, retry, and restart convergence", "status": "done", "commit": "686729b"},
-    {"id": 3, "name": "Generate and approve 01-24 privilege manifest", "status": "done", "commit": "1b71fe4"},
-    {"id": 3, "name": "Implement service-owned authenticated pipe server (root cause for host exit)", "status": "in_progress", "progress": "ActorPipe created with CreateNamedPipeW, DACL, ConnectNamedPipe, PID/SID/session auth, bootstrap send. cargo check passes. Not yet wired into SessionMonitor::session_logon."}
+    {"id": 1, "name": "Restore project state and route to Plan 01-21", "status": "done", "commit": "n/a"},
+    {"id": 1, "name": "Enter executor worktree and spawn D-19 executor agent", "status": "done", "commit": "n/a"}
   ],
   "remaining_tasks": [
-    {"id": 3, "name": "Wire pipe handshake into SessionMonitor::session_logon", "status": "not_started"},
-    {"id": 3, "name": "Update dlp-drive-host.rs for synchronous pipe, drive-letter selection, mounted ack", "status": "not_started"},
-    {"id": 3, "name": "Build release binaries and redeploy to LAB-CLIENT01", "status": "not_started"},
-    {"id": 3, "name": "Re-run Invoke-ServiceSessionSmoke.ps1 -Scenario SecureSessionHostLifecycle on LAB-CLIENT01", "status": "not_started"}
+    {"id": 1, "name": "Fix remaining admin-credential protected-drive path accesses in Invoke-AbruptLossHarness.ps1", "status": "in_progress"},
+    {"id": 1, "name": "Run Invoke-AbruptLossHarness.ps1 -Scenario RunAll on LAB-CLIENT01", "status": "not_started"},
+    {"id": 1, "name": "Run scripts/verify-phase1-evidence.ps1 -Scenario AbruptLossRecovery", "status": "not_started"},
+    {"id": 2, "name": "Seal complete requirement-indexed evidence and independent Phase 1 review", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "Pipe server was a directory-only stub; dlp-drive-host.exe exited immediately because it had no pipe to connect to.", "type": "technical", "workaround": "ActorPipe implementation is complete and compiles; remaining integration into session monitor and host sync I/O."},
-    {"description": "Context near exhaustion (76%); cannot safely complete integration in this session.", "type": "external", "workaround": "Pause now and resume in a fresh session."}
+    {"description": "Context near exhaustion (74%); paused after spawning executor agent aa207cc36a736c964.", "type": "external", "workaround": "Resume in fresh session; the executor agent may finish independently or need continuation."}
   ],
-  "async_jobs": [],
+  "async_jobs": [
+    {"agent_id": "aa207cc36a736c964", "role": "gsd-executor", "isolation": "worktree", "plan": "01-21", "task": 1, "status": "running", "started_at": "2026-08-20T07:19:00Z", "description": "Fix Invoke-AbruptLossHarness.ps1 admin-credential drive access and run D-19 failure/recovery harness."}
+  ],
   "human_actions_pending": [
-    {"action": "Keep LAB-CLIENT01 console signed in as uat-user1 so the active session remains available for debugging.", "context": "Service session reconciliation depends on the console session being WTSActive.", "blocking": true}
+    {"action": "If the executor agent pauses or fails, provide $env:DLP_TEST_USER_PASSWORD and confirm LAB-CLIENT01 is signed in as uat-user1 with P: drive mounted.", "context": "D-19 drive-level scenarios require the interactive user's credential and an active mapped drive.", "blocking": true}
   ],
   "decisions": [
-    {"decision": "The runtime blocker was not stale binaries or host crash, but the absence of a real named pipe server.", "rationale": "dlp-drive-host.rs calls CreateFileW on the pipe name immediately; if no pipe instance exists, the open fails and the process exits with code 2 before any visible diagnostics.", "phase": "01"},
-    {"decision": "Implement synchronous pipe I/O on both service and host for this iteration.", "rationale": "Overlapped I/O adds complexity and is unnecessary for the single-actor bootstrap/control channel in Phase 1.", "phase": "01"},
-    {"decision": "Keep the pipe DACL limited to the captured user SID only (no service SID) so only the intended user-session host can connect.", "rationale": "The LocalSystem service owns the pipe handle; the client must be the captured user. Adding other SIDs would widen the attack surface.", "phase": "01"}
+    {"decision": "Resumed Plan 01-21 in the executor worktree because harness/verifier edits are committed only there.", "rationale": "Master lacks tests/windows/Invoke-AbruptLossHarness.ps1 and scripts/verify-phase1.ps1; the worktree branch has them.", "phase": "01"},
+    {"decision": "Spawned a worktree-isolated gsd-executor agent to finish Plan 01-21.", "rationale": "Orchestrator context was exhausted; delegating to a fresh executor preserves context and avoids interference.", "phase": "01"}
   ],
   "uncommitted_files": [
-    ".planning/STATE.md",
     ".planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md",
-    "crates/dlp-windows-service/src/pipe.rs"
+    ".planning/STATE.md"
   ],
-  "next_action": "Read the new ActorPipe implementation in crates/dlp-windows-service/src/pipe.rs, then wire ActorPipe::create into SessionMonitor::session_logon before CreateProcessAsUserW, and call accept_and_authenticate on a dedicated thread after launch. Then update dlp-drive-host.rs to use synchronous CreateFileW and safe drive-letter selection.",
-  "context_notes": "Plan 01-24 runtime blocker is solved conceptually: the service must create a real named pipe before launching the host. The previous session correctly diagnosed silent host exit but assumed host-side causes. The new ActorPipe compiles but is not yet integrated. Next session should avoid touching the pipe server internals and focus on session.rs integration and host sync I/O."
+  "next_action": "Wait for executor agent aa207cc36a736c964 to complete. If it succeeds, inspect its commits and SUMMARY.md; if it fails or pauses, resume from its last checkpoint.",
+  "context_notes": "Plan 01-21 Task 1 was stuck because Invoke-AbruptLossHarness.ps1 was using Invoke-AdminCommand to test protected-drive paths, which cannot see the per-user P: drive. The executor agent was launched specifically to fix and run that harness. Task 2 (evidence sealing + independent review) follows if Task 1 passes."
 }
