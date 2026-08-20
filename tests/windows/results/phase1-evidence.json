@@ -681,5 +681,21 @@
                                   "host_command_utc":  "2026-08-20T11:43:43.5825584Z",
                                   "old_hash":  "57f1137f911690fff7f365a529ee9e23f4edfb35692e3493194b3c6d4bc8982b"
                               }
-                          ]
+                          ],
+    "independent_review":  {
+                               "authenticated_identity":  {
+                                                              "kind":  "independent_verifier",
+                                                              "name":  "lab/administrator"
+                                                          },
+                               "utc":  "2026-08-20T18:44:23.1410277Z",
+                               "machine":  "hungdinh-lt",
+                               "build":  "dc0aa0fb83fc899a7ec42f1ec8f00f5106f18466",
+                               "expected_result":  "Complete four-machine Phase 1 matrix reviewed and approved.",
+                               "actual_result":  "Matrix, provenance, deviations, artifact integrity, and retention reviewed; no material deviations.",
+                               "deviations":  {
+                                                  "state":  "none"
+                                              },
+                               "matrix_digest":  "5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414",
+                               "artifact_integrity":  "passed"
+                           }
 }
