@@ -17,6 +17,7 @@ use std::{
 };
 
 use crate::pipe::{PipeFactory, StorageBootstrap, WindowsPipeFactory};
+use crate::service::service_log;
 
 #[cfg(test)]
 use crate::pipe::PipeBootstrap;
@@ -234,10 +235,14 @@ impl SessionTokenProvider for WtsSessionTokenProvider {
 }
 
 /// Returns the active interactive session IDs visible to the service.
+///
+/// Only sessions backed by a real user are eligible. Services/listener sessions
+/// are filtered out by requiring either the console winstation name or a
+/// non-empty WTS username.
 #[cfg(windows)]
 pub fn active_session_ids() -> Vec<u32> {
     use windows::Win32::System::RemoteDesktop::{
-        WTS_SESSION_INFOW, WTSEnumerateSessionsW, WTSFreeMemory,
+        WTSFreeMemory, WTS_SESSION_INFOW, WTSEnumerateSessionsW,
     };
     unsafe {
         let mut info: *mut WTS_SESSION_INFOW = std::ptr::null_mut();
@@ -256,7 +261,20 @@ pub fn active_session_ids() -> Vec<u32> {
                 // console session that has not yet reached Active state (e.g. immediately
                 // after service restart while a user is already signed in) can be reconciled.
                 let state = s.State.0;
-                if state == 0 || state == 1 {
+                if state != 0 && state != 1 {
+                    return None;
+                }
+
+                // Prefer the console winstation name exposed by WTSEnumerateSessionsW.
+                if let Some(name) = pwstr_to_string(s.pWinStationName) {
+                    if name.eq_ignore_ascii_case("console") {
+                        return Some(s.SessionId);
+                    }
+                }
+
+                // Fall back to WTSQuerySessionInformation(WTSUserName): a real user
+                // session has a non-empty username, unlike the services/listener sessions.
+                if session_has_user_name(s.SessionId) {
                     Some(s.SessionId)
                 } else {
                     None
@@ -266,6 +284,36 @@ pub fn active_session_ids() -> Vec<u32> {
         WTSFreeMemory(info as *mut _);
         ids
     }
+}
+
+/// Converts a null-terminated UTF-16 PWSTR to a Rust String.
+#[cfg(windows)]
+unsafe fn pwstr_to_string(ptr: windows::core::PWSTR) -> Option<String> {
+    if ptr.0.is_null() {
+        return None;
+    }
+    let len = unsafe { (0..).find(|i| *ptr.0.add(*i) == 0).unwrap_or(0) };
+    if len == 0 {
+        return None;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr.0, len) };
+    String::from_utf16(slice).ok()
+}
+
+/// Queries WTS for the username of a session and returns true if it is non-empty.
+#[cfg(windows)]
+unsafe fn session_has_user_name(session_id: u32) -> bool {
+    use windows::Win32::System::RemoteDesktop::{
+        WTSFreeMemory, WTSQuerySessionInformationW, WTSUserName,
+    };
+    let mut buf: windows::core::PWSTR = windows::core::PWSTR::null();
+    let mut bytes = 0u32;
+    if unsafe { WTSQuerySessionInformationW(None, session_id, WTSUserName, &mut buf, &mut bytes) }.is_err() {
+        return false;
+    }
+    let has_user = unsafe { pwstr_to_string(buf) }.map(|s| !s.is_empty()).unwrap_or(false);
+    unsafe { WTSFreeMemory(buf.0 as *mut _) };
+    has_user
 }
 
 #[cfg(windows)]
@@ -1013,6 +1061,7 @@ impl SessionMonitor {
                         pipe: authenticated_pipe,
                     },
                 );
+                service_log("INFO", format!("actor runtime stored for generation {}", session.generation()));
                 actor.set_mounted(drive_letter, expected_pid);
                 self.actors.insert(actor_key, actor.clone());
                 Ok(actor)
@@ -1046,6 +1095,7 @@ impl SessionMonitor {
 
     /// Stop all actors. Used on service stop/restart.
     pub fn stop_all(&mut self) {
+        service_log("INFO", "SessionMonitor::stop_all invoked");
         for actor in self.actors.values_mut() {
             actor.stop();
         }
@@ -1073,6 +1123,54 @@ impl SessionMonitor {
                 diagnostic: actor.diagnostic,
             })
             .collect()
+    }
+
+    /// Checks whether any launched host process has exited unexpectedly. If so, removes
+    /// the stale actor/runtime and relaunches the host for the session (unless the actor
+    /// is already draining due to logoff).
+    pub fn check_host_health(&mut self) {
+        let mut to_relaunch: Vec<(u32, UserSid, u64)> = Vec::new();
+        for actor in self.actors.values() {
+            if actor.reject_new_opens() {
+                continue;
+            }
+            let generation = actor.session.generation();
+            if let Some(runtime) = self.runtimes.get(&generation) {
+                match runtime.host.process_handle.wait_for_exit(Duration::from_secs(0)) {
+                    Ok(true) => {
+                        service_log(
+                            "WARN",
+                            format!(
+                                "host process for session {} generation {} exited; scheduling relaunch",
+                                actor.session.session_id(),
+                                generation
+                            ),
+                        );
+                        to_relaunch.push((
+                            actor.session.session_id(),
+                            actor.session.user_sid().clone(),
+                            generation,
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for (session_id, _sid, generation) in to_relaunch {
+            self.actors.retain(|_, a| a.session.generation() != generation);
+            self.runtimes.remove(&generation);
+            service_log(
+                "INFO",
+                format!("relaunching host for session {} after unexpected exit", session_id),
+            );
+            if let Err(error) = self.session_logon(session_id) {
+                service_log(
+                    "WARN",
+                    format!("relaunch for session {} failed: {}", session_id, error),
+                );
+                // Leave the actor removed so a future logon event can retry.
+            }
+        }
     }
 
     pub fn actor_count(&self) -> usize {

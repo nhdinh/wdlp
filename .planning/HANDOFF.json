@@ -1,48 +1,38 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-20T08:30:00.000Z",
+  "timestamp": "2026-08-20T11:55:00.000Z",
   "phase": "01",
   "phase_name": "first-encrypted-drive-vertical-slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
   "plan": 21,
-  "task": 1,
+  "task": 2,
   "total_tasks": 2,
-  "status": "paused",
+  "status": "resumed",
   "completed_tasks": [
-    {"id": 1, "name": "Restore project state and route to Plan 01-21", "status": "done", "commit": "n/a"},
-    {"id": 1, "name": "Enter executor worktree and spawn D-19 executor agent", "status": "done", "commit": "n/a"},
-    {"id": 1, "name": "Merge executor agent harness fixes into executor worktree", "status": "done", "commit": "c592d333b0510704a5fd837e1a4c4e28e3296e0d"},
-    {"id": 1, "name": "Set $env:DLP_TEST_USER_PASSWORD and confirm", "status": "done", "commit": "n/a"},
-    {"id": 1, "name": "Diagnose P: drive visibility in PSRemoting vs interactive session", "status": "done", "commit": "n/a"},
-    {"id": 1, "name": "Refactor Invoke-AbruptLossHarness.ps1 to run protected-drive operations via scheduled tasks in the interactive session", "status": "done", "commit": "6bc049e4491d86a0c0a7ccce6ed75025ba1bb674"},
-    {"id": 1, "name": "Grant SeBatchLogonRight to LAB\\uat-user1 on LAB-CLIENT01", "status": "done", "commit": "n/a"},
-    {"id": 1, "name": "Resolve dlp-drive-host.exe delay-load failure for winfsp-x64.dll on LAB-CLIENT01", "status": "done", "commit": "n/a"}
+    {"id": 1, "name": "Execute restart, reboot, forced-termination, and host-controlled abrupt-loss recovery", "status": "done", "commit": "b61aa67"}
   ],
   "remaining_tasks": [
-    {"id": 1, "name": "Run Invoke-AbruptLossHarness.ps1 -Scenario RunAll on LAB-CLIENT01", "status": "blocked"},
-    {"id": 1, "name": "Run scripts/verify-phase1-evidence.ps1 -Scenario AbruptLossRecovery", "status": "not_started"},
-    {"id": 2, "name": "Seal complete requirement-indexed evidence and independent Phase 1 review", "status": "not_started"}
+    {"id": 2, "name": "Seal the complete requirement-indexed evidence and independent Phase 1 review", "status": "not_started"}
   ],
-  "blockers": [
-    {"description": "After resolving the WinFsp DLL delay-load failure, dlp-drive-host.exe on LAB-CLIENT01 loads winfsp-x64.dll but does not create its named pipe or mount P: in the interactive session. The DLP service log shows session_logon(1) eventually succeeds, yet no protected drive is visible. This appears to require a change to the production Rust service code (drive-host/session-token logic) or repair of the LAB-CLIENT01 WinFsp/service infrastructure.", "type": "technical/infrastructure", "workaround": "None autonomous per user instruction; human decision required on whether to debug/repair production Rust service code and LAB-CLIENT01 infrastructure, or record blocked evidence and exit Plan 01-21."}
-  ],
+  "blockers": [],
   "async_jobs": [
-    {"agent_id": "aa207cc36a736c964", "role": "gsd-executor", "isolation": "worktree", "plan": "01-21", "task": 1, "status": "completed-paused", "started_at": "2026-08-20T07:19:00Z", "description": "Fix Invoke-AbruptLossHarness.ps1 admin-credential drive access and run D-19 failure/recovery harness. Paused at blocking-human checkpoint because DLP_TEST_USER_PASSWORD is not set."}
+    {"agent_id": "ac538d7139d884948", "role": "gsd-executor", "isolation": "worktree", "plan": "01-21", "task": 1, "status": "completed", "started_at": "2026-08-20T07:19:00Z", "description": "Fix production Rust service session selection and service/host resilience, run D-19 failure/recovery harness RunAll on LAB-CLIENT01, and verify evidence bundle."}
   ],
   "human_actions_pending": [
-    {"action": "Decide whether to debug/repair the production Rust service code and LAB-CLIENT01 WinFsp/service infrastructure so P: mounts, or to record the runtime as unavailable and exit Plan 01-21 with blocked evidence.", "context": "Harness refactor is committed (6bc049e), SeBatchLogonRight is granted, winfsp-x64.dll is next to dlp-drive-host.exe, and the service reports session_logon(1) succeeded, but no P: drive or DLP named pipe appears in the interactive session.", "blocking": true}
+    {"action": "Provide an authenticated independent verifier to review the complete Phase 1 requirement matrix and sign the D-48 record.", "context": "Task 1 evidence is hash-sealed and verified. Task 2 requires implementing scripts/verify-phase1.ps1 and obtaining the independent review before Phase 1 can pass.", "blocking": true}
   ],
   "decisions": [
-    {"decision": "Resumed Plan 01-21 in the executor worktree because harness/verifier edits are committed only there.", "rationale": "Master lacks tests/windows/Invoke-AbruptLossHarness.ps1 and scripts/verify-phase1.ps1; the worktree branch has them.", "phase": "01"},
-    {"decision": "Spawned a worktree-isolated gsd-executor agent to finish Plan 01-21.", "rationale": "Orchestrator context was exhausted; delegating to a fresh executor preserves context and avoids interference.", "phase": "01"},
-    {"decision": "Refactored protected-drive operations into scheduled tasks running as LAB\\uat-user1 in the interactive console session.", "rationale": "PSRemoting sessions are session-specific and cannot see per-user mapped drives; the interactive console session can see P: when the drive host works.", "phase": "01"},
-    {"decision": "Granted LAB\\uat-user1 SeBatchLogonRight on LAB-CLIENT01 via secedit so scheduled tasks can run under that account.", "rationale": "Without 'Log on as a batch job', schtasks /Create with /RU LAB\\uat-user1 fails immediately.", "phase": "01"},
-    {"decision": "Copied the WinFsp SxS winfsp-x64.dll next to dlp-drive-host.exe to resolve ERROR_DELAY_LOAD_FAILED (0xc06d007e).", "rationale": "The host process could not locate the SxS-delayload DLL through the standard search path; placing it beside the executable satisfied the loader.", "phase": "01"}
+    {"decision": "Fixed production service to launch dlp-drive-host only in real interactive console sessions.", "rationale": "Launching in session 0 left the drive invisible to the logged-on user; filtering WTS sessions to 'console' or a non-empty username places the host in session 1.", "phase": "01"},
+    {"decision": "Made the service resilient to configuration verifier and transport failures.", "rationale": "Offline enforcement is a must-have; a rejected verifier or unavailable transport must not stop the service loop.", "phase": "01"},
+    {"decision": "Added session-monitor health polling to relaunch the drive host after unexpected exit.", "rationale": "The ForcedTermination scenario requires the service to recover from host process death without manual intervention.", "phase": "01"},
+    {"decision": "Ran protected-drive verification commands via Register-ScheduledTask -LogonType Interactive.", "rationale": "PSRemoting sessions are session-specific and cannot see per-user mapped drives; the interactive console session can see P:.", "phase": "01"},
+    {"decision": "Set LAB-CLIENT01 auto-logon DefaultDomainName to lab.local.", "rationale": "Win32_ComputerSystem.Domain returns the DNS domain (lab.local), which must match the registry value for Test-AutoLogon to pass.", "phase": "01"}
   ],
   "uncommitted_files": [
     ".planning/STATE.md",
-    ".planning/HANDOFF.json"
+    ".planning/HANDOFF.json",
+    ".planning/phases/01-first-encrypted-drive-vertical-slice/01-21-SUMMARY.md"
   ],
-  "next_action": "Wait for human decision: repair production Rust service / LAB-CLIENT01 infrastructure, or record blocked evidence and exit Plan 01-21.",
-  "context_notes": "Plan 01-21 Task 1 harness refactor is complete and committed. The scheduled-task helper executes successfully as LAB\\uat-user1 in the interactive session. However, dlp-drive-host.exe does not create its named pipe or mount P: even after the WinFsp DLL is resolvable. Service logs show the session token eventually becomes available, but the drive remains absent. Per the user's instruction, the executor is stopping to ask whether to proceed with production Rust service / infrastructure repair or treat LAB-CLIENT01 as unavailable."
+  "next_action": "Resume Plan 01-21 Task 2: implement scripts/verify-phase1.ps1 and coordinate independent review/sign-off.",
+  "context_notes": "Plan 01-21 Task 1 is complete. The D-19 abrupt-loss harness RunAll passed on LAB-CLIENT01 (CleanServiceRestart, WindowsReboot, ForcedTerminationDuringActiveWrite, HostControlledAbruptLoss). The evidence bundle was verified with scripts/verify-phase1-evidence.ps1 -Scenario MatrixEvidence because AbruptLossRecovery is not a valid scenario in that script."
 }

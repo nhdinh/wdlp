@@ -300,6 +300,7 @@ mod windows_pipe {
 
         pub fn close(&mut self) {
             if !self.handle.is_invalid() {
+                crate::service::service_log("INFO", "AuthenticatedPipe::close invoked");
                 unsafe {
                     let _ = CloseHandle(self.handle);
                 }

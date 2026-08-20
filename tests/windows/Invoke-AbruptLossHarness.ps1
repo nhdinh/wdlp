@@ -33,6 +33,10 @@ $markerRoot = "$($DriveLetter):\$markerDirName"
 $barrierPath = 'C:\dlp\abrupt-loss-barrier.signal'
 $rebootResultPath = 'C:\dlp\abrupt-loss-reboot.result.json'
 
+function Join-MarkerPath([Parameter(Mandatory)][string]$Child) {
+    return "$markerRoot\$Child"
+}
+
 function Stop-AbruptLossHarness([string]$Code) { throw $Code }
 
 function Assert-AbruptLossHarness([bool]$Condition, [string]$Code) {
@@ -80,7 +84,6 @@ function Invoke-InteractiveUserCommand {
     $jobId = [guid]::NewGuid().ToString()
     $scriptPath = "C:\dlp\abrupt-loss-job-$jobId.ps1"
     $resultPath = "C:\dlp\abrupt-loss-job-$jobId.json"
-    $xmlPath = "C:\dlp\abrupt-loss-job-$jobId.xml"
     $taskName = "DLP_AbruptLoss_$jobId"
 
     $handle = @{
@@ -90,7 +93,6 @@ function Invoke-InteractiveUserCommand {
         TaskName = $taskName
         ScriptPath = $scriptPath
         ResultPath = $resultPath
-        XmlPath = $xmlPath
     }
 
     $scriptBytes = [System.Text.Encoding]::UTF8.GetBytes($ScriptText)
@@ -128,67 +130,19 @@ try {
 [System.IO.File]::WriteAllText('$resultPath', (`$result | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding(`$false)))
 "@
 
-    $timeLimit = "PT${TimeoutSeconds}S"
-    $xml = @"
-<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo>
-    <Description>DLP Abrupt Loss interactive job $jobId</Description>
-  </RegistrationInfo>
-  <Triggers>
-    <RegistrationTrigger>
-      <Enabled>true</Enabled>
-    </RegistrationTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>$UserName</UserId>
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>LeastPrivilege</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>false</StartWhenAvailable>
-    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-    <IdleSettings>
-      <StopOnIdleEnd>false</StopOnIdleEnd>
-      <RestartOnIdle>false</RestartOnIdle>
-    </IdleSettings>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <Hidden>false</Hidden>
-    <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <WakeToRun>false</WakeToRun>
-    <ExecutionTimeLimit>$timeLimit</ExecutionTimeLimit>
-    <Priority>7</Priority>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>-NoProfile -ExecutionPolicy Bypass -File $scriptPath</Arguments>
-    </Exec>
-  </Actions>
-</Task>
-"@
-
     Invoke-AdminCommand -VMName $VMName -ScriptBlock {
-        param($ScriptContent, $ScriptPath, $XmlContent, $XmlPath, $TaskName, $UserName, $Password)
+        param($ScriptContent, $ScriptPath, $TaskName, $UserName)
         New-Item -ItemType Directory -Force -Path 'C:\dlp' | Out-Null
         [System.IO.File]::WriteAllText($ScriptPath, $ScriptContent, (New-Object System.Text.UTF8Encoding($false)))
-        [System.IO.File]::WriteAllText($XmlPath, $XmlContent, (New-Object System.Text.UTF8Encoding($false)))
-        $output = schtasks /Create /F /TN $TaskName /XML $XmlPath /RU $UserName /RP $Password 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "schtasks /Create failed: $output" }
-    } -ArgumentList @($generatedScript, $scriptPath, $xml, $xmlPath, $taskName, $UserName, $TestUserPassword)
 
-    Invoke-AdminCommand -VMName $VMName -ScriptBlock {
-        param($TaskName)
-        $output = schtasks /Run /TN $TaskName 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "schtasks /Run failed: $output" }
-    } -ArgumentList @($taskName)
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+        $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
+        $principal = New-ScheduledTaskPrincipal -UserId $UserName -LogonType Interactive
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+
+        Start-ScheduledTask -TaskName $TaskName | Out-Null
+    } -ArgumentList @($generatedScript, $scriptPath, $taskName, $UserName)
 
     if ($NoWait) { return $handle }
 
@@ -227,12 +181,11 @@ function Remove-InteractiveUserCommandHandle {
     param([Parameter(Mandatory)][hashtable]$Handle)
     try {
         Invoke-AdminCommand -VMName $Handle.VMName -ScriptBlock {
-            param($TaskName, $ScriptPath, $ResultPath, $XmlPath)
-            schtasks /Delete /F /TN $TaskName | Out-Null
+            param($TaskName, $ScriptPath, $ResultPath)
+            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $ScriptPath) { Remove-Item -LiteralPath $ScriptPath -Force }
             if (Test-Path -LiteralPath $ResultPath) { Remove-Item -LiteralPath $ResultPath -Force }
-            if (Test-Path -LiteralPath $XmlPath) { Remove-Item -LiteralPath $XmlPath -Force }
-        } -ArgumentList @($Handle.TaskName, $Handle.ScriptPath, $Handle.ResultPath, $Handle.XmlPath) -ErrorAction SilentlyContinue
+        } -ArgumentList @($Handle.TaskName, $Handle.ScriptPath, $Handle.ResultPath) -ErrorAction SilentlyContinue
     } catch { }
 }
 
@@ -349,7 +302,8 @@ if (-not (Test-Path -LiteralPath $MarkerRoot)) {
 
 function New-MarkerContent([int]$LengthBytes = 64) {
     $bytes = [System.Byte[]]::new($LengthBytes)
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
     return [System.Convert]::ToBase64String($bytes)
 }
 
@@ -359,7 +313,7 @@ function Write-MarkerFile {
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Content
     )
-    $path = Join-Path $markerRoot $Name
+    $path = Join-MarkerPath $Name
     Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
 param($Path, $Content)
 [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding($false)))
@@ -372,7 +326,7 @@ function Read-MarkerFile {
         [Parameter(Mandatory)][string]$UserName,
         [Parameter(Mandatory)][string]$Name
     )
-    $path = Join-Path $markerRoot $Name
+    $path = Join-MarkerPath $Name
     Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
 param($Path)
 if (-not (Test-Path -LiteralPath $Path)) { return $null }
@@ -385,7 +339,7 @@ function Remove-MarkerFile {
         [Parameter(Mandatory)][string]$UserName,
         [Parameter(Mandatory)][string]$Name
     )
-    $path = Join-Path $markerRoot $Name
+    $path = Join-MarkerPath $Name
     Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
 param($Path)
 if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
@@ -408,7 +362,7 @@ function New-Case {
         observed_utc = (Get-Date).ToUniversalTime().ToString('o')
     }
     foreach ($k in $Details.Keys) { $case[$k] = $Details[$k] }
-    return $case
+    return [pscustomobject]$case
 }
 
 function Update-EvidenceBundle {
@@ -460,11 +414,11 @@ function Update-EvidenceBundle {
 function Invoke-CleanServiceRestart {
     param([Parameter(Mandatory)][string]$UserName)
     $scenarioName = 'CleanServiceRestart'
-    Initialize-MarkerDirectory -UserName $UserName
+    Initialize-MarkerDirectory -UserName $UserName | Out-Null
     $content = New-MarkerContent
     $markerName = 'clean-service-restart-marker.txt'
     Write-MarkerFile -UserName $UserName -Name $markerName -Content $content | Out-Null
-    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $markerName)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-MarkerPath $markerName)
 
     Stop-DlpService
     Start-DlpService
@@ -476,7 +430,7 @@ function Invoke-CleanServiceRestart {
     if ($null -eq $readContent) {
         return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'marker file unreadable after restart'
     }
-    $newHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $markerName)
+    $newHash = Get-FileHashHex -UserName $UserName -Path (Join-MarkerPath $markerName)
     if ($readContent -ne $content -or $newHash -ne $oldHash) {
         return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'marker content or hash changed after restart' -Details @{ old_hash = $oldHash; new_hash = $newHash }
     }
@@ -486,7 +440,7 @@ function Invoke-CleanServiceRestart {
 function Invoke-WindowsReboot {
     param([Parameter(Mandatory)][string]$UserName)
     $scenarioName = 'WindowsReboot'
-    Initialize-MarkerDirectory -UserName $UserName
+    Initialize-MarkerDirectory -UserName $UserName | Out-Null
     $content = New-MarkerContent
     $markerName = 'windows-reboot-marker.txt'
     Write-MarkerFile -UserName $UserName -Name $markerName -Content $content | Out-Null
@@ -583,14 +537,14 @@ function Invoke-WindowsReboot {
 function Invoke-ForcedTermination {
     param([Parameter(Mandatory)][string]$UserName)
     $scenarioName = 'ForcedTerminationDuringActiveWrite'
-    Initialize-MarkerDirectory -UserName $UserName
+    Initialize-MarkerDirectory -UserName $UserName | Out-Null
     $oldMarker = 'forced-term-old-marker.txt'
     $oldContent = New-MarkerContent
     Write-MarkerFile -UserName $UserName -Name $oldMarker -Content $oldContent | Out-Null
-    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-MarkerPath $oldMarker)
 
     $newName = 'forced-term-new-large.bin'
-    $newPath = Join-Path $markerRoot $newName
+    $newPath = Join-MarkerPath $newName
     $chunkSize = 1MB
     $targetSize = 100MB
 
@@ -649,7 +603,7 @@ try {
 
         # The writer job result may have completed or errored; we only care about filesystem state.
         $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
-        $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+        $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-MarkerPath $oldMarker)
         $newExists = Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
 param($Path)
 return Test-Path -LiteralPath $Path
@@ -673,14 +627,14 @@ return Test-Path -LiteralPath $Path
 function Invoke-AbruptLoss {
     param([Parameter(Mandatory)][string]$UserName)
     $scenarioName = 'HostControlledAbruptLoss'
-    Initialize-MarkerDirectory -UserName $UserName
+    Initialize-MarkerDirectory -UserName $UserName | Out-Null
     $oldMarker = 'abrupt-loss-old-marker.txt'
     $oldContent = New-MarkerContent
     Write-MarkerFile -UserName $UserName -Name $oldMarker -Content $oldContent | Out-Null
-    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-MarkerPath $oldMarker)
 
     $newName = 'abrupt-loss-new-large.bin'
-    $newPath = Join-Path $markerRoot $newName
+    $newPath = Join-MarkerPath $newName
     $chunkSize = 1MB
     $targetSize = 100MB
 
@@ -764,7 +718,7 @@ try {
             return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'service/host did not recover after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc }
         }
 
-        $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+        $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-MarkerPath $oldMarker)
         $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
         $newExists = Invoke-InteractiveUserCommand -VMName $EndpointMachine -UserName $UserName -ScriptText @'
 param($Path)
@@ -827,28 +781,32 @@ foreach ($s in $runScenarios) {
         if (-not $hasTestPassword) {
             $cases.Add((New-Case -Scenario $s -Status 'blocked' -Rationale 'DLP_TEST_USER_PASSWORD not available; cannot run drive-level verification under the interactive session'))
         } else {
-            $cases.Add((Invoke-CleanServiceRestart -UserName $testUserName))
+            $case = Invoke-CleanServiceRestart -UserName $testUserName | Where-Object { $_.PSObject.Properties['scenario'] } | Select-Object -Last 1
+            $cases.Add($case)
         }
     }
     elseif ($s -eq 'WindowsReboot') {
         if (-not $hasTestPassword -or -not $autoLogonOk) {
             $cases.Add((New-Case -Scenario $s -Status 'blocked' -Rationale 'auto-logon and test user password required for post-boot drive-level verification'))
         } else {
-            $cases.Add((Invoke-WindowsReboot -UserName $testUserName))
+            $case = Invoke-WindowsReboot -UserName $testUserName | Where-Object { $_.PSObject.Properties['scenario'] } | Select-Object -Last 1
+            $cases.Add($case)
         }
     }
     elseif ($s -eq 'ForcedTermination') {
         if (-not $hasTestPassword) {
             $cases.Add((New-Case -Scenario $s -Status 'blocked' -Rationale 'DLP_TEST_USER_PASSWORD not available; cannot run drive-level active-write verification'))
         } else {
-            $cases.Add((Invoke-ForcedTermination -UserName $testUserName))
+            $case = Invoke-ForcedTermination -UserName $testUserName | Where-Object { $_.PSObject.Properties['scenario'] } | Select-Object -Last 1
+            $cases.Add($case)
         }
     }
     elseif ($s -eq 'AbruptLoss') {
         if (-not $hasTestPassword -or -not $autoLogonOk) {
             $cases.Add((New-Case -Scenario $s -Status 'blocked' -Rationale 'auto-logon and test user password required for host-controlled abrupt-loss recovery'))
         } else {
-            $cases.Add((Invoke-AbruptLoss -UserName $testUserName))
+            $case = Invoke-AbruptLoss -UserName $testUserName | Where-Object { $_.PSObject.Properties['scenario'] } | Select-Object -Last 1
+            $cases.Add($case)
         }
     }
 }

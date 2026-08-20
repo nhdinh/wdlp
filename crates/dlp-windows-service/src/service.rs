@@ -242,19 +242,19 @@ pub fn run_service_loop(
     mounts: Arc<Mutex<Vec<MountAttempt>>>,
 ) {
     let verifier = match context.config.configuration_verifier() {
-        Ok(v) => v,
+        Ok(v) => Some(v),
         Err(_) => {
-            post_health(&context, RedactedDiagnostic::ConfigurationRejected);
-            return;
+            service_log("WARN", "configuration verifier rejected; running with cached configuration until a valid configuration is staged");
+            None
         }
     };
 
     let mut last_contact: Option<u64> = None;
     let mut transport = match AgentConfigurationTransport::new(&context.client) {
-        Ok(t) => t,
+        Ok(t) => Some(t),
         Err(_) => {
-            post_health(&context, RedactedDiagnostic::CredentialUnavailable);
-            return;
+            service_log("WARN", "configuration transport unavailable; running offline and retrying on each poll interval");
+            None
         }
     };
 
@@ -269,16 +269,22 @@ pub fn run_service_loop(
 
     loop {
         if shutdown.try_recv().is_ok() {
+            service_log("INFO", "shutdown signal received; exiting service loop");
             break;
         }
 
         let now = std::time::Instant::now();
         if now.duration_since(last_poll) >= poll_interval {
             last_poll = now;
-            match poll_and_activate(&context, &mut transport, &verifier) {
-                Ok(_) => last_contact = Some(epoch_seconds()),
-                Err(_) => {
-                    post_health(&context, RedactedDiagnostic::ConfigurationRejected);
+            match (&mut transport, &verifier) {
+                (Some(t), Some(v)) => match poll_and_activate(&context, t, v) {
+                    Ok(_) => last_contact = Some(epoch_seconds()),
+                    Err(_) => {
+                        post_health(&context, RedactedDiagnostic::ConfigurationRejected);
+                    }
+                },
+                _ => {
+                    service_log("WARN", "skipping configuration poll; transport or verifier not ready");
                 }
             }
         }
@@ -377,8 +383,11 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
         let (session_tx, session_rx) = mpsc::channel::<SessionEvent>();
         let session_tx_handler = session_tx.clone();
         let handler =
-            service_control_handler::register("DlpWindowsService", move |control| match control {
+            service_control_handler::register("DlpWindowsService", move |control| {
+                service_log("INFO", format!("SCM control event received: {control:?}"));
+                match control {
                 ServiceControl::Stop | ServiceControl::Shutdown => {
+                    service_log("INFO", "SCM Stop/Shutdown control accepted");
                     let _ = session_tx_handler.send(SessionEvent::Stop);
                     let _ = shutdown_tx.send(());
                     ServiceControlHandlerResult::NoError
@@ -400,6 +409,7 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
                     ServiceControlHandlerResult::NoError
                 }
                 _ => ServiceControlHandlerResult::NotImplemented,
+            }
             })
             .expect("register service control handler");
         service_log("INFO", "control handler registered");
@@ -512,27 +522,32 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
         let mount_snapshot = Arc::new(Mutex::new(Vec::<MountAttempt>::new()));
         let mount_snapshot_thread = mount_snapshot.clone();
         let session_thread = std::thread::spawn(move || {
-            for event in session_rx {
-                match event {
-                    SessionEvent::Logon(session_id) => {
-                        service_log("INFO", format!("handling SessionEvent::Logon({session_id})"));
-                        match monitor.session_logon(session_id) {
-                            Ok(_) => service_log("INFO", format!("session_logon({session_id}) succeeded")),
-                            Err(error) => service_log(
-                                "WARN",
-                                format!("session_logon({session_id}) failed: {error}"),
-                            ),
+            loop {
+                match session_rx.recv_timeout(Duration::from_secs(2)) {
+                    Ok(event) => match event {
+                        SessionEvent::Logon(session_id) => {
+                            service_log("INFO", format!("handling SessionEvent::Logon({session_id})"));
+                            match monitor.session_logon(session_id) {
+                                Ok(_) => service_log("INFO", format!("session_logon({session_id}) succeeded")),
+                                Err(error) => service_log(
+                                    "WARN",
+                                    format!("session_logon({session_id}) failed: {error}"),
+                                ),
+                            }
                         }
-                    }
-                    SessionEvent::Logoff(session_id) => {
-                        if let Err(error) = monitor.session_logoff(session_id) {
-                            service_log(
-                                "WARN",
-                                format!("session_logoff({session_id}) failed: {error}"),
-                            );
+                        SessionEvent::Logoff(session_id) => {
+                            if let Err(error) = monitor.session_logoff(session_id) {
+                                service_log(
+                                    "WARN",
+                                    format!("session_logoff({session_id}) failed: {error}"),
+                                );
+                            }
                         }
+                        SessionEvent::Stop => break,
+                    },
+                    Err(_) => {
+                        monitor.check_host_health();
                     }
-                    SessionEvent::Stop => break,
                 }
                 if let Ok(mut guard) = mount_snapshot_thread.lock() {
                     *guard = monitor.snapshot();
@@ -564,7 +579,10 @@ pub fn run_scm_service() -> Result<(), windows_service::Error> {
 
         let handle =
             runtime.spawn_blocking(move || run_service_loop(context, shutdown_rx, mount_snapshot));
-        let _ = runtime.block_on(handle);
+        match runtime.block_on(handle) {
+            Ok(()) => service_log("INFO", "service loop task completed normally"),
+            Err(error) => service_log("ERROR", format!("service loop task panicked or aborted: {error:?}")),
+        }
         runtime.shutdown_timeout(Duration::from_secs(10));
 
         let _ = session_thread.join();
