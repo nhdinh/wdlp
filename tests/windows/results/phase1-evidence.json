@@ -7,7 +7,7 @@
     "server_machine":  "LAB-DC01",
     "secondary_dc_machine":  "LAB-DC02",
     "database_machine":  "LAB-SERVER01",
-    "observed_utc":  "2026-08-20T03:57:35.2696730Z",
+    "observed_utc":  "2026-08-20T11:44:54.6600964Z",
     "cases":  [
                   {
                       "application":  "Excel",
@@ -450,5 +450,236 @@
                                               "scope":  "mount-failure and restart recovery"
                                           }
                                       ],
-    "manifest_digest":  "d2bcb8fd4d2be19d8f81afce0c1489055a5242ef97672384ce5b3a82bccfd570"
+    "manifest_digest":  "d2bcb8fd4d2be19d8f81afce0c1489055a5242ef97672384ce5b3a82bccfd570",
+    "abrupt_loss_cases":  [
+                              [
+                                  null,
+                                  {
+                                      "scenario":  "CleanServiceRestart",
+                                      "status":  "pass",
+                                      "rationale":  "old-complete marker preserved after clean service restart",
+                                      "execution_machine":  "LAB-CLIENT01",
+                                      "caller_machine":  "hungdinh-lt",
+                                      "observed_utc":  "2026-08-20T10:03:53.5273377Z",
+                                      "hash":  "e53ccd73c68851fa87c81e113d7b2f499ed558d249787c6699fe6557381a099e"
+                                  }
+                              ],
+                              {
+                                  "scenario":  "WindowsReboot",
+                                  "status":  "blocked",
+                                  "rationale":  "auto-logon and test user password required for post-boot drive-level verification",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T10:03:53.5351053Z"
+                              },
+                              [
+                                  null,
+                                  {
+                                      "value":  true,
+                                      "PSComputerName":  "LAB-CLIENT01",
+                                      "RunspaceId":  "72348e9a-03bf-48d5-856d-e164935d52b4",
+                                      "PSShowComputerName":  true
+                                  },
+                                  {
+                                      "scenario":  "ForcedTerminationDuringActiveWrite",
+                                      "status":  "fail",
+                                      "rationale":  "service/host did not recover after forced termination",
+                                      "execution_machine":  "LAB-CLIENT01",
+                                      "caller_machine":  "hungdinh-lt",
+                                      "observed_utc":  "2026-08-20T10:06:34.9362666Z"
+                                  }
+                              ],
+                              {
+                                  "scenario":  "AbruptLoss",
+                                  "status":  "blocked",
+                                  "rationale":  "auto-logon and test user password required for host-controlled abrupt-loss recovery",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T10:06:36.7840833Z"
+                              },
+                              [
+                                  null,
+                                  {
+                                      "scenario":  "CleanServiceRestart",
+                                      "status":  "pass",
+                                      "rationale":  "old-complete marker preserved after clean service restart",
+                                      "execution_machine":  "LAB-CLIENT01",
+                                      "caller_machine":  "hungdinh-lt",
+                                      "observed_utc":  "2026-08-20T10:23:39.3675987Z",
+                                      "hash":  "3a3b638ba0a694a1f4e59c96fe8cf8073155f97223f9aefd5de0911ae0706ca9"
+                                  }
+                              ],
+                              {
+                                  "scenario":  "WindowsReboot",
+                                  "status":  "blocked",
+                                  "rationale":  "auto-logon and test user password required for post-boot drive-level verification",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T10:23:39.3778994Z"
+                              },
+                              [
+                                  null,
+                                  {
+                                      "value":  true,
+                                      "PSComputerName":  "LAB-CLIENT01",
+                                      "RunspaceId":  "43d8dad9-4690-4273-8aec-0322f3b7086b",
+                                      "PSShowComputerName":  true
+                                  },
+                                  {
+                                      "scenario":  "ForcedTerminationDuringActiveWrite",
+                                      "status":  "fail",
+                                      "rationale":  "service/host did not recover after forced termination",
+                                      "execution_machine":  "LAB-CLIENT01",
+                                      "caller_machine":  "hungdinh-lt",
+                                      "observed_utc":  "2026-08-20T10:26:32.0137236Z"
+                                  }
+                              ],
+                              {
+                                  "scenario":  "AbruptLoss",
+                                  "status":  "blocked",
+                                  "rationale":  "auto-logon and test user password required for host-controlled abrupt-loss recovery",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T10:26:33.6957052Z"
+                              },
+                              {
+                                  "scenario":  "CleanServiceRestart",
+                                  "status":  "pass",
+                                  "rationale":  "old-complete marker preserved after clean service restart",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T10:33:13.9658101Z",
+                                  "hash":  "f44f7de81da96a7b7a526871fbeeb28c4bab1cf38316f74189cd285c2cf29ab0"
+                              },
+                              [
+                                  {
+                                      "value":  true,
+                                      "PSComputerName":  "LAB-CLIENT01",
+                                      "RunspaceId":  "23b2d2f4-dd4f-45e3-ae2f-55d0c22d8f8f",
+                                      "PSShowComputerName":  true
+                                  },
+                                  {
+                                      "scenario":  "ForcedTerminationDuringActiveWrite",
+                                      "status":  "fail",
+                                      "rationale":  "service/host did not recover after forced termination",
+                                      "execution_machine":  "LAB-CLIENT01",
+                                      "caller_machine":  "hungdinh-lt",
+                                      "observed_utc":  "2026-08-20T10:36:23.7133555Z"
+                                  }
+                              ],
+                              {
+                                  "scenario":  "CleanServiceRestart",
+                                  "status":  "pass",
+                                  "rationale":  "old-complete marker preserved after clean service restart",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T10:49:11.1758274Z",
+                                  "hash":  "e00b4c36d3ff4b39ac71bc5d5f4ac1f693e4d5ca2634f44eb76e972c9ffa89d3"
+                              },
+                              {
+                                  "scenario":  "ForcedTerminationDuringActiveWrite",
+                                  "status":  "fail",
+                                  "rationale":  "service/host did not recover after forced termination",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T10:52:36.2363231Z"
+                              },
+                              {
+                                  "scenario":  "ForcedTerminationDuringActiveWrite",
+                                  "status":  "fail",
+                                  "rationale":  "service/host did not recover after forced termination",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T10:59:46.1904619Z"
+                              },
+                              {
+                                  "scenario":  "ForcedTerminationDuringActiveWrite",
+                                  "status":  "pass",
+                                  "rationale":  "new-complete file present; old-complete marker preserved; no mixed/partial file observed",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:34:56.3964023Z",
+                                  "old_hash":  "77588c70888ee4b09f3ae1632ba3c0efc02fa9b1cdd86e19c8f9a8a84c8f896d",
+                                  "new_hash":  "780d532b613b8b1f228db91abb3527b48056a936a7fc34f42e4d11ae62d336d4"
+                              },
+                              {
+                                  "scenario":  "CleanServiceRestart",
+                                  "status":  "pass",
+                                  "rationale":  "old-complete marker preserved after clean service restart",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:36:57.1235394Z",
+                                  "hash":  "4323b022206e629c279ce27bb96279e03301ba1b05745bf054b6f6759aca2bcf"
+                              },
+                              {
+                                  "scenario":  "WindowsReboot",
+                                  "status":  "blocked",
+                                  "rationale":  "auto-logon and test user password required for post-boot drive-level verification",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:36:57.1395635Z"
+                              },
+                              {
+                                  "scenario":  "ForcedTerminationDuringActiveWrite",
+                                  "status":  "pass",
+                                  "rationale":  "new-complete file present; old-complete marker preserved; no mixed/partial file observed",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:38:09.5639196Z",
+                                  "old_hash":  "7f64252cfe0ee06e9d7b0a91738e0817488ab46a446d289e115a7bdcc004ce29",
+                                  "new_hash":  "28a667b3d90a3739830b6b0f09a99b07e5316db622f00917384d57aa489454e3"
+                              },
+                              {
+                                  "scenario":  "AbruptLoss",
+                                  "status":  "blocked",
+                                  "rationale":  "auto-logon and test user password required for host-controlled abrupt-loss recovery",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:38:11.5820664Z"
+                              },
+                              {
+                                  "scenario":  "CleanServiceRestart",
+                                  "status":  "pass",
+                                  "rationale":  "old-complete marker preserved after clean service restart",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:40:28.6378593Z",
+                                  "hash":  "3a9f89115d1714ab6d0a963a87260cbdb17c168791f1487058417af2be3e6575"
+                              },
+                              {
+                                  "scenario":  "WindowsReboot",
+                                  "status":  "pass",
+                                  "rationale":  "old-complete marker preserved after Windows reboot",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:41:32.9431388Z",
+                                  "content_hash":  null,
+                                  "reboot_utc":  "2026-08-20T11:40:40.4000212Z"
+                              },
+                              {
+                                  "scenario":  "ForcedTerminationDuringActiveWrite",
+                                  "status":  "pass",
+                                  "rationale":  "new-complete file present; old-complete marker preserved; no mixed/partial file observed",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:42:49.9683397Z",
+                                  "old_hash":  "5e59b8fc0a9880fa6ce7170002490f22e82852003c67a0f4c93836a616d4eca7",
+                                  "new_hash":  "a096ba7e6fe304e0870b0a5e69ac2a54416d965029771919c63193b7def05c33"
+                              },
+                              {
+                                  "scenario":  "HostControlledAbruptLoss",
+                                  "status":  "pass",
+                                  "rationale":  "host hard-off recovery preserved old-complete marker and exposed only new-complete file",
+                                  "execution_machine":  "LAB-CLIENT01",
+                                  "caller_machine":  "hungdinh-lt",
+                                  "observed_utc":  "2026-08-20T11:44:52.5304026Z",
+                                  "host_command":  "Stop-VM -Name LAB-CLIENT01 -TurnOff -Force",
+                                  "new_hash":  "401176f947288a727139e44bd7dd1b58445d0e94bae106c275ddfad2c83f270b",
+                                  "graceful_shutdown_observed":  {
+
+                                                                 },
+                                  "host_command_utc":  "2026-08-20T11:43:43.5825584Z",
+                                  "old_hash":  "57f1137f911690fff7f365a529ee9e23f4edfb35692e3493194b3c6d4bc8982b"
+                              }
+                          ]
 }

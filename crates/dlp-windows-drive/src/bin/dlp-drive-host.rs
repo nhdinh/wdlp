@@ -183,6 +183,7 @@ fn main() {
     // The volume stays mounted while the authenticated control channel remains open.
     // On pipe EOF or service stop, the control loop exits and the owned volume is
     // dropped, causing clean unmount.
+    eprintln!("entering control loop");
     match run_control_loop(pipe_file) {
         Ok(_) => {}
         Err(error) => {
@@ -190,6 +191,7 @@ fn main() {
         }
     }
 
+    eprintln!("dropping volume");
     drop(volume);
 }
 
@@ -326,7 +328,10 @@ fn run_control_loop(mut pipe_file: std::fs::File) -> Result<(), String> {
             let mut len_buf = [0u8; 4];
             match pipe_file.read_exact(&mut len_buf) {
                 Ok(_) => {}
-                Err(_) => return Ok(()), // EOF or broken pipe -> service stopped
+                Err(e) => {
+                    eprintln!("control loop read length error: {e}");
+                    return Ok(());
+                } // EOF or broken pipe -> service stopped
             }
             let msg_len = u32::from_be_bytes(len_buf) as usize;
             if msg_len > 64 * 1024 {

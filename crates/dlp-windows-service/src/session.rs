@@ -17,6 +17,7 @@ use std::{
 };
 
 use crate::pipe::{PipeFactory, StorageBootstrap, WindowsPipeFactory};
+use crate::service::service_log;
 
 #[cfg(test)]
 use crate::pipe::PipeBootstrap;
@@ -1060,6 +1061,7 @@ impl SessionMonitor {
                         pipe: authenticated_pipe,
                     },
                 );
+                service_log("INFO", format!("actor runtime stored for generation {}", session.generation()));
                 actor.set_mounted(drive_letter, expected_pid);
                 self.actors.insert(actor_key, actor.clone());
                 Ok(actor)
@@ -1093,6 +1095,7 @@ impl SessionMonitor {
 
     /// Stop all actors. Used on service stop/restart.
     pub fn stop_all(&mut self) {
+        service_log("INFO", "SessionMonitor::stop_all invoked");
         for actor in self.actors.values_mut() {
             actor.stop();
         }
@@ -1120,6 +1123,54 @@ impl SessionMonitor {
                 diagnostic: actor.diagnostic,
             })
             .collect()
+    }
+
+    /// Checks whether any launched host process has exited unexpectedly. If so, removes
+    /// the stale actor/runtime and relaunches the host for the session (unless the actor
+    /// is already draining due to logoff).
+    pub fn check_host_health(&mut self) {
+        let mut to_relaunch: Vec<(u32, UserSid, u64)> = Vec::new();
+        for actor in self.actors.values() {
+            if actor.reject_new_opens() {
+                continue;
+            }
+            let generation = actor.session.generation();
+            if let Some(runtime) = self.runtimes.get(&generation) {
+                match runtime.host.process_handle.wait_for_exit(Duration::from_secs(0)) {
+                    Ok(true) => {
+                        service_log(
+                            "WARN",
+                            format!(
+                                "host process for session {} generation {} exited; scheduling relaunch",
+                                actor.session.session_id(),
+                                generation
+                            ),
+                        );
+                        to_relaunch.push((
+                            actor.session.session_id(),
+                            actor.session.user_sid().clone(),
+                            generation,
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for (session_id, _sid, generation) in to_relaunch {
+            self.actors.retain(|_, a| a.session.generation() != generation);
+            self.runtimes.remove(&generation);
+            service_log(
+                "INFO",
+                format!("relaunching host for session {} after unexpected exit", session_id),
+            );
+            if let Err(error) = self.session_logon(session_id) {
+                service_log(
+                    "WARN",
+                    format!("relaunch for session {} failed: {}", session_id, error),
+                );
+                // Leave the actor removed so a future logon event can retry.
+            }
+        }
     }
 
     pub fn actor_count(&self) -> usize {
