@@ -6,9 +6,9 @@ current_phase_name: first-encrypted-drive-vertical-slice
 current_plan: 01-21 D-19 failure matrix, evidence sealing, and independent review
 status: executing
 stopped_at: context exhaustion at 77% (2026-08-20)
-last_updated: "2026-08-20T07:18:20.456Z"
+last_updated: "2026-08-20T08:02:12Z"
 last_activity: 2026-08-20
-state_head: 51d4e0b5dc30c8061bc5b6b21e9a4836684f1d11
+state_head: c592d333b0510704a5fd837e1a4c4e28e3296e0d
 progress:
   total_phases: 7
   completed_phases: 0
@@ -126,11 +126,11 @@ Last activity: 2026-08-19
 **Last session:** 2026-08-20T07:18:20.428Z
 **Stopped at:** context exhaustion at 77% (2026-08-20)
 
-**Current session:** 2026-08-20T06:51:56.318Z
-**Resumed at:** /gsd-resume-work — entered executor worktree to continue Plan 01-21 Task 1.
+**Current session:** 2026-08-20T08:02:12Z
+**Resumed at:** /gsd-resume-work — executor worktree; confirmed `$env:DLP_TEST_USER_PASSWORD` is set; first harness run failed because PSRemoting cannot see the per-user P: drive even as `LAB\uat-user1`.
 
-- Last action: Continued from `.planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md`; harness fixes for `Invoke-AbruptLossHarness.ps1` are uncommitted in this worktree.
-- Next action: Apply the remaining protected-drive credential fix, rerun the D-19 harness on LAB-CLIENT01, then seal evidence and run the independent-review gate.
+- Last action: Proved via a temporary scheduled task that P: is visible only inside the interactive console session; PSRemoting sessions see only `C:\`.
+- Next action: Refactor `tests/windows/Invoke-AbruptLossHarness.ps1` so protected-drive file operations run through a scheduled-task helper in the interactive session, then rerun the harness.
 
 ### Completed Plan 01-23 Evidence
 
@@ -202,4 +202,4 @@ Last activity: 2026-08-19
 
 ### Blockers
 
-- None — Plan 01-24 complete. Next work (Plan 01-16) awaits operator go-ahead.
+- **Plan 01-21 Task 1 blocked** — `$env:DLP_TEST_USER_PASSWORD` is now set, but `Invoke-AbruptLossHarness.ps1` uses `Invoke-TestCommand` / PSRemoting for protected-drive operations, and PSRemoting sessions cannot see the per-user P: drive even when authenticated as `LAB\uat-user1`. The harness must be refactored to run drive operations through scheduled tasks in the interactive console session (session 4).

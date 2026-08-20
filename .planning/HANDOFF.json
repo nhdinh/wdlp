@@ -10,31 +10,36 @@
   "status": "paused",
   "completed_tasks": [
     {"id": 1, "name": "Restore project state and route to Plan 01-21", "status": "done", "commit": "n/a"},
-    {"id": 1, "name": "Enter executor worktree and spawn D-19 executor agent", "status": "done", "commit": "n/a"}
+    {"id": 1, "name": "Enter executor worktree and spawn D-19 executor agent", "status": "done", "commit": "n/a"},
+    {"id": 1, "name": "Merge executor agent harness fixes into executor worktree", "status": "done", "commit": "c592d333b0510704a5fd837e1a4c4e28e3296e0d"},
+    {"id": 1, "name": "Set $env:DLP_TEST_USER_PASSWORD and confirm", "status": "done", "commit": "n/a"},
+    {"id": 1, "name": "Diagnose P: drive visibility in PSRemoting vs interactive session", "status": "done", "commit": "n/a"}
   ],
   "remaining_tasks": [
-    {"id": 1, "name": "Fix remaining admin-credential protected-drive path accesses in Invoke-AbruptLossHarness.ps1", "status": "in_progress"},
+    {"id": 1, "name": "Refactor Invoke-AbruptLossHarness.ps1 to run protected-drive operations via scheduled tasks in the interactive session", "status": "in_progress"},
     {"id": 1, "name": "Run Invoke-AbruptLossHarness.ps1 -Scenario RunAll on LAB-CLIENT01", "status": "not_started"},
     {"id": 1, "name": "Run scripts/verify-phase1-evidence.ps1 -Scenario AbruptLossRecovery", "status": "not_started"},
     {"id": 2, "name": "Seal complete requirement-indexed evidence and independent Phase 1 review", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "Context near exhaustion (74%); paused after spawning executor agent aa207cc36a736c964.", "type": "external", "workaround": "Resume in fresh session; the executor agent may finish independently or need continuation."}
+    {"description": "PSRemoting sessions cannot see the per-user mapped P: drive even when authenticated as LAB\\uat-user1. Protected-drive operations must run in the interactive console session via scheduled tasks.", "type": "technical", "workaround": "Refactor Invoke-AbruptLossHarness.ps1 to use a scheduled-task helper for drive operations."}
   ],
   "async_jobs": [
-    {"agent_id": "aa207cc36a736c964", "role": "gsd-executor", "isolation": "worktree", "plan": "01-21", "task": 1, "status": "running", "started_at": "2026-08-20T07:19:00Z", "description": "Fix Invoke-AbruptLossHarness.ps1 admin-credential drive access and run D-19 failure/recovery harness."}
+    {"agent_id": "aa207cc36a736c964", "role": "gsd-executor", "isolation": "worktree", "plan": "01-21", "task": 1, "status": "completed-paused", "started_at": "2026-08-20T07:19:00Z", "description": "Fix Invoke-AbruptLossHarness.ps1 admin-credential drive access and run D-19 failure/recovery harness. Paused at blocking-human checkpoint because DLP_TEST_USER_PASSWORD is not set."}
   ],
   "human_actions_pending": [
-    {"action": "If the executor agent pauses or fails, provide $env:DLP_TEST_USER_PASSWORD and confirm LAB-CLIENT01 is signed in as uat-user1 with P: drive mounted.", "context": "D-19 drive-level scenarios require the interactive user's credential and an active mapped drive.", "blocking": true}
+    {"action": "Wait for the harness refactor and the next run result. No action required unless the refactor needs clarification.", "context": "Protected-drive operations must run in the interactive session; a scheduled-task helper has been validated.", "blocking": false}
   ],
   "decisions": [
     {"decision": "Resumed Plan 01-21 in the executor worktree because harness/verifier edits are committed only there.", "rationale": "Master lacks tests/windows/Invoke-AbruptLossHarness.ps1 and scripts/verify-phase1.ps1; the worktree branch has them.", "phase": "01"},
     {"decision": "Spawned a worktree-isolated gsd-executor agent to finish Plan 01-21.", "rationale": "Orchestrator context was exhausted; delegating to a fresh executor preserves context and avoids interference.", "phase": "01"}
   ],
   "uncommitted_files": [
-    ".planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md",
-    ".planning/STATE.md"
+    ".planning/STATE.md",
+    ".planning/HANDOFF.json",
+    "AGENTS.md",
+    "CLAUDE.md"
   ],
-  "next_action": "Wait for executor agent aa207cc36a736c964 to complete. If it succeeds, inspect its commits and SUMMARY.md; if it fails or pauses, resume from its last checkpoint.",
-  "context_notes": "Plan 01-21 Task 1 was stuck because Invoke-AbruptLossHarness.ps1 was using Invoke-AdminCommand to test protected-drive paths, which cannot see the per-user P: drive. The executor agent was launched specifically to fix and run that harness. Task 2 (evidence sealing + independent review) follows if Task 1 passes."
+  "next_action": "Refactor tests/windows/Invoke-AbruptLossHarness.ps1 to route protected-drive operations through a scheduled-task helper that executes as LAB\\uat-user1 in the console session, then rerun -Scenario RunAll.",
+  "context_notes": "Plan 01-21 Task 1 first failed because Invoke-AbruptLossHarness.ps1 was using Invoke-AdminCommand to test protected-drive paths, which cannot see the per-user P: drive. The executor agent fixed that to use Invoke-TestCommand as LAB\\uat-user1, but PSRemoting sessions still cannot see P: because mapped drives are session-specific. A scheduled-task prototype proved that P: is visible in the interactive console session. The next step is to refactor the harness to execute protected-drive operations via scheduled tasks in that session."
 }
