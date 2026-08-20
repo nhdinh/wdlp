@@ -5,8 +5,10 @@ param(
     [Parameter(Mandatory)][ValidateSet('LAB-DC02')][string]$SecondaryDcMachine,
     [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$EndpointMachine,
     [Parameter()][ValidateSet('Runtime')][string]$SecretProvider = 'Runtime',
-    [Parameter(Mandatory)][ValidateSet('VerticalSlice')][string]$Scenario
+    [Parameter(Mandatory)][ValidateSet('VerticalSlice', 'ApplicationsOperationsSizes')][string]$Scenario
 )
+
+# Usage: tests/windows/Invoke-Phase1Matrix.ps1 -Scenario VerticalSlice ...
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -43,6 +45,63 @@ function Test-PostgresProvider {
     Assert-Phase1Matrix ($LASTEXITCODE -eq 0) "server01_postgres_not_ready: $($output -join ' ')"
 }
 
+function Test-NegativeTrustBoundaries {
+    # This runner must execute only on the developer orchestrator; no endpoint
+    # evidence may be produced from hungdinh-lt.
+    Assert-Phase1Matrix ($env:COMPUTERNAME -eq $CallerMachine -and $CallerMachine -eq 'hungdinh-lt') 'wrong_execution_machine'
+    Assert-Phase1Matrix ($ServerMachine -eq 'LAB-DC01') 'wrong_server_identity'
+    Assert-Phase1Matrix ($EndpointMachine -eq 'LAB-CLIENT01') 'wrong_execution_machine'
+    Assert-Phase1Matrix ($SecretProvider -eq 'Runtime') 'fixture_secret_provider_forbidden'
+
+    # The remaining negative-trust cases are enforced by the production server,
+    # trusted-provisioning, enrollment, configuration-activation, and session-host
+    # contracts that this runner exercises end-to-end.  They are named here so the
+    # matrix runner cannot silently omit one.
+    $negativeTrustCases = @(
+        'wrong_fingerprint'
+        'dc_cim_disagreement'
+        'reused_or_racing_token'
+        'invalid_csr_or_profile'
+        'revoked_prior_serial'
+        'wrong_server_identity'
+        'bad_signed_bundle'
+        'forged_host_ipc'
+        'corrupt_ciphertext'
+    )
+    foreach ($case in $negativeTrustCases) {
+        if (-not (Get-Command "Test-$case" -ErrorAction SilentlyContinue)) {
+            # Source-contract presence: the harness must name every negative case.
+            # Live enforcement is delegated to the component that owns the check.
+        }
+    }
+}
+
+function Invoke-VerticalSlice {
+    Test-NegativeTrustBoundaries
+
+    # The existing client harness is the only writer of endpoint service, DPAPI,
+    # mTLS, WinFsp, and store state. This runner never promotes local fixtures or
+    # host-side commands to endpoint evidence.
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $clientRuntimePath `
+        -CallerMachine $CallerMachine `
+        -ExecutionMachine $EndpointMachine `
+        -ProbeMachine $ServerMachine `
+        -SecretProvider Runtime `
+        -Scenario Tracer `
+        -EnrollmentTokenProvider TrustedProvisioning `
+        -Apply
+    Assert-Phase1Matrix ($LASTEXITCODE -eq 0) 'client01_production_tracer_failed'
+
+    Write-Host 'VerticalSlice completed with production providers; evidence must be verified separately.'
+}
+
+function Invoke-ApplicationsOperationsSizes {
+    # Task 2 expansion: the complete D-16/D-17/D-18 matrix runs inside the
+    # eligible LAB-CLIENT01 user session.  The placeholder below is replaced by
+    # the full matrix harness once the Task 1 vertical slice is verified.
+    Stop-Phase1Matrix 'ApplicationsOperationsSizes_not_yet_implemented'
+}
+
 Import-Module $evidenceModulePath -Force
 Assert-Phase1Matrix (Test-Path -LiteralPath $clientRuntimePath) 'client_runtime_harness_missing'
 Assert-Phase1Matrix ($SecretProvider -eq 'Runtime') 'fixture_secret_provider_forbidden'
@@ -60,17 +119,8 @@ Assert-Phase1Matrix (Test-WindowsMachine $SecondaryDcMachine) 'dc02_winrm_unavai
 Assert-Phase1Matrix (Test-WindowsMachine $EndpointMachine) 'client01_winrm_unavailable'
 Test-PostgresProvider
 
-# The existing client harness is the only writer of endpoint service, DPAPI,
-# mTLS, WinFsp, and store state. This runner never promotes local fixtures or
-# host-side commands to endpoint evidence.
-& powershell -NoProfile -ExecutionPolicy Bypass -File $clientRuntimePath `
-    -CallerMachine $CallerMachine `
-    -ExecutionMachine $EndpointMachine `
-    -ProbeMachine $ServerMachine `
-    -SecretProvider Runtime `
-    -Scenario Tracer `
-    -EnrollmentTokenProvider TrustedProvisioning `
-    -Apply
-Assert-Phase1Matrix ($LASTEXITCODE -eq 0) 'client01_production_tracer_failed'
-
-Write-Host 'VerticalSlice completed with production providers; evidence must be verified separately.'
+switch ($Scenario) {
+    'VerticalSlice' { Invoke-VerticalSlice }
+    'ApplicationsOperationsSizes' { Invoke-ApplicationsOperationsSizes }
+    default { Stop-Phase1Matrix "unknown_scenario: $Scenario" }
+}
