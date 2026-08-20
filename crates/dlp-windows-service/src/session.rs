@@ -234,10 +234,14 @@ impl SessionTokenProvider for WtsSessionTokenProvider {
 }
 
 /// Returns the active interactive session IDs visible to the service.
+///
+/// Only sessions backed by a real user are eligible. Services/listener sessions
+/// are filtered out by requiring either the console winstation name or a
+/// non-empty WTS username.
 #[cfg(windows)]
 pub fn active_session_ids() -> Vec<u32> {
     use windows::Win32::System::RemoteDesktop::{
-        WTS_SESSION_INFOW, WTSEnumerateSessionsW, WTSFreeMemory,
+        WTSFreeMemory, WTS_SESSION_INFOW, WTSEnumerateSessionsW,
     };
     unsafe {
         let mut info: *mut WTS_SESSION_INFOW = std::ptr::null_mut();
@@ -256,7 +260,20 @@ pub fn active_session_ids() -> Vec<u32> {
                 // console session that has not yet reached Active state (e.g. immediately
                 // after service restart while a user is already signed in) can be reconciled.
                 let state = s.State.0;
-                if state == 0 || state == 1 {
+                if state != 0 && state != 1 {
+                    return None;
+                }
+
+                // Prefer the console winstation name exposed by WTSEnumerateSessionsW.
+                if let Some(name) = pwstr_to_string(s.pWinStationName) {
+                    if name.eq_ignore_ascii_case("console") {
+                        return Some(s.SessionId);
+                    }
+                }
+
+                // Fall back to WTSQuerySessionInformation(WTSUserName): a real user
+                // session has a non-empty username, unlike the services/listener sessions.
+                if session_has_user_name(s.SessionId) {
                     Some(s.SessionId)
                 } else {
                     None
@@ -266,6 +283,36 @@ pub fn active_session_ids() -> Vec<u32> {
         WTSFreeMemory(info as *mut _);
         ids
     }
+}
+
+/// Converts a null-terminated UTF-16 PWSTR to a Rust String.
+#[cfg(windows)]
+unsafe fn pwstr_to_string(ptr: windows::core::PWSTR) -> Option<String> {
+    if ptr.0.is_null() {
+        return None;
+    }
+    let len = unsafe { (0..).find(|i| *ptr.0.add(*i) == 0).unwrap_or(0) };
+    if len == 0 {
+        return None;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr.0, len) };
+    String::from_utf16(slice).ok()
+}
+
+/// Queries WTS for the username of a session and returns true if it is non-empty.
+#[cfg(windows)]
+unsafe fn session_has_user_name(session_id: u32) -> bool {
+    use windows::Win32::System::RemoteDesktop::{
+        WTSFreeMemory, WTSQuerySessionInformationW, WTSUserName,
+    };
+    let mut buf: windows::core::PWSTR = windows::core::PWSTR::null();
+    let mut bytes = 0u32;
+    if unsafe { WTSQuerySessionInformationW(None, session_id, WTSUserName, &mut buf, &mut bytes) }.is_err() {
+        return false;
+    }
+    let has_user = unsafe { pwstr_to_string(buf) }.map(|s| !s.is_empty()).unwrap_or(false);
+    unsafe { WTSFreeMemory(buf.0 as *mut _) };
+    has_user
 }
 
 #[cfg(windows)]
