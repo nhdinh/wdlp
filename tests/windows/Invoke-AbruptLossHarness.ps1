@@ -5,12 +5,18 @@ param(
     [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$EndpointMachine,
     [Parameter()][ValidateSet('RunAll','CleanServiceRestart','WindowsReboot','ForcedTermination','AbruptLoss')][string]$Scenario = 'RunAll',
     [Parameter()][string]$TestUserPassword = $env:DLP_TEST_USER_PASSWORD,
-    [Parameter()][string]$ResultsDir = (Join-Path $PSScriptRoot 'results'),
+    [Parameter()][string]$ResultsDir = '',
     [Parameter()][string]$DriveLetter = $env:DLP_WINFSP_SMOKE_LETTER
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# $PSScriptRoot can be empty in parameter defaults when invoked through certain
+# callers (e.g., from WSL/bash), so resolve the results directory here.
+if ([string]::IsNullOrWhiteSpace($ResultsDir)) {
+    $ResultsDir = Join-Path $PSScriptRoot 'results'
+}
 
 if ([string]::IsNullOrWhiteSpace($DriveLetter)) { $DriveLetter = 'P' }
 $DriveLetter = $DriveLetter.TrimEnd(':').ToUpperInvariant()
@@ -146,8 +152,11 @@ function Start-DlpService {
     } -ArgumentList @($serviceName)
 }
 
-function Get-FileHashHex([Parameter(Mandatory)][string]$Path) {
-    Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+function Get-FileHashHex(
+    [Parameter(Mandatory)][string]$UserName,
+    [Parameter(Mandatory)][string]$Path
+) {
+    Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
         param($Path)
         if (-not (Test-Path -LiteralPath $Path)) { return $null }
         $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -259,6 +268,9 @@ function Update-EvidenceBundle {
         }
     }
     $list = [System.Collections.Generic.List[object]]::new()
+    if (-not $bundle.PSObject.Properties['abrupt_loss_cases']) {
+        $bundle | Add-Member -NotePropertyName 'abrupt_loss_cases' -NotePropertyValue @() -Force
+    }
     if ($bundle.abrupt_loss_cases) { foreach ($c in $bundle.abrupt_loss_cases) { $list.Add($c) } }
     foreach ($c in $NewCases) { $list.Add($c) }
     $bundle.abrupt_loss_cases = $list
@@ -281,7 +293,7 @@ function Invoke-CleanServiceRestart {
     $content = New-MarkerContent
     $markerName = 'clean-service-restart-marker.txt'
     Write-MarkerFile -UserName $UserName -Name $markerName -Content $content | Out-Null
-    $oldHash = Get-FileHashHex -Path (Join-Path $markerRoot $markerName)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $markerName)
 
     Stop-DlpService
     Start-DlpService
@@ -293,7 +305,7 @@ function Invoke-CleanServiceRestart {
     if ($null -eq $readContent) {
         return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'marker file unreadable after restart'
     }
-    $newHash = Get-FileHashHex -Path (Join-Path $markerRoot $markerName)
+    $newHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $markerName)
     if ($readContent -ne $content -or $newHash -ne $oldHash) {
         return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'marker content or hash changed after restart' -Details @{ old_hash = $oldHash; new_hash = $newHash }
     }
@@ -404,7 +416,7 @@ function Invoke-ForcedTermination {
     $oldMarker = 'forced-term-old-marker.txt'
     $oldContent = New-MarkerContent
     Write-MarkerFile -UserName $UserName -Name $oldMarker -Content $oldContent | Out-Null
-    $oldHash = Get-FileHashHex -Path (Join-Path $markerRoot $oldMarker)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
 
     $newName = 'forced-term-new-large.bin'
     $newPath = Join-Path $markerRoot $newName
@@ -462,9 +474,9 @@ function Invoke-ForcedTermination {
     }
 
     # The writer job result may have completed or errored; we only care about filesystem state.
-    $newHash = Get-FileHashHex -Path $newPath
-    $oldReadHash = Get-FileHashHex -Path (Join-Path $markerRoot $oldMarker)
-    $newExists = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+    $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
+    $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+    $newExists = Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
         param($Path)
         return Test-Path -LiteralPath $Path
     } -ArgumentList @($newPath)
@@ -488,7 +500,7 @@ function Invoke-AbruptLoss {
     $oldMarker = 'abrupt-loss-old-marker.txt'
     $oldContent = New-MarkerContent
     Write-MarkerFile -UserName $UserName -Name $oldMarker -Content $oldContent | Out-Null
-    $oldHash = Get-FileHashHex -Path (Join-Path $markerRoot $oldMarker)
+    $oldHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
 
     $newName = 'abrupt-loss-new-large.bin'
     $newPath = Join-Path $markerRoot $newName
@@ -572,9 +584,9 @@ function Invoke-AbruptLoss {
         return New-Case -Scenario $scenarioName -Status 'fail' -Rationale 'service/host did not recover after abrupt loss' -Details @{ host_command = $hostCommand; host_command_utc = $hostCommandUtc }
     }
 
-    $oldReadHash = Get-FileHashHex -Path (Join-Path $markerRoot $oldMarker)
-    $newHash = Get-FileHashHex -Path $newPath
-    $newExists = Invoke-AdminCommand -VMName $EndpointMachine -ScriptBlock {
+    $oldReadHash = Get-FileHashHex -UserName $UserName -Path (Join-Path $markerRoot $oldMarker)
+    $newHash = Get-FileHashHex -UserName $UserName -Path $newPath
+    $newExists = Invoke-TestCommand -VMName $EndpointMachine -UserName $UserName -ScriptBlock {
         param($Path)
         return Test-Path -LiteralPath $Path
     } -ArgumentList @($newPath)
