@@ -267,10 +267,28 @@ Describe 'Phase 1 Security Closure Full Set (19 blocking threats)' {
         finally { Remove-Item -LiteralPath $temp -Recurse -Force }
     }
 
-    It 'rejects signed-off mode while the security register still has open blocking threats' {
+    It 'accepts signed-off mode when the security register has no open blocking threats' {
         if (-not (Test-Path -LiteralPath $global:SecurityPath)) { Set-ItResult -Skipped -Because 'SECURITY register is not present' }
         $exit = Invoke-SecurityVerifier -ClosurePath $global:ClosurePath -SecurityPath $global:SecurityPath -RequireSignedOff
-        $exit | Should -Not -Be 0
+        $exit | Should -Be 0
+    }
+
+    It 'rejects signed-off mode when the security register has an open blocking threat' {
+        if (-not (Test-Path -LiteralPath $global:SecurityPath)) { Set-ItResult -Skipped -Because 'SECURITY register is not present' }
+        $temp = New-TempClosureWorkspace -IncludeSecurity
+        try {
+            $secPath = Join-Path $temp '01-SECURITY.md'
+            $sec = Get-Content -LiteralPath $secPath -Raw
+            $start = $sec.IndexOf('T-01-15-01')
+            $end = $sec.IndexOf("`n", $start)
+            $line = $sec.Substring($start, $end - $start)
+            $line = $line -replace '\|\s*closed\s*\|', '| open |'
+            $tampered = $sec.Substring(0, $start) + $line + $sec.Substring($end)
+            [System.IO.File]::WriteAllText($secPath, $tampered, (New-Object System.Text.UTF8Encoding($false)))
+            $exit = Invoke-SecurityVerifier -ClosurePath $global:ClosurePath -SecurityPath $secPath -RequireSignedOff
+            $exit | Should -Not -Be 0
+        }
+        finally { Remove-Item -LiteralPath $temp -Recurse -Force }
     }
 }
 
