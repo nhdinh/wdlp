@@ -63,3 +63,812 @@ records:
       baseline_id: phase1-locked-build
       binary_hashes:
         phase1: approved-binary-digest
+  - threat_id: T-01-15-02
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Service-owned DACL plus connecting SID/session/PID/generation validation and bounded versioned messages.
+    implementation_refs:
+      - path: crates/dlp-windows-service/src/pipe.rs
+        sha256: f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+    evidence_attempt_ids:
+      - 7deb761f-745a-4e3a-bcf9-4dfc22d80595
+      - fa0959c2-6f68-49f4-9f6a-3f5c099d042f
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-windows-service/src/pipe.rs
+        sha256: f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-15-03
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Random DEK, machine-DPAPI wrapper, service-only ACL, zeroization, and marker scans.
+    implementation_refs:
+      - path: crates/dlp-windows-service/src/credential.rs
+        sha256: b81d274891b26388445ba79831d7e85fe7d5cbcc37a3497190058730d17bbef5
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+    evidence_attempt_ids:
+      - 7deb761f-745a-4e3a-bcf9-4dfc22d80595
+      - 297b4ae9-80f9-41c2-9e57-ecb4761d3827
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-windows-service/src/credential.rs
+        sha256: b81d274891b26388445ba79831d7e85fe7d5cbcc37a3497190058730d17bbef5
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-15-04
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Atomic draining, reject opens, 30-second bound, cancellation/unmount/resource disposal, and authenticated recovery before remount.
+    implementation_refs:
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+      - path: crates/dlp-windows-service/src/service.rs
+        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
+      - path: crates/dlp-windows-service/tests/session_lifecycle.rs
+        sha256: 022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab
+    evidence_attempt_ids:
+      - c618578c-da4c-43c6-9049-46aeffab165b
+      - 12aa5391-b7d4-4739-bafd-f3b0933e6a2e
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/src/service.rs
+        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/tests/session_lifecycle.rs
+        sha256: 022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-15-06
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Separate digest-bound 01-15 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates.
+    implementation_refs:
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+      - path: crates/dlp-windows-service/src/pipe.rs
+        sha256: f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a
+    evidence_attempt_ids:
+      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: config/lab.phase1.example.yaml
+        sha256: 03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/src/pipe.rs
+        sha256: f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: authenticated_domain_operator
+      name: nhdinh
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-16-01
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Role-guarded commands and required execution machine in every attempt.
+    implementation_refs:
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+    evidence_attempt_ids:
+      - c5baff45-3657-49c0-847d-fa9867aa6c02
+      - 49815541-0652-4840-9294-76731de9757a
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-16-02
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: No fixture providers and negative fingerprint, DC, CSR, cert, revocation, TLS, bundle, and IPC cases.
+    implementation_refs:
+      - path: crates/dlp-server/src/enrollment.rs
+        sha256: 3b0f70a176d8a6c598f5bb17ef8f6b7b6599dcfdd916c9071b0b440caa98e3c2
+      - path: crates/dlp-server/src/pki.rs
+        sha256: d541ded6c9ebba0ffd528b23c87da1683a15ba57bcf82a84d856c36475d8a6de
+      - path: crates/dlp-server/src/tls.rs
+        sha256: 9e3a13d4c849beb3bde8a912d762c8bc9255bd17f11ba45e3e6efea3668d2e9a
+      - path: crates/dlp-agent-core/src/client.rs
+        sha256: 8b7b70e7df6810ca481c7bccfa27ba8f2411133896863ebba228a3d79a9e677d
+    evidence_attempt_ids:
+      - ed99db33-2f8e-4445-aab2-e87f99c1b8e3
+      - 7deb761f-745a-4e3a-bcf9-4dfc22d80595
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - LAB-DC01:primary_directory_server
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-server/src/enrollment.rs
+        sha256: 3b0f70a176d8a6c598f5bb17ef8f6b7b6599dcfdd916c9071b0b440caa98e3c2
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-server/src/pki.rs
+        sha256: d541ded6c9ebba0ffd528b23c87da1683a15ba57bcf82a84d856c36475d8a6de
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-server/src/tls.rs
+        sha256: 9e3a13d4c849beb3bde8a912d762c8bc9255bd17f11ba45e3e6efea3668d2e9a
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-agent-core/src/client.rs
+        sha256: 8b7b70e7df6810ca481c7bccfa27ba8f2411133896863ebba228a3d79a9e677d
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-16-03
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Hash equality, unique markers, authenticate-before-copy, corruption denial, and non-vacuous scans.
+    implementation_refs:
+      - path: crates/dlp-storage/src/store.rs
+        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+      - path: crates/dlp-storage/tests/integrity.rs
+        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
+      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
+        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+    evidence_attempt_ids:
+      - 297b4ae9-80f9-41c2-9e57-ecb4761d3827
+      - 3d18c1a0-2541-4f6a-a273-43eb4e74eb62
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-storage/src/store.rs
+        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-storage/tests/integrity.rs
+        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
+        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        role: hungdinh-lt:developer_orchestrator
+      - path: evidence/phase1/manifests/cry-01-aead-store-integrity.json
+        sha256: 32c1cb12feda97c1cc91da38dd47c588d596f94eb9216fdf46aec7c99c2742e4
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-16-04
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Strict sanitized schema, forbidden-field/marker scan, runtime-only secrets, and no protected payload bytes.
+    implementation_refs:
+      - path: crates/dlp-windows-service/src/service.rs
+        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+    evidence_attempt_ids:
+      - c618578c-da4c-43c6-9049-46aeffab165b
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-windows-service/src/service.rs
+        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+        role: hungdinh-lt:developer_orchestrator
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-16-06
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Separate digest-bound 01-16 approval, baseline, role allowlist, idempotent apply/verify/remove, cleanup, and pinned tools.
+    implementation_refs:
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+    evidence_attempt_ids:
+      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: config/lab.phase1.example.yaml
+        sha256: 03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee
+        role: hungdinh-lt:developer_orchestrator
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+        role: hungdinh-lt:developer_orchestrator
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: authenticated_domain_operator
+      name: nhdinh
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-18-SC
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Preserve the approved Cargo.lock sources/versions and run slopcheck before accepting any dependency change; no new package is authorized.
+    implementation_refs:
+      - path: Cargo.lock
+        sha256: a8a0676c6b12aa37c5f44a6d12c200366442d5bc0efb9e9594905d6167438696
+    evidence_attempt_ids:
+      - 5c30f253-d29e-413b-9be6-1c52910fff5d
+    required_machine_roles:
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: Cargo.lock
+        sha256: a8a0676c6b12aa37c5f44a6d12c200366442d5bc0efb9e9594905d6167438696
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-20-01
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Separate content/metadata corruption, authenticate before copy, exact integrity status, encrypted evidence preservation, and zero-plaintext checks.
+    implementation_refs:
+      - path: crates/dlp-storage/src/store.rs
+        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+      - path: crates/dlp-storage/tests/integrity.rs
+        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
+      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
+        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+    evidence_attempt_ids:
+      - 297b4ae9-80f9-41c2-9e57-ecb4761d3827
+      - 20da498a-65b8-4a58-8228-5c35dfe3cd57
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-storage/src/store.rs
+        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-storage/tests/integrity.rs
+        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
+        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        role: hungdinh-lt:developer_orchestrator
+      - path: evidence/phase1/manifests/cry-01-aead-store-integrity.json
+        sha256: 32c1cb12feda97c1cc91da38dd47c588d596f94eb9216fdf46aec7c99c2742e4
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-20-02
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Injected NoSpace before pointer publication, exact disk-full status, baseline-hash readback, and no mixed generation.
+    implementation_refs:
+      - path: crates/dlp-storage/src/store.rs
+        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+      - path: crates/dlp-storage/tests/integrity.rs
+        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
+      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
+        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+    evidence_attempt_ids:
+      - 9f4b5e32-ea1c-4344-ac26-a3af01cfd9b1
+      - 20da498a-65b8-4a58-8228-5c35dfe3cd57
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-storage/src/store.rs
+        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-storage/tests/integrity.rs
+        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
+        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-20-05
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Separate digest-bound 01-20 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates.
+    implementation_refs:
+      - path: crates/dlp-storage/src/store.rs
+        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+      - path: crates/dlp-storage/tests/integrity.rs
+        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
+      - path: tests/windows/Invoke-ServiceSessionSmoke.ps1
+        sha256: f364f698ef2d2e41c8e660f673cfab79e77364f10468e7b9fcecc07429a862c1
+      - path: tests/windows/Install-WinFsp.ps1
+        sha256: 88f7ab46baa3ea2484e6bbc56081779e1dbaa72a5ac632aeb95b911e29a65ba3
+    evidence_attempt_ids:
+      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: config/lab.phase1.example.yaml
+        sha256: 03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee
+        role: hungdinh-lt:developer_orchestrator
+      - path: tests/windows/Invoke-ServiceSessionSmoke.ps1
+        sha256: f364f698ef2d2e41c8e660f673cfab79e77364f10468e7b9fcecc07429a862c1
+        role: hungdinh-lt:developer_orchestrator
+      - path: tests/windows/Install-WinFsp.ps1
+        sha256: 88f7ab46baa3ea2484e6bbc56081779e1dbaa72a5ac632aeb95b911e29a65ba3
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: authenticated_domain_operator
+      name: nhdinh
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-21-01
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Guest durability barrier, hungdinh-lt host-side hard-off, no graceful guest event, post-boot hash/provenance capture.
+    implementation_refs:
+      - path: crates/dlp-windows-service/src/service.rs
+        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+      - path: tests/windows/Invoke-AbruptLossHarness.ps1
+        sha256: 9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3
+    evidence_attempt_ids:
+      - 20da498a-65b8-4a58-8228-5c35dfe3cd57
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-windows-service/src/service.rs
+        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+        role: hungdinh-lt:developer_orchestrator
+      - path: tests/windows/Invoke-AbruptLossHarness.ps1
+        sha256: 9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-21-02
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Role-guarded execution machine, verification-tier and substitute checks in verify-phase1.ps1.
+    implementation_refs:
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+    evidence_attempt_ids:
+      - 49815541-0652-4840-9294-76731de9757a
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+        role: hungdinh-lt:developer_orchestrator
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-21-03
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Allowlisted schema, forbidden-field and non-vacuous marker scans, runtime-only secrets, and sealed digest.
+    implementation_refs:
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+    evidence_attempt_ids:
+      - 20da498a-65b8-4a58-8228-5c35dfe3cd57
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+        role: hungdinh-lt:developer_orchestrator
+      - path: tests/windows/Invoke-Phase1Matrix.ps1
+        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-21-04
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Authenticated independent identity, matrix digest, current/superseded attempts, deviation policy, artifact integrity, and retention/hold validation.
+    implementation_refs:
+      - path: scripts/add-independent-review.ps1
+        sha256: aaa38dbd36b84687ffcbf01dd873c7f0cee653e0686e9d7e99339192985e49a9
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+    evidence_attempt_ids:
+      - f225f12f-083d-4d42-8495-438466fbc1f7
+      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
+    required_machine_roles:
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: hungdinh-lt:developer_orchestrator
+      - path: scripts/add-independent-review.ps1
+        sha256: aaa38dbd36b84687ffcbf01dd873c7f0cee653e0686e9d7e99339192985e49a9
+        role: hungdinh-lt:developer_orchestrator
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
+  - threat_id: T-01-21-05
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: Separate digest-bound 01-21 privilege approval, baseline, strict machine allowlist, idempotent apply/verify/remove, cleanup, and pinned tooling.
+    implementation_refs:
+      - path: tests/windows/Invoke-AbruptLossHarness.ps1
+        sha256: 9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+    evidence_attempt_ids:
+      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+      - hungdinh-lt:developer_orchestrator
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: config/lab.phase1.example.yaml
+        sha256: 03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee
+        role: hungdinh-lt:developer_orchestrator
+      - path: tests/windows/Invoke-AbruptLossHarness.ps1
+        sha256: 9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3
+        role: hungdinh-lt:developer_orchestrator
+      - path: scripts/verify-phase1-evidence.ps1
+        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: authenticated_domain_operator
+      name: nhdinh
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest

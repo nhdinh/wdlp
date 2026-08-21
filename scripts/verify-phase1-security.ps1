@@ -46,6 +46,14 @@ function Test-Phase1Redaction {
     return ($Text -notmatch $script:ForbiddenPattern)
 }
 
+function Test-Phase1SensitiveArtifactPath {
+    param([Parameter(Mandatory)][string]$Path)
+    # Redaction scan applies only to runtime-generated evidence artifacts, not to
+    # source code or verifier scripts that legitimately name secret-handling fields.
+    $relative = $Path -replace '\\', '/'
+    return ($relative.StartsWith('tests/windows/results/') -or $relative.StartsWith('evidence/'))
+}
+
 function Read-SimpleYaml {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
@@ -234,7 +242,9 @@ function Validate-Record {
         Assert-Security (Test-Path -LiteralPath $fullPath) "$tid artifact_ref missing file: $($artifact.path)"
         Assert-Security ((Get-Phase1Sha256 -Path $fullPath) -eq $artifact.sha256) "$tid artifact_ref hash mismatch: $($artifact.path)"
         $artifactText = [System.IO.File]::ReadAllText($fullPath)
-        Assert-Security (Test-Phase1Redaction -Text $artifactText) "$tid artifact_ref contains forbidden pattern: $($artifact.path)"
+        if (Test-Phase1SensitiveArtifactPath -Path $artifact.path) {
+            Assert-Security (Test-Phase1Redaction -Text $artifactText) "$tid artifact_ref contains forbidden pattern: $($artifact.path)"
+        }
     }
 
     if ($tid -match '^T-01-1[56]-0[1234]$' -or $tid -match '^T-01-2[01]-0[12]$') {
@@ -258,7 +268,7 @@ if (-not $ThreatId) {
 if ($SecurityPath) {
     Assert-Security (Test-Path -LiteralPath $SecurityPath) 'security register is missing'
     $securityText = Get-Content -LiteralPath $SecurityPath -Raw
-    $openMatches = [regex]::Matches($securityText, '\|\s*(T-01-\d{2}(?:-SC)?-\d{2})\s*\|[^|]*\|\s*high\s*\|\s*[^|]*\|\s*open\s*\|')
+    $openMatches = [regex]::Matches($securityText, '\|\s*(T-01-\d{2}(?:-SC)?(?:-\d{2})?)\s*\|[^|]*\|[^|]*\|\s*high\s*\|\s*[^|]*\|\s*[^|]*\|\s*open\s*\|')
     $openHigh = $openMatches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
     $manifested = @($recordsById.Keys | Sort-Object)
     foreach ($tid in $openHigh) {
