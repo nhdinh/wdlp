@@ -1,47 +1,46 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-20T13:45:00.166Z",
-  "phase": "01",
-  "phase_name": "first-encrypted-drive-vertical-slice",
+  "timestamp": "2026-08-21T11:07:31Z",
+  "phase": "01-first-encrypted-drive-vertical-slice",
+  "phase_name": "First Encrypted-Drive Vertical Slice",
   "phase_dir": ".planning/phases/01-first-encrypted-drive-vertical-slice",
-  "plan": 21,
-  "task": 2,
-  "total_tasks": 2,
+  "plan": 25,
+  "task": 3,
+  "total_tasks": 3,
   "status": "paused",
   "completed_tasks": [
-    {"id": 1, "name": "Execute restart, reboot, forced-termination, and host-controlled abrupt-loss recovery", "status": "done", "commit": "b61aa67"},
-    {"id": 2, "name": "Seal the complete requirement-indexed evidence and independent Phase 1 review", "status": "in_progress", "progress": "verifier implemented; matrix evidence gaps remain"}
+    {"id": 1, "name": "Tracer for T-01-15-01 security closure chain", "status": "done"},
+    {"id": 2, "name": "Cover complete 19-threat blocking set", "status": "done"},
+    {"id": 3, "name": "Re-audit and sign off Phase 01 security", "status": "done"},
+    {"id": "UAT-SC-02", "name": "Verify LAB-DC01 server and enrollment endpoints", "status": "done"},
+    {"id": "UAT-SC-03", "name": "Verify LAB-CLIENT01 enrollment and config activation", "status": "done"},
+    {"id": "UAT-DIAG", "name": "Diagnose SC-04 WinFsp directory bug", "status": "done"}
   ],
   "remaining_tasks": [
-    {"id": 2, "name": "Seal the complete requirement-indexed evidence and independent Phase 1 review", "status": "in_progress"}
+    {"id": "GAP-01", "name": "Plan gap closure for WinFsp directory bug", "status": "not_started"},
+    {"id": "GAP-02", "name": "Implement WinFsp read_directory/timestamp/notification fixes", "status": "not_started"},
+    {"id": "UAT-SC-04", "name": "Re-verify LAB-CLIENT01 WinFsp drive", "status": "not_started"},
+    {"id": "UAT-D-26-D-38", "name": "Visual checklist Explorer/Office/recovery", "status": "not_started"},
+    {"id": "UAT-D-48", "name": "Independent review of sanitized matrix", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "20 of 30 required Phase 1 requirements in evidence/phase1/requirement-matrix.yaml are still unverified with no current_evidence_id.", "type": "technical", "workaround": "Backfill from existing evidence manifests or rerun prior plan evidence collection."},
-    {"description": "All 7 success criteria and all 50 D-01..D-50 decisions are unverified.", "type": "technical", "workaround": "Backfill from existing evidence manifests or rerun prior plan evidence collection."},
-    {"description": "No authenticated independent verifier identity has been supplied.", "type": "human_action", "workaround": "Set DLP_INDEPENDENT_VERIFIER_NAME and have the independent verifier sign the D-48 record."}
+    {"description": "GSD core tools (gsd-tools.cjs) are not installed; automated plan/execute workflows cannot run.", "type": "technical", "workaround": "Run npx -y @opengsd/gsd-core@latest --claude --local"},
+    {"description": "WinFsp read_directory rejects non-* patterns, FileInfo timestamps are zero, and no change notifications are emitted.", "type": "technical", "workaround": "Gap-closure plan and code fix in crates/dlp-windows-drive/src/filesystem.rs"}
   ],
   "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Provide an authenticated independent verifier identity (set DLP_INDEPENDENT_VERIFIER_NAME) to review the complete Phase 1 requirement matrix and sign the D-48 record.", "context": "Task 1 evidence is hash-sealed and verified. Task 2 verifier is implemented. Phase 1 exit is blocked by missing matrix evidence and pending independent review.", "blocking": true}
+    {"action": "Install GSD core tools", "context": "Required before /gsd-plan-phase and /gsd-execute-phase can run", "blocking": true},
+    {"action": "Cold-start Hyper-V lab and re-verify SC-04 after fix", "context": "Real WinFsp behavior only observable on LAB-CLIENT01", "blocking": false}
   ],
   "decisions": [
-    {"decision": "Fixed production service to launch dlp-drive-host only in real interactive console sessions.", "rationale": "Launching in session 0 left the drive invisible to the logged-on user; filtering WTS sessions to 'console' or a non-empty username places the host in session 1.", "phase": "01"},
-    {"decision": "Made the service resilient to configuration verifier and transport failures.", "rationale": "Offline enforcement is a must-have; a rejected verifier or unavailable transport must not stop the service loop.", "phase": "01"},
-    {"decision": "Added session-monitor health polling to relaunch the drive host after unexpected exit.", "rationale": "The ForcedTermination scenario requires the service to recover from host process death without manual intervention.", "phase": "01"},
-    {"decision": "Ran protected-drive verification commands via Register-ScheduledTask -LogonType Interactive.", "rationale": "PSRemoting sessions are session-specific and cannot see per-user mapped drives; the interactive console session can see P:.", "phase": "01"},
-    {"decision": "Set LAB-CLIENT01 auto-logon DefaultDomainName to lab.local.", "rationale": "Win32_ComputerSystem.Domain returns the DNS domain (lab.local), which must match the registry value for Test-AutoLogon to pass.", "phase": "01"},
-    {"decision": "Implemented scripts/verify-phase1.ps1 as the strict FinalGate verifier per Task 2.", "rationale": "The verifier must fail closed on any missing, failed, stale, deviated, inaccessible, hash-mismatched, skewed, unsigned, unsanitized, unreviewed, or unretained required row.", "phase": "01"},
-    {"decision": "Aligned config/lab.phase1.example.yaml machine_roles.hungdinh-lt.role with the evidence schema and lab scripts.", "rationale": "The rest of the project uses developer_orchestrator; developer_host caused privilege-manifest validation failures.", "phase": "01"}
+    {"decision": "SC-04 is a blocking major issue; D-26/D-38 and D-48 remain pending until it is resolved.", "rationale": "Visual checklist and independent review require a working drive.", "phase": "01"},
+    {"decision": "Fix must go through GSD gap-closure planning rather than ad-hoc edit.", "rationale": "Project instructions require GSD workflow for file-changing work.", "phase": "01"}
   ],
   "uncommitted_files": [
-    ".planning/STATE.md",
-    ".planning/HANDOFF.json",
-    ".planning/phases/01-first-encrypted-drive-vertical-slice/01-21-SUMMARY.md",
+    ".planning/phases/01-first-encrypted-drive-vertical-slice/01-UAT.md",
     ".planning/phases/01-first-encrypted-drive-vertical-slice/.continue-here.md",
-    "scripts/verify-phase1.ps1",
-    "config/lab.phase1.example.yaml",
-    "tests/windows/results/phase1-matrix.sha256"
+    ".planning/HANDOFF.json"
   ],
-  "next_action": "Backfill evidence for the 20 unverified required Phase 1 requirements, success criteria, and D-01..D-50 decisions; then obtain the authenticated independent review/sign-off.",
-  "context_notes": "Plan 01-21 Task 1 is complete. Task 2 verifier is implemented and produces a detailed gap report. Current matrix digest: c169e8a2d0680119fc90c3e847df014dd12b5b1513388917bfac5de5cf2734a2. Phase 1 FinalGate fails because 20 requirements, 7 success criteria, and 50 decisions remain unverified."
+  "next_action": "Install GSD core tools with 'npx -y @opengsd/gsd-core@latest --claude --local', then run '/gsd-plan-phase 01 --gaps' to create the SC-04 gap-closure plan.",
+  "context_notes": "Session paused at ~75% context. UAT diagnostics complete; the WinFsp callback bug is well understood but needs a proper GSD gap-closure plan and execution."
 }
