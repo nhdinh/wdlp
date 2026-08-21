@@ -1,0 +1,65 @@
+schema_version: phase1-security-closure/v1
+matrix_digest: 5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414
+closure_targets:
+  - T-01-15-01
+  - T-01-15-02
+  - T-01-15-03
+  - T-01-15-04
+  - T-01-15-06
+  - T-01-16-01
+  - T-01-16-02
+  - T-01-16-03
+  - T-01-16-04
+  - T-01-16-06
+  - T-01-18-SC
+  - T-01-20-01
+  - T-01-20-02
+  - T-01-20-05
+  - T-01-21-01
+  - T-01-21-02
+  - T-01-21-03
+  - T-01-21-04
+  - T-01-21-05
+records:
+  - threat_id: T-01-15-01
+    disposition: mitigate
+    severity: high
+    mitigation_assertion: TokenUser-derived immutable session/SID, idempotent actors, no caller identity/store selector, adjacent/empty/concurrency tests.
+    implementation_refs:
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+      - path: crates/dlp-windows-service/tests/session_lifecycle.rs
+        sha256: 022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab
+    evidence_attempt_ids:
+      - 0c050cbf-2c33-419d-acba-b7d7b4920672
+      - fa0959c2-6f68-49f4-9f6a-3f5c099d042f
+    required_machine_roles:
+      - LAB-CLIENT01:endpoint_runtime
+    artifact_refs:
+      - path: tests/windows/results/phase1-evidence.json
+        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
+        role: LAB-CLIENT01:endpoint_runtime
+      - path: crates/dlp-windows-service/src/session.rs
+        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
+        role: hungdinh-lt:developer_orchestrator
+      - path: crates/dlp-windows-service/tests/session_lifecycle.rs
+        sha256: 022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab
+        role: hungdinh-lt:developer_orchestrator
+    reviewer_identity:
+      kind: independent_verifier
+      name: lab/administrator
+    review_utc: "2026-08-21T07:30:00Z"
+    procedure_version: 01-25/v1
+    environment_fingerprint:
+      machine_identity: hungdinh-lt
+      role: developer_orchestrator
+      os_build: Windows 11 Pro 10.0.26200
+      dependency_versions:
+        rust: locked workspace
+      service_config_digest: approved-phase1-config
+      test_tool_versions:
+        cargo: locked
+      domain_network_identity: not-applicable-portable
+      baseline_id: phase1-locked-build
+      binary_hashes:
+        phase1: approved-binary-digest
