@@ -29,7 +29,7 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 12/12 plans executed source-complete
+**Plans**: 12/12 plans executed source-complete; 1 security gap-closure plan pending
 
 Plans:
 **Wave 1**
@@ -79,6 +79,10 @@ Plans:
 **Wave 12** *(blocked on Wave 11 completion)*
 
 - [x] 01-21-PLAN.md (Wave 12) — Execute D-19 failure recovery, seal requirement-indexed evidence, and require independent Phase 1 review
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
+- [ ] 01-25-PLAN.md (Wave 13) — Validate the immutable security closure-target set, prove fail-closed tampering behavior, and sign off Phase 1 security
 
 ### Phase 01.3: Make a background app that run in devices to collect log and provide the result through a HTTP port for easier debugging (INSERTED)
 
