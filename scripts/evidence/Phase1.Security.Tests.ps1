@@ -185,6 +185,95 @@ Describe 'Phase 1 Security Closure Tracer (T-01-15-01)' {
     }
 }
 
+Describe 'Phase 1 Security Closure Full Set (19 blocking threats)' {
+    It 'validates all 19 blocking threats in pre-sign-off mode' {
+        $exit = Invoke-SecurityVerifier -ClosurePath $global:ClosurePath
+        $exit | Should -Be 0
+    }
+
+    It 'rejects a missing closure record from the 19-target set' {
+        $temp = New-TempClosureWorkspace
+        try {
+            $path = Join-Path $temp 'security-closure.yaml'
+            $yaml = Get-Content -LiteralPath $path -Raw
+            $tampered = $yaml -replace '(?ms)- threat_id: T-01-15-06\r?\n.*?(?=\r?\n  - threat_id:|\r?\nrecords:|\z)', ''
+            if (-not ($tampered -match 'T-01-15-06')) { $tampered = $yaml -replace '- threat_id: T-01-15-06[\s\S]*?(?=\n  - threat_id:|\nrecords:|\z)', '' }
+            [System.IO.File]::WriteAllText($path, $tampered, (New-Object System.Text.UTF8Encoding($false)))
+            $exit = Invoke-SecurityVerifier -ClosurePath $path
+            $exit | Should -Not -Be 0
+        }
+        finally { Remove-Item -LiteralPath $temp -Recurse -Force }
+    }
+
+    It 'rejects a duplicate closure record' {
+        $temp = New-TempClosureWorkspace
+        try {
+            $path = Join-Path $temp 'security-closure.yaml'
+            $yaml = Get-Content -LiteralPath $path -Raw
+            $pattern = '- threat_id: T-01-15-01[\s\S]*?(?=\n  - threat_id: T-01-15-02)'
+            $match = [regex]::Match($yaml, $pattern)
+            if ($match.Success) {
+                $tampered = $yaml.Insert($match.Index, $match.Value + "`n")
+                [System.IO.File]::WriteAllText($path, $tampered, (New-Object System.Text.UTF8Encoding($false)))
+                $exit = Invoke-SecurityVerifier -ClosurePath $path
+                $exit | Should -Not -Be 0
+            } else {
+                throw 'Could not locate T-01-15-01 record for duplicate test'
+            }
+        }
+        finally { Remove-Item -LiteralPath $temp -Recurse -Force }
+    }
+
+    It 'rejects an unknown threat ID injected into closure_targets' {
+        $temp = New-TempClosureWorkspace
+        try {
+            $path = Join-Path $temp 'security-closure.yaml'
+            $yaml = Get-Content -LiteralPath $path -Raw
+            $tampered = $yaml -replace '- T-01-21-05', "- T-01-21-05`n  - T-01-99-99"
+            [System.IO.File]::WriteAllText($path, $tampered, (New-Object System.Text.UTF8Encoding($false)))
+            $exit = Invoke-SecurityVerifier -ClosurePath $path
+            $exit | Should -Not -Be 0
+        }
+        finally { Remove-Item -LiteralPath $temp -Recurse -Force }
+    }
+
+    It 'rejects an evidence attempt ID that is not in the matrix' {
+        $temp = New-TempClosureWorkspace
+        try {
+            $path = Join-Path $temp 'security-closure.yaml'
+            $yaml = Get-Content -LiteralPath $path -Raw
+            $tampered = $yaml -replace '0c050cbf-2c33-419d-acba-b7d7b4920672', '00000000-0000-0000-0000-000000000000'
+            [System.IO.File]::WriteAllText($path, $tampered, (New-Object System.Text.UTF8Encoding($false)))
+            $exit = Invoke-SecurityVerifier -ClosurePath $path -ThreatId T-01-15-01
+            $exit | Should -Not -Be 0
+        }
+        finally { Remove-Item -LiteralPath $temp -Recurse -Force }
+    }
+
+    It 'rejects a runtime-tier threat whose LAB-CLIENT01 artifact is reassigned to developer_orchestrator' {
+        $temp = New-TempClosureWorkspace
+        try {
+            $path = Join-Path $temp 'security-closure.yaml'
+            $yaml = Get-Content -LiteralPath $path -Raw
+            $start = $yaml.IndexOf('threat_id: T-01-16-01')
+            $end = $yaml.IndexOf('threat_id: T-01-16-02')
+            $segment = $yaml.Substring($start, $end - $start)
+            $segment = $segment -replace 'role: LAB-CLIENT01:endpoint_runtime', 'role: hungdinh-lt:developer_orchestrator'
+            $tampered = $yaml.Substring(0, $start) + $segment + $yaml.Substring($end)
+            [System.IO.File]::WriteAllText($path, $tampered, (New-Object System.Text.UTF8Encoding($false)))
+            $exit = Invoke-SecurityVerifier -ClosurePath $path -ThreatId T-01-16-01
+            $exit | Should -Not -Be 0
+        }
+        finally { Remove-Item -LiteralPath $temp -Recurse -Force }
+    }
+
+    It 'rejects signed-off mode while the security register still has open blocking threats' {
+        if (-not (Test-Path -LiteralPath $global:SecurityPath)) { Set-ItResult -Skipped -Because 'SECURITY register is not present' }
+        $exit = Invoke-SecurityVerifier -ClosurePath $global:ClosurePath -SecurityPath $global:SecurityPath -RequireSignedOff
+        $exit | Should -Not -Be 0
+    }
+}
+
 AfterAll {
     $closureHash = Get-Phase1Sha256 -Path $global:ClosurePath
     $closureHash | Should -Be $global:CanonicalClosureHash
