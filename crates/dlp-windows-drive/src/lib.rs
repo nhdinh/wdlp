@@ -10,6 +10,7 @@ use std::fmt;
 mod filesystem;
 mod host;
 pub mod status;
+mod wildmatch;
 
 pub use filesystem::DlpFileSystemContext;
 pub use host::{WinFspMountHost, WinFspMountedVolume};

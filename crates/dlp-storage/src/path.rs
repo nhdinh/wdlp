@@ -65,6 +65,10 @@ impl VirtualPath {
     pub fn display_name(&self) -> Option<&str> {
         self.display.last().map(String::as_str)
     }
+    /// Returns the original-cased Windows-style path relative to the volume root.
+    pub fn display_path(&self) -> String {
+        self.display.join("\\")
+    }
     pub(crate) fn parent_key(&self) -> Option<String> {
         let mut pieces = self.lookup.split('/').collect::<Vec<_>>();
         pieces.pop();

@@ -66,6 +66,26 @@ fn callback_adapter_declares_every_phase_one_operation_or_explicit_opt_out() {
         source.contains("DirInfo"),
         "directories use WinFsp directory entries"
     );
+    assert!(
+        source.contains("NotifyingFileSystemContext"),
+        "filesystem implements change notifications"
+    );
+    assert!(
+        source.contains("pending_notifications"),
+        "filesystem queues pending notifications"
+    );
+    assert!(
+        source.contains("wildmatch::matches"),
+        "directory enumeration uses wildcard matching"
+    );
+    assert!(
+        source.contains("FILE_NOTIFY_CHANGE_FILE_NAME"),
+        "change notifications use WinFsp filters"
+    );
+    assert!(
+        source.contains("FILE_ACTION_ADDED"),
+        "change notifications use WinFsp actions"
+    );
     assert!(source.contains("ensure_delete_allowed"));
     assert!(
         source.contains("read_handle"),
