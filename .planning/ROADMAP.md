@@ -86,7 +86,7 @@ Plans:
 
 **Wave 14** *(gap closure for SC-04)*
 
-- [ ] 01-26-PLAN.md (Wave 1) — Fix WinFsp directory metadata, wildcard patterns, change notifications, and re-verify SC-04 on LAB-CLIENT01
+- [ ] 01-26-PLAN.md (Wave 14) — Fix WinFsp directory metadata, wildcard patterns, change notifications, and re-verify SC-04 on LAB-CLIENT01
 
 ### Phase 01.3: Make a background app that run in devices to collect log and provide the result through a HTTP port for easier debugging (INSERTED)
 
