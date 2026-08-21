@@ -338,7 +338,7 @@ fn run_control_loop(mut pipe_file: std::fs::File) -> Result<(), String> {
                 return Err("control_message_oversized".to_string());
             }
             let mut msg_buf = vec![0u8; msg_len];
-            if let Err(_) = pipe_file.read_exact(&mut msg_buf) {
+            if pipe_file.read_exact(&mut msg_buf).is_err() {
                 return Ok(()); // EOF mid-message -> service stopped
             }
             // Messages are currently ignored; any future drain/stop command will be

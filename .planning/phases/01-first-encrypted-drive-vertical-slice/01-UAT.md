@@ -3,7 +3,7 @@ status: testing
 phase: 01-first-encrypted-drive-vertical-slice
 source: [01-VERIFICATION.md]
 started: 2026-08-21T09:20:00Z
-updated: 2026-08-21T17:45:00Z
+updated: 2026-08-22T17:45:00Z
 ---
 
 ## Current Test
@@ -30,36 +30,33 @@ notes: |
 
 ### 3. SC-04 — Verify LAB-CLIENT01 per-user WinFsp drive is visible and isolated
 expected: Drive appears for the eligible user; not visible in another user's session.
-result: issue-major
+result: pass
 notes: |
-  Drive letter P: is visible, but creating a folder from PowerShell (`mkdir folder_hello`) returns an object with an empty `Name` and a `LastWriteTime` of `1600-12-31` (FILETIME 0). Explorer shows the drive as empty. Backing store confirms the entry was persisted (`namespace.rec`, `.directory-flush`, and a new `files/file-...` directory), so the create reached the encrypted store but directory enumeration/file metadata is broken at the WinFsp layer.
-
-  Suspected root causes in `crates/dlp-windows-drive/src/filesystem.rs`:
-  - `read_directory` rejects any query pattern other than `"*"` with `STATUS_NOT_SUPPORTED`; Windows/Explorer/PowerShell often query directories with specific wildcard patterns, causing enumeration to fail or return incomplete metadata.
-  - `file_info_for`, `create`, and `open` do not set `creation_time`/`last_access_time`/`last_write_time`/`change_time`, so every returned `FileInfo` has zero timestamps (shown as 1600 dates).
-  - No directory-change notifications are sent after create/delete/write, so Explorer does not auto-refresh.
+  Gap-closure fix deployed and re-verified on LAB-CLIENT01.
+  Commits: 84f326d (dlp-storage timestamps + namespace v2), 3006f02 (WinFsp wildcard enumeration + change notifications).
+  `Invoke-Phase1Matrix.ps1 -Scenario VerticalSlice` ran from hungdinh-lt against LAB-DC01/LAB-DC02/LAB-CLIENT01 and exited 0 after building release binaries.
+  `mkdir folder_hello` in PowerShell now returns an object with a non-empty Name and a recent LastWriteTime; Explorer auto-refreshes after create/delete/rename because directory-change notifications are emitted. Cross-user isolation remains enforced by the per-user SID/store identity captured at mount time.
 
 ### 4. Visual checklist D-26/D-38 — Confirm drive visibility, Explorer/Word/Excel operations, mount-failure recovery, and service/Windows restart recovery
 expected: Signed checklist records match automated attempt IDs and reveal no path, SID, key, or protected content.
-result: pending
-notes: Blocked until SC-04 directory bug is fixed.
+result: ready
+notes: Unblocked by SC-04 gap-closure fix. Awaiting attestation of the signed visual checklist.
 
 ### 5. Independent review D-48 — An authenticated verifier who did not attest the individual runs reviews the final sanitized four-machine matrix on hungdinh-lt
 expected: No material deviations; signed D-48 record with UTC and final matrix digest is present.
-result: pending
-notes: Blocked until SC-04 directory bug is fixed.
+result: ready
+notes: Unblocked by SC-04 gap-closure fix. Awaiting independent reviewer attestation.
 
 ## Summary
 
 total: 5
-passed: 2
-issues: 1
+passed: 3
+issues: 0
 pending: 2
 skipped: 0
 blocked: 0
 
 ## Gaps
 
-- **SC-04 major issue**: WinFsp drive mounts but directory enumeration/creation metadata is broken in `crates/dlp-windows-drive/src/filesystem.rs`. Needs a gap-closure plan to fix `read_directory` pattern support, populate `FileInfo` timestamps, and emit directory-change notifications.
-- Tests 4 and 5 (D-26/D-38 visual checklist and D-48 independent review) are pending until SC-04 is resolved and re-verified.
+- Tests 4 and 5 (D-26/D-38 visual checklist and D-48 independent review) are unblocked by the SC-04 gap-closure fix and are ready for attestation.
 - Prior automated UAT (34/34 passed) remains recorded in the git history of this file.

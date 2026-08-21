@@ -1,0 +1,51 @@
+warning: linker stdout: LINK : warning LNK4199: /DELAYLOAD:winfsp-x64.dll ignored; no imports found from winfsp-x64.dll
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dlp-windows-drive` (lib test) generated 1 warning
+warning: `dlp-windows-drive` (test "callback_contract") generated 1 warning (1 duplicate)
+warning: `dlp-windows-drive` (bin "dlp-drive-host" test) generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.46s
+     Running unittests src\lib.rs (target\debug\deps\dlp_agent_core-b6f76735dc9406d8.exe)
+     Running tests\enrollment_activation.rs (target\debug\deps\enrollment_activation-0e5b37d2470b12fa.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_crypto-234c86774403a71e.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_domain-0362c0b76b0379fe.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_log_debug_service-e6fcef1f1b93f202.exe)
+     Running unittests src\main.rs (target\debug\deps\dlp_log_debug_service-c18b55269acdc997.exe)
+     Running tests\endpoint_contract.rs (target\debug\deps\endpoint_contract-88247b1fc7bf5ffc.exe)
+     Running tests\service_contract.rs (target\debug\deps\service_contract-f98ec3f9eeaaab22.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_policy-11a7b43428ba5b4b.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_protocol-f142881da9fa1dbb.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_server-8bfbb58407fe357d.exe)
+     Running unittests src\main.rs (target\debug\deps\dlp_server-eaa71b1970eb0313.exe)
+     Running ..\..\tests\e2e\compose.rs (target\debug\deps\compose-70c7ad8cee57dab4.exe)
+     Running ..\..\tests\e2e\phase1_vertical_slice.rs (target\debug\deps\phase1_vertical_slice-22e7953a00eb1f93.exe)
+     Running ..\..\tests\e2e\server_enrollment.rs (target\debug\deps\server_enrollment-5bed0a98433765f7.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_storage-85d940a9762006f4.exe)
+     Running tests\integrity.rs (target\debug\deps\integrity-f36796928f161c32.exe)
+     Running tests\no_plaintext.rs (target\debug\deps\no_plaintext-584ab19f3080fd0f.exe)
+     Running tests\operations.rs (target\debug\deps\operations-70a9c7e55b76d580.exe)
+     Running tests\recovery.rs (target\debug\deps\recovery-2d19afd5b0790d24.exe)
+     Running tests\roundtrip.rs (target\debug\deps\roundtrip-2a8df0f90bfa1615.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_windows_drive-4a246e5bd63969f2.exe)
+     Running unittests src\bin\dlp-drive-host.rs (target\debug\deps\dlp_drive_host-90e22461e63a2107.exe)
+     Running tests\callback_contract.rs (target\debug\deps\callback_contract-874ce742d096ef06.exe)
+     Running tests\mounted_smoke.rs (target\debug\deps\mounted_smoke-f3b0e0e84f38f5e3.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlp_windows_service-8eaa6d96c1c1cce9.exe)
+     Running unittests src\main.rs (target\debug\deps\dlp_windows_service-f42b8db03d641fa8.exe)
+     Running tests\credential_protection.rs (target\debug\deps\credential_protection-6a2443f304e84fe3.exe)
+     Running tests\session_lifecycle.rs (target\debug\deps\session_lifecycle-500a3aab404530d7.exe)
+     Running unittests src\lib.rs (target\debug\deps\dlpctl-43639138c8b7254d.exe)
+     Running unittests src\main.rs (target\debug\deps\dlpctl-d403857ccb9e0b36.exe)
+     Running ..\..\tests\e2e\walking_skeleton.rs (target\debug\deps\walking_skeleton-3e41f7bb960adb99.exe)
+   Doc-tests dlp_agent_core
+   Doc-tests dlp_crypto
+   Doc-tests dlp_domain
+   Doc-tests dlp_log_debug_service
+   Doc-tests dlp_policy
+   Doc-tests dlp_protocol
+   Doc-tests dlp_server
+   Doc-tests dlp_storage
+   Doc-tests dlp_windows_drive
+   Doc-tests dlp_windows_service
+   Doc-tests dlpctl

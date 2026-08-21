@@ -1,8 +1,13 @@
 //! SID-bound WinFsp callbacks over the portable encrypted store.
 
-use crate::status::{STATUS_NOT_SUPPORTED, path_to_ntstatus, to_ntstatus};
+use crate::status::{
+    FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
+    FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
+    FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
+    FILE_NOTIFY_CHANGE_SIZE, STATUS_NOT_SUPPORTED, path_to_ntstatus, to_ntstatus,
+};
 use dlp_storage::{
-    CapturedStoreIdentity, FileHandle, LocalEncryptedStore, StorageError, VirtualPath,
+    CapturedStoreIdentity, EntryMetadata, FileHandle, LocalEncryptedStore, StorageError, VirtualPath,
 };
 use std::{ffi::c_void, sync::Mutex};
 use winfsp::{
@@ -11,6 +16,7 @@ use winfsp::{
         DirInfo, DirMarker, FileInfo, FileSecurity, FileSystemContext, OpenFileInfo, VolumeInfo,
         WideNameInfo,
     },
+    notify::{NotifyingFileSystemContext, NotifyInfo, Notifier},
 };
 
 /// A handle cannot replace the mount's captured identity; it only refers to a parsed virtual path.
@@ -64,6 +70,7 @@ impl DlpFileHandle {
 pub struct DlpFileSystemContext {
     identity: CapturedStoreIdentity,
     store: Mutex<LocalEncryptedStore>,
+    pending_notifications: Mutex<Vec<NotifyInfo<255>>>,
 }
 
 impl DlpFileSystemContext {
@@ -76,6 +83,7 @@ impl DlpFileSystemContext {
         Ok(Self {
             identity,
             store: Mutex::new(store),
+            pending_notifications: Mutex::new(Vec::new()),
         })
     }
 
@@ -98,11 +106,19 @@ impl DlpFileSystemContext {
             .map_err(|error| FspError::NTSTATUS(path_to_ntstatus(&error)))
     }
 
+    fn fill_file_info(info: &mut FileInfo, metadata: EntryMetadata) {
+        info.creation_time = metadata.creation_time;
+        info.last_access_time = metadata.last_access_time;
+        info.last_write_time = metadata.last_write_time;
+        info.change_time = metadata.change_time;
+    }
+
     fn file_info_for(&self, path: &VirtualPath, info: &mut FileInfo) -> Result<()> {
-        let store = self
+        let mut store = self
             .store
             .lock()
             .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?;
+        let metadata = store.entry_metadata(path).map_err(Self::storage_error)?;
         if store.is_directory_path(path) {
             info.file_attributes = 0x10;
         } else {
@@ -111,31 +127,52 @@ impl DlpFileSystemContext {
             info.allocation_size = info.file_size;
             info.file_attributes = 0x80;
         }
+        Self::fill_file_info(info, metadata);
         Ok(())
     }
 
     fn file_info_for_handle(&self, context: &DlpFileHandle, info: &mut FileInfo) -> Result<()> {
+        let path = context.path()?;
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?;
+        let metadata = store.entry_metadata(&path).map_err(Self::storage_error)?;
         if context.directory {
             info.file_attributes = 0x10;
+            Self::fill_file_info(info, metadata);
             return Ok(());
         }
         let handle = context.handle.ok_or(FspError::NTSTATUS(
             crate::status::STATUS_OBJECT_NAME_INVALID,
         ))?;
-        let store = self
-            .store
-            .lock()
-            .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?;
         let bytes = store.read_handle(handle).map_err(Self::storage_error)?;
         info.file_size = bytes.len() as u64;
         info.allocation_size = info.file_size;
         info.file_attributes = 0x80;
+        Self::fill_file_info(info, metadata);
         Ok(())
     }
 
     fn is_directory_create(create_options: u32) -> bool {
         // FILE_DIRECTORY_FILE. Kept local so the adapter does not depend on raw winfsp-sys.
         create_options & 0x0000_0001 != 0
+    }
+
+    fn notify_path(&self, path: &VirtualPath, action: u32, filter: u32) {
+        let Ok(mut guard) = self.pending_notifications.lock() else {
+            return;
+        };
+        let name = path.display_path();
+        if name.is_empty() {
+            return;
+        }
+        let mut info = NotifyInfo::new();
+        info.action = action;
+        info.filter = filter;
+        if info.set_name(&name).is_ok() {
+            guard.push(info);
+        }
     }
 }
 
@@ -217,7 +254,10 @@ impl FileSystemContext for DlpFileSystemContext {
             && let Ok(mut store) = self.store.lock()
         {
             // WinFsp requires deletion to happen during cleanup, never in set_delete.
-            let _ = store.delete(&path);
+            if store.delete(&path).is_ok() {
+                drop(store);
+                self.notify_path(&path, FILE_ACTION_REMOVED, FILE_NOTIFY_CHANGE_FILE_NAME);
+            }
         }
     }
 
@@ -247,13 +287,17 @@ impl FileSystemContext for DlpFileSystemContext {
             .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?;
         if Self::is_directory_create(create_options) || file_attributes & 0x10 != 0 {
             store.create_directory(&path).map_err(Self::storage_error)?;
+            drop(store);
             file_info.as_mut().file_attributes = 0x10;
+            self.notify_path(&path, FILE_ACTION_ADDED, FILE_NOTIFY_CHANGE_DIR_NAME);
             return Ok(DlpFileHandle::directory(path));
         }
         let handle = store
             .create_or_open(&path, true, true)
             .map_err(Self::storage_error)?;
+        drop(store);
         file_info.as_mut().file_attributes = 0x80;
+        self.notify_path(&path, FILE_ACTION_ADDED, FILE_NOTIFY_CHANGE_FILE_NAME);
         Ok(DlpFileHandle::file(path, handle))
     }
 
@@ -276,6 +320,10 @@ impl FileSystemContext for DlpFileSystemContext {
             file_info.allocation_size = file_info.file_size;
         } else {
             file_info.file_attributes = 0x10;
+        }
+        drop(store);
+        if let Ok(path) = context.path() {
+            self.notify_path(&path, FILE_ACTION_MODIFIED, FILE_NOTIFY_CHANGE_LAST_WRITE);
         }
         Ok(())
     }
@@ -303,7 +351,11 @@ impl FileSystemContext for DlpFileSystemContext {
             .map_err(Self::storage_error)?;
         store.flush_handle(handle).map_err(Self::storage_error)?;
         drop(store);
-        self.file_info_for_handle(context, file_info)
+        self.file_info_for_handle(context, file_info)?;
+        if let Ok(path) = context.path() {
+            self.notify_path(&path, FILE_ACTION_MODIFIED, FILE_NOTIFY_CHANGE_LAST_WRITE);
+        }
+        Ok(())
     }
 
     fn get_file_info(&self, context: &Self::FileContext, file_info: &mut FileInfo) -> Result<()> {
@@ -345,6 +397,14 @@ impl FileSystemContext for DlpFileSystemContext {
         store.flush_handle(handle).map_err(Self::storage_error)?;
         file_info.file_size = new_size;
         file_info.allocation_size = new_size;
+        drop(store);
+        if let Ok(path) = context.path() {
+            self.notify_path(
+                &path,
+                FILE_ACTION_MODIFIED,
+                FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE,
+            );
+        }
         Ok(())
     }
 
@@ -364,7 +424,18 @@ impl FileSystemContext for DlpFileSystemContext {
             .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?
             .rename(&source, &destination, replace)
             .map_err(Self::storage_error)?;
-        context.replace_path(destination)
+        context.replace_path(destination.clone())?;
+        self.notify_path(
+            &source,
+            FILE_ACTION_RENAMED_OLD_NAME,
+            FILE_NOTIFY_CHANGE_FILE_NAME,
+        );
+        self.notify_path(
+            &destination,
+            FILE_ACTION_RENAMED_NEW_NAME,
+            FILE_NOTIFY_CHANGE_FILE_NAME,
+        );
+        Ok(())
     }
 
     fn set_delete(
@@ -398,11 +469,9 @@ impl FileSystemContext for DlpFileSystemContext {
         if !context.directory {
             return Err(FspError::NTSTATUS(STATUS_NOT_SUPPORTED));
         }
-        if let Some(pattern) = pattern
-            && pattern.to_string_lossy() != "*"
-        {
-            return Err(FspError::NTSTATUS(STATUS_NOT_SUPPORTED));
-        }
+        let pattern = pattern
+            .map(|pattern| pattern.to_string_lossy())
+            .unwrap_or_else(|| "*".to_owned());
         let path = context.path()?;
         let marker_name = marker
             .inner_as_cstr()
@@ -418,15 +487,17 @@ impl FileSystemContext for DlpFileSystemContext {
             marker_name
                 .as_ref()
                 .is_none_or(|marker| entry.to_ascii_lowercase() > marker.to_ascii_lowercase())
+                && crate::wildmatch::matches(&pattern, entry)
         }) {
             let mut info: DirInfo = DirInfo::new();
             info.set_name(&entry)?;
-            let child = if path.lookup_key().is_empty() {
-                VirtualPath::parse(&entry)
+            let child_path = if path.lookup_key().is_empty() {
+                entry.clone()
             } else {
-                VirtualPath::parse(&format!("{}\\{entry}", path.lookup_key()))
-            }
-            .map_err(|error| FspError::NTSTATUS(path_to_ntstatus(&error)))?;
+                format!("{}\\{entry}", path.display_path())
+            };
+            let child = VirtualPath::parse(&child_path)
+                .map_err(|error| FspError::NTSTATUS(path_to_ntstatus(&error)))?;
             self.file_info_for(&child, info.file_info_mut())?;
             if !info.append_to_buffer(buffer, &mut cursor) {
                 break;
@@ -468,7 +539,7 @@ impl FileSystemContext for DlpFileSystemContext {
         ))?;
         let offset = usize::try_from(offset)
             .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_OBJECT_NAME_INVALID))?;
-        let store = self
+        let mut store = self
             .store
             .lock()
             .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?;
@@ -519,7 +590,28 @@ impl FileSystemContext for DlpFileSystemContext {
             file_info.file_size = bytes.len() as u64;
             file_info.allocation_size = file_info.file_size;
         }
+        drop(store);
+        if let Ok(path) = context.path() {
+            self.notify_path(&path, FILE_ACTION_MODIFIED, FILE_NOTIFY_CHANGE_LAST_WRITE);
+        }
         u32::try_from(buffer.len())
             .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))
+    }
+}
+
+impl NotifyingFileSystemContext<Vec<NotifyInfo<255>>> for DlpFileSystemContext {
+    fn should_notify(&self) -> Option<Vec<NotifyInfo<255>>> {
+        let mut guard = self.pending_notifications.lock().ok()?;
+        if guard.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut *guard))
+        }
+    }
+
+    fn notify(&self, notifications: Vec<NotifyInfo<255>>, notifier: &Notifier) {
+        for info in notifications {
+            notifier.notify(&info);
+        }
     }
 }

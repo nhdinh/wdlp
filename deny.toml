@@ -1,0 +1,37 @@
+[graph]
+targets = [
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "x86_64-unknown-linux-gnu" },
+]
+
+[licenses]
+# The project has not yet selected a license policy; unlicensed crates are
+# flagged rather than denied so the dependency gate focuses on source
+# legitimacy, not legal review.
+unlicensed = "warn"
+allow = []
+deny = []
+copyleft = "warn"
+default = "warn"
+
+[sources]
+# Only the official crates.io registry and explicitly approved git sources are
+# permitted. This preserves the approved Cargo.lock sources/versions and blocks
+# unaudited dependency substitutions (T-01-18-SC, T-01-22-SC, T-01-19-SC).
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[bans]
+# Multiple versions of the same crate are allowed in the current lockfile, but
+# any *new* duplicate introduced by a dependency change must be reviewed.
+multiple-versions = "warn"
+wildcards = "allow"
+
+[advisories]
+# Yanked crates block CI; security advisories are warnings until triaged.
+yanked = "deny"
+notice = "warn"
+unmaintained = "warn"
+unsound = "deny"

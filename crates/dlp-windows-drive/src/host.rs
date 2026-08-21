@@ -4,7 +4,8 @@ use crate::{DlpFileSystemContext, MountError, MountedVolume};
 use dlp_storage::CapturedStoreIdentity;
 use std::path::PathBuf;
 use winfsp::{
-    host::{FileSystemHost, VolumeParams},
+    host::{DebugMode, FileSystemHost, FileSystemParams, VolumeParams},
+    notify::NotifyInfo,
     winfsp_init,
 };
 
@@ -35,8 +36,14 @@ impl WinFspMountHost {
             .reparse_points(false)
             .named_streams(false)
             .extended_attributes(false);
+        let options = FileSystemParams {
+            use_dir_info_by_name: false,
+            volume_params: params,
+            debug_mode: DebugMode::none(),
+        };
         let mut host: FileSystemHost<DlpFileSystemContext> =
-            FileSystemHost::new(params, context).map_err(|_| MountError::HostUnavailable)?;
+            FileSystemHost::new_with_timer::<Vec<NotifyInfo<255>>, 1000>(options, context)
+                .map_err(|_| MountError::HostUnavailable)?;
         host.start().map_err(|_| MountError::HostUnavailable)?;
         host.mount(self.mount_point)
             .map_err(|_| MountError::HostUnavailable)?;
