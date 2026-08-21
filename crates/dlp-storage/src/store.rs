@@ -18,6 +18,28 @@ static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
 static NEXT_EVIDENCE: AtomicU64 = AtomicU64::new(1);
 
+fn current_filetime() -> u64 {
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock after 1970");
+    let hundred_ns = duration.as_nanos() as u64 / 100;
+    hundred_ns + 11644473600_u64 * 10000000
+}
+
+fn parse_metadata(
+    creation: &str,
+    access: &str,
+    write: &str,
+    change: &str,
+) -> Result<EntryMetadata, StorageError> {
+    Ok(EntryMetadata {
+        creation_time: creation.parse().map_err(|_| StorageError::IntegrityFailure)?,
+        last_access_time: access.parse().map_err(|_| StorageError::IntegrityFailure)?,
+        last_write_time: write.parse().map_err(|_| StorageError::IntegrityFailure)?,
+        change_time: change.parse().map_err(|_| StorageError::IntegrityFailure)?,
+    })
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DurabilityTrace {
     steps: Vec<&'static str>,
@@ -113,7 +135,7 @@ pub struct LocalEncryptedStore {
     key: StoreKey,
     staged: BTreeMap<String, Vec<u8>>,
     forced_duplicate: BTreeSet<String>,
-    directories: BTreeMap<String, String>,
+    directories: BTreeMap<String, DirectoryEntry>,
     files: BTreeMap<String, FileEntry>,
     handles: BTreeMap<u64, HandleState>,
     namespace_generation: u64,
@@ -121,11 +143,25 @@ pub struct LocalEncryptedStore {
     fault_io: FaultInjectingIo,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EntryMetadata {
+    pub creation_time: u64,
+    pub last_access_time: u64,
+    pub last_write_time: u64,
+    pub change_time: u64,
+}
+
 #[derive(Clone)]
 struct FileEntry {
     file_id: FileId,
     display: String,
     delete_pending: bool,
+    metadata: EntryMetadata,
+}
+#[derive(Clone)]
+struct DirectoryEntry {
+    display: String,
+    metadata: EntryMetadata,
 }
 #[derive(Clone)]
 struct HandleState {
@@ -517,9 +553,18 @@ impl LocalEncryptedStore {
             return Err(StorageError::AlreadyExists);
         }
         self.require_parent(path)?;
+        let now = current_filetime();
         self.directories.insert(
             path.lookup_key().to_owned(),
-            path.display_name().unwrap_or_default().to_owned(),
+            DirectoryEntry {
+                display: path.display_name().unwrap_or_default().to_owned(),
+                metadata: EntryMetadata {
+                    creation_time: now,
+                    last_access_time: now,
+                    last_write_time: now,
+                    change_time: now,
+                },
+            },
         );
         if let Err(error) = self.persist_namespace() {
             self.directories.remove(path.lookup_key());
@@ -537,9 +582,9 @@ impl LocalEncryptedStore {
             format!("{}/", path.lookup_key())
         };
         let mut entries = Vec::new();
-        for (key, display) in &self.directories {
+        for (key, entry) in &self.directories {
             if direct_child(key, &prefix) {
-                entries.push(display.clone());
+                entries.push(entry.display.clone());
             }
         }
         for (key, entry) in &self.files {
@@ -573,16 +618,26 @@ impl LocalEncryptedStore {
             let id = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
             let file_id =
                 FileId::parse(format!("file-{id:020}")).map_err(|_| StorageError::IoFailure)?;
+            let now = current_filetime();
             self.files.insert(
                 key.clone(),
                 FileEntry {
                     file_id,
                     display: path.display_name().unwrap_or_default().to_owned(),
                     delete_pending: false,
+                    metadata: EntryMetadata {
+                        creation_time: now,
+                        last_access_time: now,
+                        last_write_time: now,
+                        change_time: now,
+                    },
                 },
             );
             true
         };
+        if !created && let Some(entry) = self.files.get_mut(&key) {
+            entry.metadata.last_access_time = current_filetime();
+        }
         if created && let Err(error) = self.persist_namespace() {
             self.files.remove(&key);
             return Err(error);
@@ -604,11 +659,23 @@ impl LocalEncryptedStore {
         bytes: &[u8],
     ) -> Result<(), StorageError> {
         let file = self.handle_file(handle)?;
-        self.write_at(&file, offset, bytes)
+        self.write_at(&file, offset, bytes)?;
+        let path_key = self.handle_path_key(handle)?;
+        if let Some(entry) = self.files.get_mut(&path_key) {
+            let now = current_filetime();
+            entry.metadata.last_write_time = now;
+            entry.metadata.change_time = now;
+        }
+        Ok(())
     }
-    pub fn read_handle(&self, handle: FileHandle) -> Result<Vec<u8>, StorageError> {
+    pub fn read_handle(&mut self, handle: FileHandle) -> Result<Vec<u8>, StorageError> {
         let file = self.handle_file(handle)?;
-        self.read(&file)
+        let data = self.read(&file)?;
+        let path_key = self.handle_path_key(handle)?;
+        if let Some(entry) = self.files.get_mut(&path_key) {
+            entry.metadata.last_access_time = current_filetime();
+        }
+        Ok(data)
     }
     pub fn truncate_handle(
         &mut self,
@@ -616,6 +683,7 @@ impl LocalEncryptedStore {
         length: usize,
     ) -> Result<(), StorageError> {
         let file = self.handle_file(handle)?;
+        let path_key = self.handle_path_key(handle)?;
         let mut data = self
             .staged
             .get(file.to_wire())
@@ -623,12 +691,27 @@ impl LocalEncryptedStore {
             .or_else(|| self.read(&file).ok())
             .unwrap_or_default();
         data.resize(length, 0);
-        self.write(&file, &data)
+        self.write(&file, &data)?;
+        if let Some(entry) = self.files.get_mut(&path_key) {
+            let now = current_filetime();
+            entry.metadata.last_write_time = now;
+            entry.metadata.change_time = now;
+        }
+        Ok(())
     }
     pub fn flush_handle(&mut self, handle: FileHandle) -> Result<(), StorageError> {
         let file = self.handle_file(handle)?;
-        if self.staged.contains_key(file.to_wire()) {
+        let had_staged = self.staged.contains_key(file.to_wire());
+        if had_staged {
             self.flush_file(&file)?;
+        }
+        if had_staged {
+            let path_key = self.handle_path_key(handle)?;
+            if let Some(entry) = self.files.get_mut(&path_key) {
+                let now = current_filetime();
+                entry.metadata.last_write_time = now;
+                entry.metadata.change_time = now;
+            }
         }
         self.persist_namespace()
     }
@@ -655,15 +738,24 @@ impl LocalEncryptedStore {
         }
         Ok(())
     }
-    pub fn read_path(&self, path: &VirtualPath) -> Result<Vec<u8>, StorageError> {
-        let entry = self
+    pub fn read_path(&mut self, path: &VirtualPath) -> Result<Vec<u8>, StorageError> {
+        let key = path.lookup_key();
+        let file_id = self
             .files
-            .get(path.lookup_key())
-            .ok_or(StorageError::NotFound)?;
-        if entry.delete_pending {
-            return Err(StorageError::NotFound);
+            .get(key)
+            .ok_or(StorageError::NotFound)
+            .and_then(|entry| {
+                if entry.delete_pending {
+                    Err(StorageError::NotFound)
+                } else {
+                    Ok(entry.file_id.clone())
+                }
+            })?;
+        let data = self.read(&file_id)?;
+        if let Some(entry) = self.files.get_mut(key) {
+            entry.metadata.last_access_time = current_filetime();
         }
-        self.read(&entry.file_id)
+        Ok(data)
     }
     pub fn rename(
         &mut self,
@@ -700,6 +792,7 @@ impl LocalEncryptedStore {
             .remove(&source_key)
             .ok_or(StorageError::NotFound)?;
         moved.display = destination.display_name().unwrap_or_default().to_owned();
+        moved.metadata.change_time = current_filetime();
         self.files.insert(destination_key.clone(), moved);
         for state in self.handles.values_mut() {
             if state.path_key == source_key {
@@ -803,18 +896,26 @@ impl LocalEncryptedStore {
             .collect::<Vec<_>>();
         for key in &directory_keys {
             let suffix = key.strip_prefix(&source_key).unwrap_or_default();
-            let display = if suffix.is_empty() {
-                destination.display_name().unwrap_or_default().to_owned()
-            } else {
-                self.directories.get(key).cloned().unwrap_or_default()
-            };
-            self.directories.remove(key);
+            let mut entry = self.directories.remove(key).unwrap_or_else(|| DirectoryEntry {
+                display: String::new(),
+                metadata: EntryMetadata {
+                    creation_time: 0,
+                    last_access_time: 0,
+                    last_write_time: 0,
+                    change_time: 0,
+                },
+            });
+            if suffix.is_empty() {
+                entry.display = destination.display_name().unwrap_or_default().to_owned();
+            }
+            entry.metadata.change_time = current_filetime();
             self.directories
-                .insert(format!("{destination_key}{suffix}"), display);
+                .insert(format!("{destination_key}{suffix}"), entry);
         }
         for key in &file_keys {
             let suffix = key.strip_prefix(&source_key).unwrap_or_default();
-            if let Some(entry) = self.files.remove(key) {
+            if let Some(mut entry) = self.files.remove(key) {
+                entry.metadata.change_time = current_filetime();
                 self.files
                     .insert(format!("{destination_key}{suffix}"), entry);
             }
@@ -976,16 +1077,27 @@ impl LocalEncryptedStore {
     }
 
     fn persist_namespace(&mut self) -> Result<(), StorageError> {
-        let mut plaintext = String::from("dlp-namespace/v1\n");
-        for (key, display) in &self.directories {
-            plaintext.push_str(&format!("D\t{key}\t{display}\n"));
+        let mut plaintext = String::from("dlp-namespace/v2\n");
+        for (key, entry) in &self.directories {
+            plaintext.push_str(&format!(
+                "D\t{key}\t{}\t{}\t{}\t{}\t{}\n",
+                entry.display,
+                entry.metadata.creation_time,
+                entry.metadata.last_access_time,
+                entry.metadata.last_write_time,
+                entry.metadata.change_time
+            ));
         }
         for (key, entry) in &self.files {
             if !entry.delete_pending {
                 plaintext.push_str(&format!(
-                    "F\t{key}\t{}\t{}\n",
+                    "F\t{key}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                     entry.file_id.to_wire(),
-                    entry.display
+                    entry.display,
+                    entry.metadata.creation_time,
+                    entry.metadata.last_access_time,
+                    entry.metadata.last_write_time,
+                    entry.metadata.change_time
                 ));
             }
         }
@@ -1050,17 +1162,101 @@ impl LocalEncryptedStore {
         };
         let text = std::str::from_utf8(&plaintext).map_err(|_| StorageError::IntegrityFailure)?;
         let mut lines = text.lines();
-        if lines.next() != Some("dlp-namespace/v1") {
-            let _ = self.preserve_namespace_integrity_evidence();
-            return Err(StorageError::IntegrityFailure);
+        let header = lines.next();
+        match header {
+            Some("dlp-namespace/v2") => self.load_namespace_v2(lines)?,
+            Some("dlp-namespace/v1") => self.load_namespace_v1(lines)?,
+            _ => {
+                let _ = self.preserve_namespace_integrity_evidence();
+                return Err(StorageError::IntegrityFailure);
+            }
         }
+        self.namespace_generation = record.generation;
+        Ok(())
+    }
+
+    fn load_namespace_v2(
+        &mut self,
+        lines: std::str::Lines,
+    ) -> Result<(), StorageError> {
+        for line in lines {
+            let columns = line.split('\t').collect::<Vec<_>>();
+            match columns.as_slice() {
+                ["D", key, display, creation, access, write, change]
+                    if !key.is_empty() && !display.is_empty() =>
+                {
+                    let metadata = parse_metadata(creation, access, write, change)?;
+                    if self
+                        .directories
+                        .insert(
+                            (*key).to_owned(),
+                            DirectoryEntry {
+                                display: (*display).to_owned(),
+                                metadata,
+                            },
+                        )
+                        .is_some()
+                    {
+                        let _ = self.preserve_namespace_integrity_evidence();
+                        return Err(StorageError::IntegrityFailure);
+                    }
+                }
+                ["F", key, file_id, display, creation, access, write, change]
+                    if !key.is_empty() && !display.is_empty() =>
+                {
+                    let file_id =
+                        FileId::parse(*file_id).map_err(|_| StorageError::IntegrityFailure)?;
+                    let metadata = parse_metadata(creation, access, write, change)?;
+                    if self
+                        .files
+                        .insert(
+                            (*key).to_owned(),
+                            FileEntry {
+                                file_id,
+                                display: (*display).to_owned(),
+                                delete_pending: false,
+                                metadata,
+                            },
+                        )
+                        .is_some()
+                    {
+                        let _ = self.preserve_namespace_integrity_evidence();
+                        return Err(StorageError::IntegrityFailure);
+                    }
+                }
+                _ => {
+                    let _ = self.preserve_namespace_integrity_evidence();
+                    return Err(StorageError::IntegrityFailure);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn load_namespace_v1(
+        &mut self,
+        lines: std::str::Lines,
+    ) -> Result<(), StorageError> {
+        let now = current_filetime();
+        let fallback = EntryMetadata {
+            creation_time: now,
+            last_access_time: now,
+            last_write_time: now,
+            change_time: now,
+        };
         for line in lines {
             let columns = line.split('\t').collect::<Vec<_>>();
             match columns.as_slice() {
                 ["D", key, display] if !key.is_empty() && !display.is_empty() => {
                     if self
                         .directories
-                        .insert((*key).to_owned(), (*display).to_owned())
+                        .insert(
+                            (*key).to_owned(),
+                            DirectoryEntry {
+                                display: (*display).to_owned(),
+                                metadata: fallback,
+                            },
+                        )
                         .is_some()
                     {
                         let _ = self.preserve_namespace_integrity_evidence();
@@ -1078,6 +1274,7 @@ impl LocalEncryptedStore {
                                 file_id,
                                 display: (*display).to_owned(),
                                 delete_pending: false,
+                                metadata: fallback,
                             },
                         )
                         .is_some()
@@ -1092,7 +1289,6 @@ impl LocalEncryptedStore {
                 }
             }
         }
-        self.namespace_generation = record.generation;
         Ok(())
     }
     fn generation_dir(&self, file: &FileId, generation: u64) -> PathBuf {
@@ -1110,12 +1306,47 @@ impl LocalEncryptedStore {
             Some(_) => Err(StorageError::NotFound),
         }
     }
+    pub fn entry_metadata(&self,
+        path: &VirtualPath,
+    ) -> Result<EntryMetadata, StorageError> {
+        if self.is_directory(path) {
+            if path.lookup_key().is_empty() {
+                let now = current_filetime();
+                return Ok(EntryMetadata {
+                    creation_time: now,
+                    last_access_time: now,
+                    last_write_time: now,
+                    change_time: now,
+                });
+            }
+            let entry = self
+                .directories
+                .get(path.lookup_key())
+                .ok_or(StorageError::NotFound)?;
+            Ok(entry.metadata)
+        } else {
+            let entry = self
+                .files
+                .get(path.lookup_key())
+                .ok_or(StorageError::NotFound)?;
+            if entry.delete_pending {
+                return Err(StorageError::NotFound);
+            }
+            Ok(entry.metadata)
+        }
+    }
+
     fn handle_file(&self, handle: FileHandle) -> Result<FileId, StorageError> {
         let state = self.handles.get(&handle.0).ok_or(StorageError::NotFound)?;
         self.files
             .get(&state.path_key)
             .map(|entry| entry.file_id.clone())
             .ok_or(StorageError::NotFound)
+    }
+
+    fn handle_path_key(&self, handle: FileHandle) -> Result<String, StorageError> {
+        let state = self.handles.get(&handle.0).ok_or(StorageError::NotFound)?;
+        Ok(state.path_key.clone())
     }
 }
 
@@ -1171,4 +1402,146 @@ fn copy_evidence_files(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    use super::{
+        CapturedStoreIdentity, LocalEncryptedStore, StoreKey,
+        VirtualPath,
+    };
+    use dlp_domain::{StoreId, UserSid};
+    use std::thread;
+    use std::time::Duration;
+
+    fn test_identity() -> CapturedStoreIdentity {
+        CapturedStoreIdentity::new(
+            UserSid::parse("S-1-5-21-1000").expect("valid SID"),
+            StoreId::parse("timestamp-test-store").expect("valid store"),
+        )
+    }
+
+    fn open_test_store(root: std::path::PathBuf) -> LocalEncryptedStore {
+        LocalEncryptedStore::open(root, test_identity(), StoreKey::from_bytes([7; 32]))
+            .expect("open store")
+    }
+
+    #[test]
+    fn entry_metadata_returns_nonzero_timestamps_after_create_or_open() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let mut store = open_test_store(root.path().to_path_buf());
+        let path = VirtualPath::parse("report.txt").expect("valid path");
+        let handle = store.create_or_open(&path, true, true).expect("create");
+        let metadata = store.entry_metadata(&path).expect("metadata");
+        assert_ne!(metadata.creation_time, 0, "creation_time is non-zero");
+        assert_ne!(metadata.last_access_time, 0, "last_access_time is non-zero");
+        assert_ne!(metadata.last_write_time, 0, "last_write_time is non-zero");
+        assert_ne!(metadata.change_time, 0, "change_time is non-zero");
+        store.close_handle(handle).expect("close");
+    }
+
+    #[test]
+    fn entry_metadata_returns_nonzero_timestamps_after_create_directory() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let mut store = open_test_store(root.path().to_path_buf());
+        let path = VirtualPath::parse("Documents").expect("valid path");
+        store.create_directory(&path).expect("create directory");
+        let metadata = store.entry_metadata(&path).expect("metadata");
+        assert_ne!(metadata.creation_time, 0, "creation_time is non-zero");
+        assert_ne!(metadata.last_access_time, 0, "last_access_time is non-zero");
+        assert_ne!(metadata.last_write_time, 0, "last_write_time is non-zero");
+        assert_ne!(metadata.change_time, 0, "change_time is non-zero");
+    }
+
+    #[test]
+    fn timestamps_survive_reopen() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let mut store = open_test_store(root.path().to_path_buf());
+        let path = VirtualPath::parse("survive.txt").expect("valid path");
+        let handle = store.create_or_open(&path, true, true).expect("create");
+        let before = store.entry_metadata(&path).expect("metadata before");
+        store.close_handle(handle).expect("close");
+        drop(store);
+
+        let reopened = open_test_store(root.path().to_path_buf());
+        let after = reopened.entry_metadata(&path).expect("metadata after reopen");
+        assert_eq!(before.creation_time, after.creation_time);
+        assert_eq!(before.last_access_time, after.last_access_time);
+        assert_eq!(before.last_write_time, after.last_write_time);
+        assert_eq!(before.change_time, after.change_time);
+    }
+
+    #[test]
+    fn write_updates_last_write_and_change_time() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let mut store = open_test_store(root.path().to_path_buf());
+        let path = VirtualPath::parse("write.txt").expect("valid path");
+        let handle = store.create_or_open(&path, true, true).expect("create");
+        store.flush_handle(handle).expect("flush");
+        let before = store.entry_metadata(&path).expect("metadata before");
+        thread::sleep(Duration::from_millis(10));
+        store.write_handle(handle, 0, b"hello").expect("write");
+        store.flush_handle(handle).expect("flush");
+        let after = store.entry_metadata(&path).expect("metadata after");
+        assert!(
+            after.last_write_time > before.last_write_time,
+            "last_write_time advances after write"
+        );
+        assert!(
+            after.change_time > before.change_time,
+            "change_time advances after write"
+        );
+        store.close_handle(handle).expect("close");
+    }
+
+    #[test]
+    fn v1_namespace_loads_with_current_filetime_fallback() {
+        use crate::format::EncryptedRecordV1;
+        use dlp_crypto::{NonceTracker, RecordAad, RecordCipher, RecordKind};
+        use std::fs;
+
+        let root = tempfile::tempdir().expect("tempdir");
+        let identity = test_identity();
+        let key = StoreKey::from_bytes([7; 32]);
+        let mut store = LocalEncryptedStore::open(root.path().to_path_buf(), identity.clone(), key.clone())
+            .expect("open store");
+        let path = VirtualPath::parse("legacy.txt").expect("valid path");
+        let handle = store.create_or_open(&path, true, true).expect("create");
+        store.close_handle(handle).expect("close");
+        drop(store);
+
+        // Manually overwrite the namespace with a v1 record.
+        let namespace_path = root
+            .path()
+            .join("stores")
+            .join(identity.store_id().to_wire())
+            .join("namespace.rec");
+        let plaintext = "dlp-namespace/v1\nF\tlegacy.txt\tfile-00000000000000000001\tlegacy.txt\n";
+        let cipher = RecordCipher::from_store_key(&key);
+        let mut nonces = NonceTracker::default();
+        let record = EncryptedRecordV1::seal(
+            &cipher,
+            RecordAad {
+                format_version: crate::format::FORMAT_VERSION_V1,
+                store_id: identity.store_id().to_wire().to_owned(),
+                file_id: "namespace-index".to_owned(),
+                generation: 1,
+                record_kind: RecordKind::Manifest,
+                chunk_index: 0,
+                plaintext_length: plaintext.len() as u64,
+            },
+            plaintext.as_bytes(),
+            &mut nonces,
+        )
+        .expect("seal");
+        fs::write(&namespace_path, record.encode().expect("encode")).expect("write namespace");
+
+        let reopened = LocalEncryptedStore::open(root.path().to_path_buf(), identity, key)
+            .expect("reopen v1 store");
+        let metadata = reopened.entry_metadata(&path).expect("metadata");
+        assert_ne!(metadata.creation_time, 0, "v1 fallback creation_time is non-zero");
+        assert_ne!(metadata.last_access_time, 0, "v1 fallback last_access_time is non-zero");
+        assert_ne!(metadata.last_write_time, 0, "v1 fallback last_write_time is non-zero");
+        assert_ne!(metadata.change_time, 0, "v1 fallback change_time is non-zero");
+    }
 }

@@ -13,7 +13,7 @@ pub use path::{PathError, VirtualPath};
 pub use recovery::{EvidenceRecord, RecoveryReport, recover_store};
 pub use store::{
     CommitOutcome, DurabilityFaultPoint, DurabilityTrace, FaultInjectingIo, FileHandle,
-    LocalEncryptedStore,
+    LocalEncryptedStore, EntryMetadata,
 };
 
 use dlp_domain::{FileId, StoreId, UserSid};

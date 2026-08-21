@@ -167,7 +167,7 @@ fn encrypted_namespace_survives_reopen_without_plaintext_names() {
     first.rename(&report, &renamed, false).expect("rename");
     drop(first);
 
-    let restarted = LocalEncryptedStore::open(root.path(), identity, key).expect("restart");
+    let mut restarted = LocalEncryptedStore::open(root.path(), identity, key).expect("restart");
     assert_eq!(
         restarted.read_directory(&documents).expect("enumerate"),
         vec!["Final Report.txt"]
