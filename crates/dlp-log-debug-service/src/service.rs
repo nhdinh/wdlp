@@ -75,10 +75,15 @@ fn service_main(_: Vec<std::ffi::OsString>) {
             }
         };
 
-    let _ = handler.set_service_status(status(
-        ServiceState::StartPending,
-        ServiceExitCode::Win32(0),
-    ));
+    if publish_status(
+        &handler,
+        status(ServiceState::StartPending, ServiceExitCode::Win32(0)),
+        "start_pending_status_failed",
+    )
+    .is_err()
+    {
+        return;
+    }
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(runtime) => runtime,
         Err(_) => {
@@ -101,7 +106,18 @@ fn service_main(_: Vec<std::ffi::OsString>) {
         }
     };
 
-    let _ = handler.set_service_status(status(ServiceState::Running, ServiceExitCode::Win32(0)));
+    if publish_status(
+        &handler,
+        status(ServiceState::Running, ServiceExitCode::Win32(0)),
+        "running_status_failed",
+    )
+    .is_err()
+    {
+        drop(listener);
+        stop_with_error(&handler, ServiceError::RuntimeFailed);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        return;
+    }
     let result = runtime.block_on(serve_http(listener, state, async move {
         if !*shutdown_rx.borrow() {
             let _ = shutdown_rx.changed().await;
@@ -110,8 +126,11 @@ fn service_main(_: Vec<std::ffi::OsString>) {
     match result {
         Ok(()) => {
             service_log("stopped");
-            let _ = handler
-                .set_service_status(status(ServiceState::Stopped, ServiceExitCode::Win32(0)));
+            let _ = publish_status(
+                &handler,
+                status(ServiceState::Stopped, ServiceExitCode::Win32(0)),
+                "stopped_status_failed",
+            );
         }
         Err(error) => stop_with_error(&handler, error),
     }
@@ -126,13 +145,28 @@ fn stop_with_error(
     use windows_service::service::{ServiceExitCode, ServiceState, ServiceStatus, ServiceType};
 
     service_log(error.stable_code());
-    let _ = handler.set_service_status(ServiceStatus {
-        service_type: ServiceType::OWN_PROCESS,
-        current_state: ServiceState::Stopped,
-        controls_accepted: windows_service::service::ServiceControlAccept::empty(),
-        exit_code: ServiceExitCode::ServiceSpecific(service_exit_code(&error)),
-        checkpoint: 0,
-        wait_hint: Duration::default(),
-        process_id: None,
-    });
+    let _ = publish_status(
+        handler,
+        ServiceStatus {
+            service_type: ServiceType::OWN_PROCESS,
+            current_state: ServiceState::Stopped,
+            controls_accepted: windows_service::service::ServiceControlAccept::empty(),
+            exit_code: ServiceExitCode::ServiceSpecific(service_exit_code(&error)),
+            checkpoint: 0,
+            wait_hint: Duration::default(),
+            process_id: None,
+        },
+        "stopped_status_failed",
+    );
+}
+
+#[cfg(windows)]
+fn publish_status(
+    handler: &windows_service::service_control_handler::ServiceStatusHandle,
+    status: windows_service::service::ServiceStatus,
+    failure_code: &'static str,
+) -> Result<(), windows_service::Error> {
+    handler.set_service_status(status).inspect_err(|_| {
+        service_log(failure_code);
+    })
 }
