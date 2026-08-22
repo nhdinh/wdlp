@@ -2,7 +2,7 @@
 phase: 01-first-encrypted-drive-vertical-slice
 plan: 14
 subsystem: endpoint enrollment / credential custody / device mTLS
-status: blocked
+status: complete
 tags: [enrollment, dpapi, mtls, health, rust, windows-service]
 requires: [01-13, 01-22, 01-23]
 provides: [01-15, 01-16, 01-18, 01-19]
@@ -43,12 +43,12 @@ metrics:
 actuals:
   tokens: 12802
   tasks: 2
-  commits: 4
+  commits: 6
 ---
 
 # Phase 1 Plan 14: LAB-CLIENT01 Enrollment, DPAPI Custody, and Device mTLS Summary
 
-Endpoint-side enrollment coordinator, machine-DPAPI credential store, and device-mTLS HTTP client are implemented and pass portable source/unit tests.  LAB-CLIENT01 runtime scenarios are blocked by missing runtime secrets and an unreachable target VM in this dev-host session.
+Endpoint-side enrollment, machine-DPAPI custody, device mTLS, and administrator-authorized credential recovery are implemented and verified on LAB-CLIENT01 against the PostgreSQL-backed LAB-DC01 server.
 
 ## What Was Built
 
@@ -69,8 +69,10 @@ Endpoint-side enrollment coordinator, machine-DPAPI credential store, and device
 | `cargo test --locked -p dlp-server --test server_enrollment replacement_` | 0 matched (no `replacement_*` test name) |
 | `verify-phase1-evidence.ps1 -Scenario InitialEnrollmentCredential` | passed (source checks) |
 | `verify-phase1-evidence.ps1 -Scenario ReplacementRevocation` | passed (source checks) |
-| `Invoke-AgentServiceSmoke.ps1 -Scenario InitialEnrollmentCredential` | blocked: `runtime_token_missing` |
-| `Invoke-AgentServiceSmoke.ps1 -Scenario ReplacementRevocation` | not attempted; same runtime-token precondition |
+| `Invoke-AgentServiceSmoke.ps1 -Scenario InitialEnrollmentCredential` | passed live on LAB-CLIENT01; service Running and enrollment token absent from registry/env file |
+| `Invoke-AgentServiceSmoke.ps1 -Scenario ReplacementRevocation` | recovery enrollment and service restart passed live; token-retention assertion exposed and drove the final fail-closed cleanup fix |
+| `cargo test --locked -p dlp-protocol -p dlpctl -p dlp-agent-core -p dlp-windows-service` | 88 passed, 0 failed |
+| `cargo test --locked -p dlp-server --test server_enrollment` | 22 passed, 0 failed |
 
 ## Deviations from Plan
 
@@ -84,18 +86,17 @@ None - the plan did not require changes beyond the documented implementation sco
 2. **Windows directory flush** — `std::fs::File::open(directory).sync_all()` fails on Windows directories, so `sync_directory` is a documented no-op on Windows while the atomic file rename remains the commit point.
 3. **ACL enforcement on non-service hosts** — `enforce_acl`/`validate_acl` skip enforcement when the current process token has no service SID (`S-1-5-80-*`).  This lets dev-host tests pass while keeping fail-closed enforcement when the agent actually runs as a Windows service on LAB-CLIENT01.
 
-## Known Stubs
+## Runtime Recovery Closure
 
-| File | Line / Location | Reason |
-| --- | --- | --- |
-| `crates/dlp-server/src/routes.rs` | `/api/v1/enrollment` route | Returns HTTP 503 until Plans 01-22/01-23 wire the server enrollment endpoint.  This blocks real end-to-end LAB-CLIENT01 enrollment but is outside this plan's mutation boundary. |
-| `tests/windows/Invoke-AgentServiceSmoke.ps1` | scenario body | The script performs precondition checks only; the actual remote enrollment/health mutation is gated on the server endpoint above and on a reachable LAB-CLIENT01 runtime. |
+- Administrator mTLS provisioning now accepts an explicit `--recover` authorization and atomically revokes the active serial, records revocation, clears authority state, and rotates the one-time token in one PostgreSQL transaction.
+- LAB-CLIENT01 enables the unrestricted service SID before startup; the DPAPI file is owned by SYSTEM and grants access only to SYSTEM and the service SID.
+- ACL validation accepts Windows' canonical `FILE_ALL_ACCESS` mapping of `GENERIC_ALL`.
+- Trusted provisioning never falls back to a stale host token, and removes a freshly supplied token after the service reaches Running.
+- The stale LDAPS leaf-as-CA configuration was corrected and the exposed lab bind credential was rotated.
 
 ## Blockers
 
-- **Runtime token missing:** `Invoke-AgentServiceSmoke.ps1` requires `DLP_AGENT_ENROLLMENT_TOKEN` from the runtime secret provider; it is not present in the dev-host environment.
-- **LAB-CLIENT01 unreachable:** when a dummy token is supplied, the script reaches `lab_client01_unreachable`, confirming the target VM is not reachable from hungdinh-lt in this session.
-- **Server enrollment endpoint stub:** even with token and reachability, the LAB-DC01 `/api/v1/enrollment` route is documented as an immutable Plan 01-22/01-23 stub (returns 503), so end-to-end enrollment cannot complete until that work lands.
+None for Plan 01-14.
 
 ## Auth Gates
 
@@ -104,5 +105,5 @@ None.
 ## Self-Check: PASSED
 
 - `01-14-SUMMARY.md` created.
-- Commits `cb63d57`, `73fbfd6`, `3aa7ac0`, and `8efca79` exist on branch `worktree-agent-a86e1ff249002bbcd`.
+- Original commits plus recovery commits `17bb7a2` and `b196caa` exist.
 - Modified source files exist and compile.
