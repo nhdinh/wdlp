@@ -225,7 +225,27 @@ function Assert-RuntimeSecretsPresent {
 
 function Test-Client01CredentialPresent {
     return Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
-        Test-Path -LiteralPath 'C:\dlp\agent\data\credentials\device.dpapi'
+        $ErrorActionPreference = 'Stop'
+        $taskName = 'DlpCredentialProbe-' + [Guid]::NewGuid().ToString('N')
+        $resultPath = Join-Path $env:ProgramData ($taskName + '.txt')
+        $command = "if exist C:\dlp\agent\data\credentials\device.dpapi (echo 1>$resultPath) else (echo 0>$resultPath)"
+        $action = "cmd.exe /d /c $command"
+        $startTime = (Get-Date).AddMinutes(1).ToString('HH:mm')
+        try {
+            & schtasks.exe /Create /TN $taskName /SC ONCE /ST $startTime /TR $action /RU SYSTEM /F | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "credential probe task creation failed: $LASTEXITCODE" }
+            & schtasks.exe /Run /TN $taskName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "credential probe task start failed: $LASTEXITCODE" }
+            $deadline = [DateTime]::UtcNow.AddSeconds(15)
+            while (-not (Test-Path -LiteralPath $resultPath) -and [DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 200
+            }
+            if (-not (Test-Path -LiteralPath $resultPath)) { throw 'credential probe timed out' }
+            return ([System.IO.File]::ReadAllText($resultPath).Trim() -eq '1')
+        } finally {
+            & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+            Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -910,7 +930,8 @@ function Invoke-Client01TrustedProvisioning {
     param(
         [Parameter(Mandatory)][string]$PrivilegeManifestDigest,
         [Parameter(Mandatory)][string]$TargetComputer,
-        [Parameter()][char]$PreferredDriveLetter = 'P'
+        [Parameter()][char]$PreferredDriveLetter = 'P',
+        [Parameter()][switch]$RecoverCredential
     )
     Wait-Client01AdwsReady -ServerName @('LAB-DC01.lab.local', 'LAB-DC02.lab.local')
     Assert-Client01ServerReady
@@ -949,7 +970,7 @@ function Invoke-Client01TrustedProvisioning {
     $resultJson = $null
     try {
         $resultJson = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
-            param($Digest, $Target, $PreferredLetter, $ProvisioningRootCa, $ProvisioningAdminCert, $ProvisioningAdminKey, $ProvisioningAdminCa, $DlpctlPath, $LabAllowVirtualDiskUniqueId)
+            param($Digest, $Target, $PreferredLetter, $ProvisioningRootCa, $ProvisioningAdminCert, $ProvisioningAdminKey, $ProvisioningAdminCa, $DlpctlPath, $LabAllowVirtualDiskUniqueId, $Recover)
             $ErrorActionPreference = 'Stop'
             Set-Location C:\dlp\server
             $env:DLP_APPROVED_PRIVILEGE_MANIFEST_DIGEST = $Digest
@@ -960,13 +981,16 @@ function Invoke-Client01TrustedProvisioning {
             if (-not [string]::IsNullOrWhiteSpace($LabAllowVirtualDiskUniqueId)) {
                 $env:DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID = $LabAllowVirtualDiskUniqueId
             }
-            & scripts/lab/Invoke-TrustedProvisioning.ps1 `
-                -ExecutionMachine LAB-DC01 `
-                -TargetComputer $Target `
-                -PrivilegeManifestDigest $Digest `
-                -PreferredDriveLetter $PreferredLetter `
-                -AdminCaPem $ProvisioningAdminCa
-        } -ArgumentList @($PrivilegeManifestDigest, $TargetComputer, $PreferredDriveLetter, $provisioningRootCa, $provisioningAdminCert, $provisioningAdminKey, $provisioningAdminCa, $remoteDlpctlPath, $env:DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID)
+            $arguments = @{
+                ExecutionMachine = 'LAB-DC01'
+                TargetComputer = $Target
+                PrivilegeManifestDigest = $Digest
+                PreferredDriveLetter = $PreferredLetter
+                AdminCaPem = $ProvisioningAdminCa
+            }
+            if ($Recover) { $arguments.RecoverCredential = $true }
+            & scripts/lab/Invoke-TrustedProvisioning.ps1 @arguments
+        } -ArgumentList @($PrivilegeManifestDigest, $TargetComputer, $PreferredDriveLetter, $provisioningRootCa, $provisioningAdminCert, $provisioningAdminKey, $provisioningAdminCa, $remoteDlpctlPath, $env:DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID, [bool]$RecoverCredential)
     } catch {
         Write-Host '--- dlpctl diagnostics from LAB-DC01 ---'
         $diagnostics = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
@@ -1162,6 +1186,12 @@ function Install-Client01Service {
             if ($LASTEXITCODE -ne 0) { throw "sc.exe config failed: $LASTEXITCODE" }
         }
 
+        # The credential directory grants access to SYSTEM and the per-service
+        # SID. SCM must add that SID to the service token or DPAPI persistence
+        # correctly fails closed after enrollment.
+        & sc.exe sidtype $serviceName unrestricted | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "sc.exe sidtype failed: $LASTEXITCODE" }
+
         # Ensure the service process receives the persisted environment.
         $envPath = 'C:\dlp\agent\agent.env'
         if (Test-Path -LiteralPath $envPath) {
@@ -1271,7 +1301,13 @@ function Invoke-Client01ServiceInstall {
         Write-Host ($diag | ConvertTo-Json -Compress -Depth 10)
     }
     if ($running -and $EnrollmentTokenProvider -eq 'TrustedProvisioning' -and -not $RetainEnrollmentToken) {
-        if (Test-Client01CredentialPresent) {
+        $credentialPresent = Test-Client01CredentialPresent
+        $credentialDeadline = [DateTime]::UtcNow.AddSeconds(15)
+        while (-not $credentialPresent -and [DateTime]::UtcNow -lt $credentialDeadline) {
+            Start-Sleep -Milliseconds 250
+            $credentialPresent = Test-Client01CredentialPresent
+        }
+        if ($credentialPresent) {
             Remove-Client01EnrollmentToken
         } else {
             Write-Host 'Install-Client01Service: credential store not yet present; deferring token cleanup.'
@@ -1301,7 +1337,8 @@ function Invoke-Client01Tracer {
             $enrollmentToken = Invoke-Client01TrustedProvisioning `
                 -PrivilegeManifestDigest $approvedDigest `
                 -TargetComputer $targetComputer `
-                -PreferredDriveLetter 'P'
+                -PreferredDriveLetter 'P' `
+                -RecoverCredential
         }
     }
 

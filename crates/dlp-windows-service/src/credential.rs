@@ -201,7 +201,10 @@ impl CredentialStore for DpapiCredentialStore {
         fs::rename(&temporary, &self.path).map_err(|_| CredentialError::Io)?;
         sync_directory(&self.directory)?;
         #[cfg(windows)]
-        enforce_acl(&self.path).map_err(|_| CredentialError::AclInvalid)?;
+        {
+            enforce_acl(&self.directory).map_err(|_| CredentialError::AclInvalid)?;
+            enforce_acl(&self.path).map_err(|_| CredentialError::AclInvalid)?;
+        }
 
         let blob = fs::read(&self.path).map_err(|_| CredentialError::Io)?;
         let mut plain = unprotect_bytes(&blob)?;
@@ -217,8 +220,14 @@ impl CredentialStore for DpapiCredentialStore {
 
     fn load(&self) -> Result<DeviceCredential, CredentialError> {
         let _guard = self.lock.lock().map_err(|_| CredentialError::Integrity)?;
+        if !self.path.exists() {
+            return Err(CredentialError::Missing);
+        }
         #[cfg(windows)]
-        validate_acl(&self.path).map_err(|_| CredentialError::AclInvalid)?;
+        {
+            validate_acl(&self.directory).map_err(|_| CredentialError::AclInvalid)?;
+            validate_acl(&self.path).map_err(|_| CredentialError::AclInvalid)?;
+        }
         let blob = fs::read(&self.path).map_err(|error| {
             if error.kind() == io::ErrorKind::NotFound {
                 CredentialError::Missing
@@ -308,20 +317,7 @@ fn sync_directory(directory: &Path) -> Result<(), CredentialError> {
 }
 
 #[cfg(windows)]
-fn has_service_sid() -> bool {
-    service_sid_buffer().is_ok()
-}
-
-#[cfg(not(windows))]
-fn has_service_sid() -> bool {
-    false
-}
-
-#[cfg(windows)]
 pub(crate) fn enforce_acl(path: &Path) -> Result<(), CredentialError> {
-    if !has_service_sid() {
-        return Ok(());
-    }
     use std::os::windows::ffi::OsStrExt;
     // SAFETY: all SID buffers are owned by this function and outlive the FFI
     // calls.  The ACL is built on the stack-sized buffer and passed to
@@ -386,17 +382,17 @@ pub(crate) fn enforce_acl(path: &Path) -> Result<(), CredentialError> {
 
 #[cfg(windows)]
 fn validate_acl(path: &Path) -> Result<(), CredentialError> {
-    if !has_service_sid() {
-        return Ok(());
-    }
     use std::os::windows::ffi::OsStrExt;
     unsafe {
         use windows::{
             Win32::{
-                Foundation::LocalFree,
+                Foundation::{GENERIC_ALL, LocalFree},
                 Security::{
+                    ACCESS_ALLOWED_ACE, ACL, ACL_SIZE_INFORMATION, AclSizeInformation,
                     Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT},
-                    EqualSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+                    DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetAclInformation,
+                    OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+                    PSID,
                 },
             },
             core::PCWSTR,
@@ -408,24 +404,59 @@ fn validate_acl(path: &Path) -> Result<(), CredentialError> {
             .chain(std::iter::once(0))
             .collect();
         let mut owner = PSID(std::ptr::null_mut());
+        let mut dacl: *mut ACL = std::ptr::null_mut();
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
         GetNamedSecurityInfoW(
             PCWSTR::from_raw(wide.as_ptr()),
             SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION,
+            OBJECT_SECURITY_INFORMATION(OWNER_SECURITY_INFORMATION.0 | DACL_SECURITY_INFORMATION.0),
             Some(&mut owner),
             None,
-            None,
+            Some(&mut dacl),
             None,
             &mut descriptor,
         )
         .ok()
         .map_err(|_| CredentialError::AclInvalid)?;
         let system_sid = system_sid_buffer()?;
+        let service_sid = service_sid_buffer()?;
         let system_psid = PSID(system_sid.as_ptr() as *mut _);
+        let service_psid = PSID(service_sid.as_ptr() as *mut _);
         let owner_ok = EqualSid(owner, system_psid).is_ok();
+        let mut acl_info = ACL_SIZE_INFORMATION::default();
+        let acl_ok = !dacl.is_null()
+            && GetAclInformation(
+                dacl,
+                &mut acl_info as *mut _ as *mut _,
+                std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
+                AclSizeInformation,
+            )
+            .is_ok()
+            && acl_info.AceCount == 2;
+        let mut system_ace = false;
+        let mut service_ace = false;
+        if acl_ok {
+            for index in 0..acl_info.AceCount {
+                let mut ace = std::ptr::null_mut();
+                GetAce(dacl, index, &mut ace).map_err(|_| CredentialError::AclInvalid)?;
+                let allowed = &*(ace as *const ACCESS_ALLOWED_ACE);
+                // ACCESS_ALLOWED_ACE_TYPE is zero in the Windows ACL ABI. Avoid
+                // enabling the broad SystemServices bindings solely for this constant.
+                // SetEntriesInAcl maps GENERIC_ALL to FILE_ALL_ACCESS for file
+                // objects, so accept either equivalent representation.
+                const FILE_ALL_ACCESS_MASK: u32 = 0x001F01FF;
+                if allowed.Header.AceType != 0
+                    || (allowed.Mask != GENERIC_ALL.0 && allowed.Mask != FILE_ALL_ACCESS_MASK)
+                {
+                    return Err(CredentialError::AclInvalid);
+                }
+                let sid = PSID((&allowed.SidStart as *const u32).cast_mut().cast());
+                system_ace |= EqualSid(sid, system_psid).is_ok();
+                service_ace |= EqualSid(sid, service_psid).is_ok();
+            }
+        }
         let _ = LocalFree(Some(windows::Win32::Foundation::HLOCAL(descriptor.0)));
-        if owner_ok {
+        if owner_ok && acl_ok && system_ace && service_ace {
             Ok(())
         } else {
             Err(CredentialError::AclInvalid)
@@ -457,66 +488,29 @@ fn system_sid_buffer() -> Result<Vec<u8>, CredentialError> {
 fn service_sid_buffer() -> Result<Vec<u8>, CredentialError> {
     unsafe {
         use windows::{
-            Win32::{
-                Foundation::{CloseHandle, HANDLE, LocalFree},
-                Security::Authorization::ConvertSidToStringSidW,
-                Security::{
-                    GetLengthSid, GetTokenInformation, TOKEN_GROUPS, TOKEN_QUERY, TokenGroups,
-                },
-                System::Threading::{GetCurrentProcess, OpenProcessToken},
-            },
+            Wdk::Storage::FileSystem::RtlCreateServiceSid,
+            Win32::{Foundation::UNICODE_STRING, Security::PSID},
             core::PWSTR,
         };
-        let mut token = HANDLE::default();
-        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)
-            .map_err(|_| CredentialError::AclInvalid)?;
-        let mut size = 0;
-        let _ = GetTokenInformation(token, TokenGroups, None, 0, &mut size);
-        let mut buffer = vec![0u8; size as usize];
-        GetTokenInformation(
-            token,
-            TokenGroups,
-            Some(buffer.as_mut_ptr() as *mut _),
-            size,
-            &mut size,
-        )
-        .map_err(|_| CredentialError::AclInvalid)?;
-        let groups = &*(buffer.as_ptr() as *const TOKEN_GROUPS);
-        let base = groups.Groups.as_ptr();
-        for i in 0..groups.GroupCount {
-            let entry = &*base.add(i as usize);
-            let sid = entry.Sid;
-            let mut string_sid = PWSTR::null();
-            if ConvertSidToStringSidW(sid, &mut string_sid).is_ok() {
-                let text = pwstr_to_string(string_sid)?;
-                let _ = LocalFree(Some(windows::Win32::Foundation::HLOCAL(
-                    string_sid.0 as *mut _,
-                )));
-                if text.starts_with("S-1-5-80-") {
-                    let len = GetLengthSid(sid) as usize;
-                    let mut owned = vec![0u8; len];
-                    std::ptr::copy_nonoverlapping(sid.0 as *const u8, owned.as_mut_ptr(), len);
-                    let _ = CloseHandle(token);
-                    return Ok(owned);
-                }
-            }
+        let mut service_name: Vec<u16> = "DlpWindowsService".encode_utf16().collect();
+        let name = UNICODE_STRING {
+            Length: (service_name.len() * 2) as u16,
+            MaximumLength: (service_name.len() * 2) as u16,
+            Buffer: PWSTR(service_name.as_mut_ptr()),
+        };
+        let mut sid_size = 0u32;
+        let _ = RtlCreateServiceSid(&name, None, &mut sid_size);
+        if sid_size == 0 {
+            return Err(CredentialError::AclInvalid);
         }
-        let _ = CloseHandle(token);
-        Err(CredentialError::AclInvalid)
+        let mut sid = vec![0u8; sid_size as usize];
+        let status = RtlCreateServiceSid(&name, Some(PSID(sid.as_mut_ptr().cast())), &mut sid_size);
+        if status.is_err() {
+            return Err(CredentialError::AclInvalid);
+        }
+        sid.truncate(sid_size as usize);
+        Ok(sid)
     }
-}
-
-#[cfg(windows)]
-unsafe fn pwstr_to_string(pwstr: windows::core::PWSTR) -> Result<String, CredentialError> {
-    if pwstr.0.is_null() {
-        return Err(CredentialError::AclInvalid);
-    }
-    let mut len = 0;
-    while unsafe { *pwstr.0.add(len) } != 0 {
-        len += 1;
-    }
-    let slice = unsafe { std::slice::from_raw_parts(pwstr.0, len) };
-    String::from_utf16(slice).map_err(|_| CredentialError::AclInvalid)
 }
 
 #[cfg(not(windows))]

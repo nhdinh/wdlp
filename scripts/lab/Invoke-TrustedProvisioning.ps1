@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01.lab.local')][string]$TargetComputer,
     [Parameter(Mandatory)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$PrivilegeManifestDigest,
     [Parameter(Mandatory)][ValidatePattern('^[A-Z]$')][string]$PreferredDriveLetter,
-    [Parameter(Mandatory)][string]$AdminCaPem
+    [Parameter(Mandatory)][string]$AdminCaPem,
+    [Parameter()][switch]$RecoverCredential
 )
 
 $ErrorActionPreference = 'Stop'
@@ -236,8 +237,10 @@ try {
     $logPath = Join-Path $provDir 'dlpctl.log'
     $rustErrPath = Join-Path $provDir 'dlpctl-rust.err'
     Remove-Item -LiteralPath $errPath, $logPath, $rustErrPath -Force -ErrorAction SilentlyContinue
+    $dlpctlArguments = @('provision-device', '--computer', $TargetComputer)
+    if ($RecoverCredential) { $dlpctlArguments += '--recover' }
     $proc = Start-Process -FilePath $dlpctl `
-        -ArgumentList @('provision-device', '--computer', $TargetComputer) `
+        -ArgumentList $dlpctlArguments `
         -WorkingDirectory $provDir `
         -RedirectStandardError $errPath `
         -RedirectStandardOutput $logPath `

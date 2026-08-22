@@ -259,6 +259,7 @@ function Test-RuntimeAdSecretsPresent {
         [string]::IsNullOrWhiteSpace($env:DLP_AD_BASE_DN) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_BIND_DN) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_BIND_PASSWORD) -or
+        [string]::IsNullOrWhiteSpace($env:DLP_AD_DOMAIN) -or
         [string]::IsNullOrWhiteSpace($env:DLP_AD_CA_CERT_PEM))
 }
 
@@ -389,6 +390,14 @@ function Start-Dc01Server {
 
     $listenAddress = "0.0.0.0:$($script:ServerPort)"
     $databaseUrl = $env:DLP_DATABASE_URL
+    $adTimeoutSeconds = if ([string]::IsNullOrWhiteSpace($env:DLP_AD_TIMEOUT_SECONDS)) {
+        10
+    } else {
+        $parsedTimeout = 0
+        Assert-Dc01 ([int]::TryParse($env:DLP_AD_TIMEOUT_SECONDS, [ref]$parsedTimeout) -and
+            $parsedTimeout -ge 1 -and $parsedTimeout -le 120) 'ad_timeout_seconds_invalid'
+        $parsedTimeout
+    }
 
     # Build the env file content inside LAB-DC01. Secret values travel only
     # through the already-established PowerShell Direct session, never through
@@ -402,6 +411,8 @@ function Start-Dc01Server {
         $envLines.Add("DLP_AD_BASE_DN=$($env:DLP_AD_BASE_DN)")
         $envLines.Add("DLP_AD_BIND_DN=$($env:DLP_AD_BIND_DN)")
         $envLines.Add("DLP_AD_BIND_PASSWORD=$($env:DLP_AD_BIND_PASSWORD)")
+        $envLines.Add("DLP_AD_DOMAIN=$($env:DLP_AD_DOMAIN)")
+        $envLines.Add("DLP_AD_TIMEOUT_SECONDS=$adTimeoutSeconds")
         $envLines.Add('DLP_AD_CA_CERT_PEM=C:\dlp\secrets\ad-ca.pem')
     }
     $envLines.Add('DLP_SERVER_CERT_PEM=C:\dlp\secrets\server-cert.pem')

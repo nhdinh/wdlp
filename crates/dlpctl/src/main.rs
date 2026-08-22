@@ -138,7 +138,7 @@ pub enum Command {
     MigrationStatus,
     ConfigurationPublicKey,
     Phase1Smoke { database_url: Option<String> },
-    ProvisionDevice { computer: String },
+    ProvisionDevice { computer: String, recovery: bool },
     EnrollmentTokenCreate { ttl_minutes: u32 },
 }
 
@@ -175,12 +175,24 @@ impl Command {
                 }
             }
             Some(argument) if argument == "provision-device" => {
-                match (arguments.next(), arguments.next(), arguments.next()) {
-                    (Some(flag), Some(computer), None)
-                        if flag.as_ref() == "--computer" && valid_fqdn(computer.as_ref()) =>
+                let remaining = arguments
+                    .map(|argument| argument.as_ref().to_owned())
+                    .collect::<Vec<_>>();
+                match remaining.as_slice() {
+                    [flag, computer] if flag == "--computer" && valid_fqdn(computer) => {
+                        Ok(Self::ProvisionDevice {
+                            computer: computer.to_owned(),
+                            recovery: false,
+                        })
+                    }
+                    [flag, computer, recover]
+                        if flag == "--computer"
+                            && valid_fqdn(computer)
+                            && recover == "--recover" =>
                     {
                         Ok(Self::ProvisionDevice {
-                            computer: computer.as_ref().to_owned(),
+                            computer: computer.to_owned(),
+                            recovery: true,
                         })
                     }
                     _ => Err(CliError::Usage),
@@ -331,7 +343,7 @@ async fn main() -> Result<(), CliError> {
             println!("phase1-smoke: passed");
             Ok(())
         }
-        Command::ProvisionDevice { computer } => {
+        Command::ProvisionDevice { computer, recovery } => {
             let lab_mode = env::var("DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID")
                 .ok()
                 .as_deref()
@@ -350,7 +362,7 @@ async fn main() -> Result<(), CliError> {
                 .ok()
                 .and_then(|value| value.chars().next())
                 .unwrap_or('P');
-            let request = dlpctl::ProvisioningRequest::new(
+            let mut request = dlpctl::ProvisioningRequest::new(
                 &computer,
                 fingerprint_digest,
                 guid,
@@ -358,6 +370,9 @@ async fn main() -> Result<(), CliError> {
                 preferred_drive_letter,
             )
             .map_err(|_| CliError::Usage)?;
+            if recovery {
+                request = request.authorize_recovery();
+            }
 
             let endpoint = env::var("DLP_PROVISIONING_ENDPOINT")
                 .map_err(|_| CliError::TrustedStationRequired)?;
@@ -456,7 +471,20 @@ mod tests {
         assert_eq!(
             Command::parse(["provision-device", "--computer", "device.lab.local"]),
             Ok(Command::ProvisionDevice {
-                computer: "device.lab.local".into()
+                computer: "device.lab.local".into(),
+                recovery: false,
+            })
+        );
+        assert_eq!(
+            Command::parse([
+                "provision-device",
+                "--computer",
+                "device.lab.local",
+                "--recover",
+            ]),
+            Ok(Command::ProvisionDevice {
+                computer: "device.lab.local".into(),
+                recovery: true,
             })
         );
         assert!(Command::parse(["provision-device", "--serial", "raw"]).is_err());

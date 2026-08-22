@@ -25,6 +25,7 @@ pub struct ProvisioningRequest {
     ad_object_guid: Vec<u8>,
     ad_object_sid: Vec<u8>,
     preferred_drive_letter: char,
+    recovery: bool,
 }
 
 impl ProvisioningRequest {
@@ -50,7 +51,13 @@ impl ProvisioningRequest {
             ad_object_guid,
             ad_object_sid,
             preferred_drive_letter,
+            recovery: false,
         })
+    }
+
+    pub fn authorize_recovery(mut self) -> Self {
+        self.recovery = true;
+        self
     }
 
     fn json_body(&self) -> Result<String, ProvisioningError> {
@@ -67,6 +74,7 @@ impl fmt::Debug for ProvisioningRequest {
             .field("ad_object_guid", &"[REDACTED]")
             .field("ad_object_sid", &"[REDACTED]")
             .field("preferred_drive_letter", &self.preferred_drive_letter)
+            .field("recovery", &self.recovery)
             .finish()
     }
 }

@@ -114,6 +114,7 @@ pub struct ProvisionDeviceRequestV1 {
     ad_dns_name: String,
     ad_domain: String,
     preferred_drive_letter: char,
+    recovery: bool,
 }
 
 impl ProvisionDeviceRequestV1 {
@@ -155,7 +156,16 @@ impl ProvisionDeviceRequestV1 {
             ad_dns_name,
             ad_domain,
             preferred_drive_letter,
+            recovery: false,
         })
+    }
+
+    /// Marks an administrator-authenticated provisioning request as recovery.
+    /// The server atomically revokes any active credential before issuing the
+    /// new one-time enrollment token.
+    pub fn authorize_recovery(mut self) -> Self {
+        self.recovery = true;
+        self
     }
 
     pub const fn version(&self) -> u16 {
@@ -193,6 +203,10 @@ impl ProvisionDeviceRequestV1 {
     pub const fn preferred_drive_letter(&self) -> char {
         self.preferred_drive_letter
     }
+
+    pub const fn recovery(&self) -> bool {
+        self.recovery
+    }
 }
 
 impl fmt::Debug for ProvisionDeviceRequestV1 {
@@ -208,6 +222,7 @@ impl fmt::Debug for ProvisionDeviceRequestV1 {
             .field("ad_dns_name", &self.ad_dns_name)
             .field("ad_domain", &self.ad_domain)
             .field("preferred_drive_letter", &self.preferred_drive_letter)
+            .field("recovery", &self.recovery)
             .finish()
     }
 }

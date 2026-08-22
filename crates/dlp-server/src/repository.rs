@@ -44,11 +44,44 @@ impl PgAuthorityRepository {
 
         // Locking an existing device row makes duplicate provisioning serialize.
         // The unique constraints remain the final authority for a first insert race.
-        sqlx::query("SELECT device_id FROM enrollment_authority WHERE device_id = $1 FOR UPDATE")
+        let existing = sqlx::query(
+            "SELECT active_serial FROM enrollment_authority WHERE device_id = $1 FOR UPDATE",
+        )
+        .bind(request.device_id())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RepositoryError::Unavailable)?;
+        if request.recovery()
+            && let Some(active_serial) = existing
+                .as_ref()
+                .and_then(|row| row.try_get::<Option<Vec<u8>>, _>("active_serial").ok())
+                .flatten()
+        {
+            sqlx::query(
+                "UPDATE device_route_credentials SET credential_status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE device_id = $1 AND credential_serial = $2 AND credential_status = 'active'",
+            )
             .bind(request.device_id())
-            .fetch_optional(&mut *transaction)
+            .bind(&active_serial)
+            .execute(&mut *transaction)
             .await
             .map_err(|_| RepositoryError::Unavailable)?;
+            sqlx::query(
+                "INSERT INTO revoked_device_credentials (serial, device_id) VALUES ($1, $2) ON CONFLICT (serial) DO NOTHING",
+            )
+            .bind(&active_serial)
+            .bind(request.device_id())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
+            sqlx::query(
+                "UPDATE enrollment_authority SET active_serial = NULL WHERE device_id = $1 AND active_serial = $2",
+            )
+            .bind(request.device_id())
+            .bind(&active_serial)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RepositoryError::Unavailable)?;
+        }
         let result = sqlx::query(
             "INSERT INTO enrollment_authority (device_id, fingerprint_version, fingerprint_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, preferred_drive_letter, token_digest, token_expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + INTERVAL '10 minutes') ON CONFLICT (device_id) DO UPDATE SET fingerprint_version = EXCLUDED.fingerprint_version, fingerprint_digest = EXCLUDED.fingerprint_digest, ad_object_guid = EXCLUDED.ad_object_guid, ad_object_sid = EXCLUDED.ad_object_sid, ad_dns_name = EXCLUDED.ad_dns_name, ad_domain = EXCLUDED.ad_domain, preferred_drive_letter = EXCLUDED.preferred_drive_letter, token_digest = EXCLUDED.token_digest, token_expires_at = EXCLUDED.token_expires_at, token_consumed_at = NULL",
         )

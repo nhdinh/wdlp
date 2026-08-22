@@ -174,10 +174,15 @@ impl EnrollmentServicePort for EnrollmentService {
         self.directory
             .corroborate_computer(&submission.device_id)
             .await
-            .map_err(|error| match error {
-                DirectoryError::InvalidConfiguration => EnrollmentError::IntegrityFailure,
-                DirectoryError::Unavailable => EnrollmentError::IntegrityFailure,
-                DirectoryError::NotFound | DirectoryError::Disabled | DirectoryError::Disagreement => EnrollmentError::Denied,
+            .map_err(|error| {
+                eprintln!("enrollment_directory_rejected: {error:?}");
+                match error {
+                    DirectoryError::InvalidConfiguration => EnrollmentError::IntegrityFailure,
+                    DirectoryError::Unavailable => EnrollmentError::IntegrityFailure,
+                    DirectoryError::NotFound
+                    | DirectoryError::Disabled
+                    | DirectoryError::Disagreement => EnrollmentError::Denied,
+                }
             })?;
         let issuer = &self.issuer;
         self.repository
@@ -195,9 +200,12 @@ impl EnrollmentServicePort for EnrollmentService {
                 },
             )
             .await
-            .map_err(|error| match error {
-                RepositoryError::Denied => EnrollmentError::Denied,
-                RepositoryError::Unavailable => EnrollmentError::IntegrityFailure,
+            .map_err(|error| {
+                eprintln!("enrollment_authority_rejected: {error:?}");
+                match error {
+                    RepositoryError::Denied => EnrollmentError::Denied,
+                    RepositoryError::Unavailable => EnrollmentError::IntegrityFailure,
+                }
             })
     }
 }

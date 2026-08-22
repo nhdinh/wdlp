@@ -277,7 +277,7 @@ async fn admin_provisioning_contract(
     }
     let mut guid = [0_u8; 16];
     guid.copy_from_slice(&request.ad_object_guid);
-    let provision_request = ProvisionDeviceRequestV1::new(
+    let mut provision_request = ProvisionDeviceRequestV1::new(
         1,
         request.device_id,
         1,
@@ -292,6 +292,9 @@ async fn admin_provisioning_contract(
         request.preferred_drive_letter,
     )
     .map_err(|_| StatusCode::BAD_REQUEST)?;
+    if request.recovery {
+        provision_request = provision_request.authorize_recovery();
+    }
     let response = state
         .provisioning_service
         .provision(provision_request)
@@ -396,6 +399,8 @@ struct AdministratorProvisioningRequest {
     ad_object_guid: Vec<u8>,
     ad_object_sid: Vec<u8>,
     preferred_drive_letter: char,
+    #[serde(default)]
+    recovery: bool,
 }
 
 /// Test-only enrollment stub that always returns a deterministic credential so

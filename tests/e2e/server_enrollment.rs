@@ -97,12 +97,17 @@ fn repository_postgresql_authority_contract_is_digest_only_and_locking() {
         'P',
     )
     .expect("version-1 provisioning request is valid");
+    assert!(!request.recovery());
+    assert!(request.clone().authorize_recovery().recovery());
     assert_eq!(request.fingerprint_digest(), &[7; 32]);
     assert!(format!("{request:?}").contains("[REDACTED]"));
 
     let source = include_str!("../../crates/dlp-server/src/repository.rs");
     assert!(source.contains("pub struct PgAuthorityRepository"));
     assert!(source.contains("FOR UPDATE"));
+    assert!(source.contains("request.recovery()"));
+    assert!(source.contains("UPDATE enrollment_authority SET active_serial = NULL"));
+    assert!(source.contains("INSERT INTO revoked_device_credentials"));
     assert!(source.contains("token_digest"));
     assert!(!source.contains("BLOB"));
 }
@@ -351,6 +356,7 @@ fn trusted_provisioning_invokes_dlpctl_without_serial_or_token_arguments() {
     let procedure = include_str!("../../scripts/lab/Invoke-TrustedProvisioning.ps1");
     assert!(procedure.contains("'provision-device'"));
     assert!(procedure.contains("'--computer'"));
+    assert!(procedure.contains("'--recover'"));
     assert!(procedure.contains("Start-Process"));
     assert!(procedure.contains("DLP_PROVISIONING_AD_OBJECT_GUID"));
     assert!(procedure.contains("DLP_PROVISIONING_AD_OBJECT_SID"));
