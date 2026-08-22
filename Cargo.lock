@@ -685,6 +685,7 @@ dependencies = [
  "axum",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "tokio",
  "windows-service",
  "windows-sys 0.61.2",

@@ -299,10 +299,23 @@ async fn omitted_tail_uses_configured_max_and_oversized_tail_is_rejected() {
     })
     .await
     .expect("request task should complete");
-    let oversized_response =
-        tokio::task::spawn_blocking(move || request_log_tail(address, &log_path, Some("3")))
-            .await
-            .expect("request task should complete");
+    let oversized_response = tokio::task::spawn_blocking({
+        let log_path = log_path.clone();
+        move || request_log_tail(address, &log_path, Some("3"))
+    })
+    .await
+    .expect("request task should complete");
+    let encoded_path = percent_encode(&log_path.display().to_string());
+    let duplicate_path_response = tokio::task::spawn_blocking(move || {
+        request(
+            address,
+            "GET",
+            &format!("/logs?path={encoded_path}&path={encoded_path}"),
+            &[],
+        )
+    })
+    .await
+    .expect("request task should complete");
     server.abort();
     let _ = server.await;
     fs::remove_dir_all(directory).expect("test directory should be removed");
@@ -311,6 +324,8 @@ async fn omitted_tail_uses_configured_max_and_oversized_tail_is_rejected() {
     assert!(default_response.ends_with("two\nthree\n"));
     assert!(oversized_response.starts_with("HTTP/1.1 400"));
     assert!(oversized_response.ends_with("invalid_tail"));
+    assert!(duplicate_path_response.starts_with("HTTP/1.1 400"));
+    assert!(duplicate_path_response.ends_with("invalid_path"));
 }
 
 #[test]

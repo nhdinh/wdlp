@@ -2,12 +2,11 @@ use std::{future::Future, net::SocketAddr, path::PathBuf};
 
 use axum::{
     Router,
-    extract::{ConnectInfo, Query, State, rejection::QueryRejection},
+    extract::{ConnectInfo, RawQuery, State},
     http::{Method, StatusCode},
     response::{IntoResponse, Response},
     routing::any,
 };
-use serde::Deserialize;
 use tokio::net::TcpListener;
 
 use crate::{
@@ -59,7 +58,7 @@ impl AppState {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct LogQuery {
     path: Option<PathBuf>,
     tail: Option<String>,
@@ -148,14 +147,14 @@ async fn log_endpoint(
     method: Method,
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    query: Result<Query<LogQuery>, QueryRejection>,
+    RawQuery(raw_query): RawQuery,
 ) -> Response {
     let result = (|| {
         authorize_peer(&state.access_mode, peer)?;
         if method != Method::GET {
             return Err(HttpError::MethodNotAllowed);
         }
-        let Query(query) = query.map_err(|_| HttpError::InvalidTail)?;
+        let query = parse_log_query(raw_query.as_deref())?;
         let path = query.path.ok_or(HttpError::InvalidPath)?;
         let tail = match query.tail {
             None => state.max_tail_lines,
@@ -184,6 +183,23 @@ async fn log_endpoint(
         Ok(content) => content.into_response(),
         Err(error) => error.into_response(),
     }
+}
+
+fn parse_log_query(raw_query: Option<&str>) -> Result<LogQuery, HttpError> {
+    let fields: Vec<(String, String)> = serde_urlencoded::from_str(raw_query.unwrap_or_default())
+        .map_err(|_| HttpError::InvalidPath)?;
+    let mut path = None;
+    let mut tail = None;
+    for (name, value) in fields {
+        match name.as_str() {
+            "path" if path.is_none() => path = Some(PathBuf::from(value)),
+            "path" => return Err(HttpError::InvalidPath),
+            "tail" if tail.is_none() => tail = Some(value),
+            "tail" => return Err(HttpError::InvalidTail),
+            _ => return Err(HttpError::InvalidPath),
+        }
+    }
+    Ok(LogQuery { path, tail })
 }
 
 async fn route_not_found() -> HttpError {
