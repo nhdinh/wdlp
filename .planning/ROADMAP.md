@@ -93,7 +93,7 @@ Plans:
 **Goal:** Developers can manually run an independent development-only Windows service on an endpoint and retrieve a bounded, allowlisted log tail over HTTP from trusted lab clients without affecting DLP runtime components.
 **Requirements**: TBD
 **Depends on:** Phase 1
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed
 
 Plans:
 
@@ -107,7 +107,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01.3-03-PLAN.md (Wave 3) — Publish the manual ACL/firewall/SCM runbook and verify the reversible LAB-CLIENT01 lifecycle and network boundaries
+- [x] 01.3-03-PLAN.md (Wave 3) — Publish the manual ACL/firewall/SCM runbook and verify the reversible LAB-CLIENT01 lifecycle and network boundaries
 
 ### Phase 01.2: DLP_AGENT_ENROLLMENT_TOKEN should be obtained automatically when DlpWindowsService installed (INSERTED)
 
