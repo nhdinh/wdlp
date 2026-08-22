@@ -1138,7 +1138,8 @@ function Install-Client01RuntimeSecrets {
     $envLines.Add("DLP_CONFIGURATION_PUBLIC_KEY_HEX=$($env:DLP_CONFIGURATION_PUBLIC_KEY_HEX)")
     if (-not [string]::IsNullOrWhiteSpace($EnrollmentToken)) {
         $envLines.Add("DLP_AGENT_ENROLLMENT_TOKEN=$EnrollmentToken")
-    } elseif (-not [string]::IsNullOrWhiteSpace($env:DLP_AGENT_ENROLLMENT_TOKEN)) {
+    } elseif ($EnrollmentTokenProvider -ne 'TrustedProvisioning' -and
+        -not [string]::IsNullOrWhiteSpace($env:DLP_AGENT_ENROLLMENT_TOKEN)) {
         $envLines.Add("DLP_AGENT_ENROLLMENT_TOKEN=$($env:DLP_AGENT_ENROLLMENT_TOKEN)")
     }
     if (-not [string]::IsNullOrWhiteSpace($env:DLP_POLL_INTERVAL_SECONDS)) {
@@ -1300,18 +1301,11 @@ function Invoke-Client01ServiceInstall {
         $diag = Get-Client01ServiceStartDiagnostics
         Write-Host ($diag | ConvertTo-Json -Compress -Depth 10)
     }
-    if ($running -and $EnrollmentTokenProvider -eq 'TrustedProvisioning' -and -not $RetainEnrollmentToken) {
-        $credentialPresent = Test-Client01CredentialPresent
-        $credentialDeadline = [DateTime]::UtcNow.AddSeconds(15)
-        while (-not $credentialPresent -and [DateTime]::UtcNow -lt $credentialDeadline) {
-            Start-Sleep -Milliseconds 250
-            $credentialPresent = Test-Client01CredentialPresent
-        }
-        if ($credentialPresent) {
-            Remove-Client01EnrollmentToken
-        } else {
-            Write-Host 'Install-Client01Service: credential store not yet present; deferring token cleanup.'
-        }
+    if ($running -and -not [string]::IsNullOrWhiteSpace($EnrollmentToken) -and -not $RetainEnrollmentToken) {
+        # Reaching Running after a fresh token was supplied means startup loaded
+        # or persisted a usable credential. The token is one-time material and
+        # must be removed even when its hardened directory denies administrator probes.
+        Remove-Client01EnrollmentToken
     }
     $status = if ($running) { 'pass' } else { 'fail' }
     $actual = if ($running) { 'DlpWindowsService installed and running on LAB-CLIENT01' } else { 'DlpWindowsService did not reach Running state' }
@@ -1330,7 +1324,7 @@ function Invoke-Client01Tracer {
             Write-Host "Tracer: canonicalizing DLP_DEVICE_ID from '$($env:DLP_DEVICE_ID)' to '$targetComputer' to match trusted provisioning."
             $env:DLP_DEVICE_ID = $targetComputer
         }
-        if (Test-Client01CredentialPresent) {
+        if ((Test-Client01ServiceRunning) -or (Test-Client01CredentialPresent)) {
             Write-Host 'Tracer: existing DPAPI credential found on LAB-CLIENT01; skipping trusted provisioning.'
         } else {
             $approvedDigest = Get-ApprovedPrivilegeManifestDigest
