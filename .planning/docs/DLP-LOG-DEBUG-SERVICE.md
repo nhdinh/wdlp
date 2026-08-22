@@ -34,13 +34,23 @@ SCM, ACL, or firewall mutation. It prints only an alias, a boolean, and one
 stable code. The code maps one-to-one to the named machine. A failure prohibits
 every later mutation.
 
+Collect an authorized lab administrator credential in memory. The credential is
+passed directly to WinRM and is never printed, persisted, or included in
+evidence. The preflight uses the `lab.local` FQDNs for deterministic DNS and
+Negotiate authentication while continuing to validate the expected short
+computer names.
+
 ```powershell
+$labCredential = Get-Credential -Message 'LAB administrator credential'
+
 function Test-DlpLogDebugLabPreflight {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string]$ClientComputerName,
         [Parameter(Mandatory)] [string]$TrustedProbeComputerName,
-        [Parameter(Mandatory)] [string]$UntrustedProbeComputerName
+        [Parameter(Mandatory)] [string]$UntrustedProbeComputerName,
+        [Parameter(Mandatory)] [System.Management.Automation.PSCredential]$Credential,
+        [Parameter()] [ValidateNotNullOrEmpty()] [string]$DnsSuffix = 'lab.local'
     )
     $targets = @(
         @{ Alias = $ClientComputerName; Code = 'PREFLIGHT_LAB_CLIENT01_ADMIN_UNREACHABLE'; Kind = 'Client' },
@@ -51,24 +61,30 @@ function Test-DlpLogDebugLabPreflight {
     foreach ($target in $targets) {
         $passed = $false
         try {
-            $records = @(Resolve-DnsName -Name $target.Alias -Type A -DnsOnly -ErrorAction Stop)
+            $remoteName = if ($target.Alias.Contains('.')) {
+                $target.Alias
+            } else {
+                '{0}.{1}' -f $target.Alias, $DnsSuffix
+            }
+            $expectedComputerName = $target.Alias.Split('.')[0]
+            $records = @(Resolve-DnsName -Name $remoteName -Type A -DnsOnly -ErrorAction Stop)
             $validAddress = $false
             foreach ($record in $records) {
                 $parsedAddress = $null
                 if ($record.IPAddress -and [System.Net.IPAddress]::TryParse($record.IPAddress, [ref]$parsedAddress)) { $validAddress = $true; break }
             }
             if (-not $validAddress) { throw 'dns_invalid' }
-            $wsman = Test-WSMan -ComputerName $target.Alias -Authentication Negotiate -ErrorAction Stop
+            $wsman = Test-WSMan -ComputerName $remoteName -Authentication Negotiate -Credential $Credential -ErrorAction Stop
             if ($null -eq $wsman) { throw 'wsman_null' }
             if ($target.Kind -eq 'Client') {
-                $result = Invoke-Command -ComputerName $target.Alias -Authentication Negotiate -ErrorAction Stop -ScriptBlock {
+                $result = Invoke-Command -ComputerName $remoteName -Authentication Negotiate -Credential $Credential -ErrorAction Stop -ScriptBlock {
                     $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
                     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
                 }
                 $passed = ($result -eq $true)
             } else {
-                $result = Invoke-Command -ComputerName $target.Alias -Authentication Negotiate -ErrorAction Stop -ScriptBlock { $env:COMPUTERNAME }
-                $passed = ($result -and $result.ToString().Equals($target.Alias, [StringComparison]::OrdinalIgnoreCase))
+                $result = Invoke-Command -ComputerName $remoteName -Authentication Negotiate -Credential $Credential -ErrorAction Stop -ScriptBlock { $env:COMPUTERNAME }
+                $passed = ($result -and $result.ToString().Equals($expectedComputerName, [StringComparison]::OrdinalIgnoreCase))
             }
         } catch { $passed = $false }
         [pscustomobject]@{ Machine = $target.Alias; Passed = [bool]$passed; ReasonCode = $(if ($passed) { 'PASS' } else { $target.Code }) }
@@ -77,7 +93,7 @@ function Test-DlpLogDebugLabPreflight {
     if ($allPassed) { exit 0 }
     exit 1
 }
-Test-DlpLogDebugLabPreflight -ClientComputerName LAB-CLIENT01 -TrustedProbeComputerName LAB-DC01 -UntrustedProbeComputerName LAB-DC02
+Test-DlpLogDebugLabPreflight -ClientComputerName LAB-CLIENT01 -TrustedProbeComputerName LAB-DC01 -UntrustedProbeComputerName LAB-DC02 -Credential $labCredential
 ```
 
 ## 2. Build and protect configuration
@@ -241,9 +257,9 @@ if ($baselineBefore -cne $baselineAfter) { throw 'dlp_service_changed' }
 
 | Stable code | Meaning and safe next action |
 | --- | --- |
-| `PREFLIGHT_LAB_CLIENT01_ADMIN_UNREACHABLE` | LAB-CLIENT01 DNS, WSMan, or administrator check failed; make no changes. |
-| `PREFLIGHT_LAB_DC01_PROBE_UNREACHABLE` | LAB-DC01 probe check failed; make no changes. |
-| `PREFLIGHT_LAB_DC02_PROBE_UNREACHABLE` | LAB-DC02 probe check failed; make no changes. |
+| `PREFLIGHT_LAB_CLIENT01_ADMIN_UNREACHABLE` | LAB-CLIENT01 FQDN DNS, credentialed WSMan, or administrator check failed; make no changes. |
+| `PREFLIGHT_LAB_DC01_PROBE_UNREACHABLE` | LAB-DC01 FQDN DNS, credentialed WSMan, or probe-name check failed; make no changes. |
+| `PREFLIGHT_LAB_DC02_PROBE_UNREACHABLE` | LAB-DC02 FQDN DNS, credentialed WSMan, or probe-name check failed; make no changes. |
 | `untrusted_client` | Check the service allowlist and then the narrowly scoped firewall rule. |
 | `forbidden_path` | Use a direct canonical file child of an authorized protected folder. |
 | `invalid_tail` | Use a positive tail not larger than the configured maximum. |

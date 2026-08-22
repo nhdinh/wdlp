@@ -9,6 +9,18 @@ $ErrorActionPreference = 'Stop'
 $runbook = Get-Content -LiteralPath $RunbookPath -Raw -ErrorAction Stop
 $blocks = [regex]::Matches($runbook, '(?ms)^```powershell\s*\r?\n(.*?)^```\s*$')
 if ($blocks.Count -eq 0) { Write-Error 'No fenced powershell blocks found.'; exit 1 }
+$requiredPreflightContracts = @(
+    '[System.Management.Automation.PSCredential]$Credential',
+    '[string]$DnsSuffix = ''lab.local''',
+    '-Credential $Credential',
+    '-Credential $labCredential'
+)
+foreach ($contract in $requiredPreflightContracts) {
+    if (-not $runbook.Contains($contract)) {
+        Write-Error ("Missing preflight contract: {0}" -f $contract)
+        exit 1
+    }
+}
 $failed = $false
 for ($index = 0; $index -lt $blocks.Count; $index++) {
     $tokens = $null
