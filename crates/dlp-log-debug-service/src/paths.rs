@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
 };
 
@@ -53,16 +53,69 @@ impl AuthorizedFolders {
     }
 }
 
-pub fn authorize_requested_file(
+pub fn open_authorized_file(
     path: &Path,
     authorized_folders: &AuthorizedFolders,
-) -> Result<PathBuf, PathAuthorizationError> {
+) -> Result<File, PathAuthorizationError> {
     if !path.is_absolute() {
         return Err(PathAuthorizationError::InvalidPath);
     }
+
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => PathAuthorizationError::NotFound,
+        _ => PathAuthorizationError::Denied,
+    })?;
+    #[cfg(windows)]
+    let canonical = final_path_for_handle(&file)?;
+    #[cfg(not(windows))]
     let canonical = fs::canonicalize(path).map_err(|_| PathAuthorizationError::NotFound)?;
     authorize_canonical_target(&canonical, authorized_folders)?;
-    Ok(canonical)
+    #[cfg(not(windows))]
+    {
+        let handle_metadata = file
+            .metadata()
+            .map_err(|_| PathAuthorizationError::Denied)?;
+        let path_metadata = fs::metadata(&canonical).map_err(|_| PathAuthorizationError::Denied)?;
+        if !same_file(&handle_metadata, &path_metadata) {
+            return Err(PathAuthorizationError::Denied);
+        }
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn final_path_for_handle(file: &File) -> Result<PathBuf, PathAuthorizationError> {
+    use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
+
+    let handle = file.as_raw_handle();
+    let required = unsafe { GetFinalPathNameByHandleW(handle, std::ptr::null_mut(), 0, 0) };
+    if required == 0 {
+        return Err(PathAuthorizationError::Denied);
+    }
+    let mut buffer = vec![0_u16; required as usize + 1];
+    let written =
+        unsafe { GetFinalPathNameByHandleW(handle, buffer.as_mut_ptr(), buffer.len() as u32, 0) };
+    if written == 0 || written as usize >= buffer.len() {
+        return Err(PathAuthorizationError::Denied);
+    }
+    buffer.truncate(written as usize);
+    Ok(PathBuf::from(std::ffi::OsString::from_wide(&buffer)))
 }
 
 pub fn authorize_canonical_target(

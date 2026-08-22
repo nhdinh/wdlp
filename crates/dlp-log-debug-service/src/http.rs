@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 
 use crate::{
     AccessMode, AuthorizedFolders, PathAuthorizationError, ServiceError, TailReadError,
-    authorize_requested_file, read_bounded_tail,
+    open_authorized_file, read_bounded_tail_file,
 };
 
 #[derive(Clone, Debug)]
@@ -165,16 +165,18 @@ async fn log_endpoint(
                 .filter(|tail| *tail > 0 && *tail <= state.max_tail_lines)
                 .ok_or(HttpError::InvalidTail)?,
         };
-        let path =
-            authorize_requested_file(&path, &state.authorized_folders).map_err(
+        let mut file =
+            open_authorized_file(&path, &state.authorized_folders).map_err(
                 |error| match error {
                     PathAuthorizationError::InvalidPath => HttpError::InvalidPath,
                     PathAuthorizationError::NotFound => HttpError::FileNotFound,
                     PathAuthorizationError::Denied => HttpError::ForbiddenPath,
                 },
             )?;
-        read_bounded_tail(&path, tail, state.max_response_bytes).map_err(|error| match error {
-            TailReadError::Io | TailReadError::InvalidText => HttpError::ReadFailed,
+        read_bounded_tail_file(&mut file, tail, state.max_response_bytes).map_err(|error| {
+            match error {
+                TailReadError::Io | TailReadError::InvalidText => HttpError::ReadFailed,
+            }
         })
     })();
 

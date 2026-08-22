@@ -9,7 +9,7 @@ use std::{
 use dlp_log_debug_service::{
     AccessMode, AppState, AuthorizedFolders, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_TAIL_LINES,
     DEFAULT_PORT, FileConfig, HttpError, authorize_canonical_target, authorize_peer,
-    authorize_requested_file, load_runtime_config, read_bounded_tail, serve_http,
+    load_runtime_config, open_authorized_file, read_bounded_tail, serve_http,
 };
 use tokio::net::TcpListener;
 
@@ -236,21 +236,18 @@ fn direct_child_authorization_requires_exact_canonical_parent() {
 
     let folders = AuthorizedFolders::from_configured_dirs([allowed.clone()])
         .expect("folders should authorize");
-    assert_eq!(
-        authorize_requested_file(&direct_file, &folders).unwrap(),
-        fs::canonicalize(&direct_file).unwrap()
-    );
-    assert!(authorize_requested_file(&nested_file, &folders).is_err());
-    assert!(authorize_requested_file(&sibling_file, &folders).is_err());
+    assert!(open_authorized_file(&direct_file, &folders).is_ok());
+    assert!(open_authorized_file(&nested_file, &folders).is_err());
+    assert!(open_authorized_file(&sibling_file, &folders).is_err());
     assert!(
-        authorize_requested_file(
+        open_authorized_file(
             &allowed.join("..").join("allowed-other").join("sibling.log"),
             &folders
         )
         .is_err()
     );
-    assert!(authorize_requested_file(Path::new("relative.log"), &folders).is_err());
-    assert!(authorize_requested_file(&allowed, &folders).is_err());
+    assert!(open_authorized_file(Path::new("relative.log"), &folders).is_err());
+    assert!(open_authorized_file(&allowed, &folders).is_err());
 
     let escaped_target = fs::canonicalize(&sibling_file).expect("target should canonicalize");
     assert!(authorize_canonical_target(&escaped_target, &folders).is_err());

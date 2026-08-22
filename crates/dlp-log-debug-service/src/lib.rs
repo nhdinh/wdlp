@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 use std::fmt;
 
@@ -13,9 +13,9 @@ pub use config::{
 };
 pub use http::{AppState, HttpError, LogQuery, authorize_peer, build_router, serve_http};
 pub use paths::{
-    AuthorizedFolders, PathAuthorizationError, authorize_canonical_target, authorize_requested_file,
+    AuthorizedFolders, PathAuthorizationError, authorize_canonical_target, open_authorized_file,
 };
-pub use tail::{TailReadError, read_bounded_tail};
+pub use tail::{TailReadError, read_bounded_tail, read_bounded_tail_file};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServiceError {

@@ -687,6 +687,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "windows-service",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
