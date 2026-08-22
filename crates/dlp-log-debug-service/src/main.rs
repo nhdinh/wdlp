@@ -2,10 +2,12 @@
 mod service;
 
 #[cfg(windows)]
-fn main() {
+fn main() -> std::process::ExitCode {
     if service::run_scm_service().is_err() {
         eprintln!("service_dispatcher_failed");
+        return std::process::ExitCode::FAILURE;
     }
+    std::process::ExitCode::SUCCESS
 }
 
 #[cfg(not(windows))]
