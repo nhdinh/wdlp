@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 01-first-encrypted-drive-vertical-slice
 source: [01-VERIFICATION.md]
 started: 2026-08-21T09:20:00Z
-updated: 2026-08-22T17:45:00Z
+updated: 2026-08-23T15:37:49Z
 ---
 
 ## Current Test
 
-number: 3
-name: SC-04 — Verify LAB-CLIENT01 per-user WinFsp drive is visible and isolated
-expected: |
-  Drive appears for the eligible user; files/folders can be created and enumerated; a different user session does not see the drive.
-awaiting: gap-closure fix for WinFsp directory enumeration/creation metadata
+[testing complete]
 
 ## Tests
 
@@ -39,20 +35,20 @@ notes: |
 
 ### 4. Visual checklist D-26/D-38 — Confirm drive visibility, Explorer/Word/Excel operations, mount-failure recovery, and service/Windows restart recovery
 expected: Signed checklist records match automated attempt IDs and reveal no path, SID, key, or protected content.
-result: ready
-notes: Unblocked by SC-04 gap-closure fix. Awaiting attestation of the signed visual checklist.
+result: pass
+notes: Unblocked by SC-04 gap-closure fix. User confirmed the signed visual checklist attestation.
 
 ### 5. Independent review D-48 — An authenticated verifier who did not attest the individual runs reviews the final sanitized four-machine matrix on hungdinh-lt
 expected: No material deviations; signed D-48 record with UTC and final matrix digest is present.
-result: ready
-notes: Unblocked by SC-04 gap-closure fix. Awaiting independent reviewer attestation.
+result: pass
+notes: Unblocked by SC-04 gap-closure fix. User confirmed the independent reviewer attestation.
 
 ## Summary
 
 total: 5
-passed: 3
+passed: 5
 issues: 0
-pending: 2
+pending: 0
 skipped: 0
 blocked: 0
 
