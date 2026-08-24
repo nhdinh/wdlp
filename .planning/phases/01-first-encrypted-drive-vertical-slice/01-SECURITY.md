@@ -158,7 +158,7 @@ the 11-check tamper suite and `-RequireSignedOff` verifier both passed.
 - [x] `status: complete` set in frontmatter
 - [x] Closure manifest `evidence/phase1/security-closure.yaml` verified for all 19 blocking threats
 - [x] Signed-off verifier passed for all 19 current-payload attestations
-- [ ] Phase 1 FinalGate pending security re-sign-off
+- [x] Phase 1 FinalGate passed (34/34 checks; 30/30 requirements; 50/50 decisions)
 
 **Approval:** complete — zero blocking threats; v2 payload-bound independent review verified.
 
