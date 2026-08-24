@@ -283,7 +283,7 @@ records:
     mitigation_assertion: No fixture providers and negative fingerprint, DC, CSR, cert, revocation, TLS, bundle, and IPC cases.
     implementation_refs:
       - path: crates/dlp-server/src/enrollment.rs
-        sha256: 3b0f70a176d8a6c598f5bb17ef8f6b7b6599dcfdd916c9071b0b440caa98e3c2
+        sha256: edc61dc96055f492d24a93b06cdbd94bbd643e383cbafe4e778d91c8d07c3de1
       - path: crates/dlp-server/src/pki.rs
         sha256: d541ded6c9ebba0ffd528b23c87da1683a15ba57bcf82a84d856c36475d8a6de
       - path: crates/dlp-server/src/tls.rs
@@ -301,7 +301,7 @@ records:
         sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
         role: LAB-CLIENT01:endpoint_runtime
       - path: crates/dlp-server/src/enrollment.rs
-        sha256: 3b0f70a176d8a6c598f5bb17ef8f6b7b6599dcfdd916c9071b0b440caa98e3c2
+        sha256: edc61dc96055f492d24a93b06cdbd94bbd643e383cbafe4e778d91c8d07c3de1
         role: hungdinh-lt:developer_orchestrator
       - path: crates/dlp-server/src/pki.rs
         sha256: d541ded6c9ebba0ffd528b23c87da1683a15ba57bcf82a84d856c36475d8a6de
@@ -336,11 +336,11 @@ records:
     mitigation_assertion: Hash equality, unique markers, authenticate-before-copy, corruption denial, and non-vacuous scans.
     implementation_refs:
       - path: crates/dlp-storage/src/store.rs
-        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
       - path: crates/dlp-storage/tests/integrity.rs
         sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
       - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
     evidence_attempt_ids:
       - 297b4ae9-80f9-41c2-9e57-ecb4761d3827
       - 3d18c1a0-2541-4f6a-a273-43eb4e74eb62
@@ -352,13 +352,13 @@ records:
         sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
         role: LAB-CLIENT01:endpoint_runtime
       - path: crates/dlp-storage/src/store.rs
-        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
         role: hungdinh-lt:developer_orchestrator
       - path: crates/dlp-storage/tests/integrity.rs
         sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
         role: hungdinh-lt:developer_orchestrator
       - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
         role: hungdinh-lt:developer_orchestrator
       - path: evidence/phase1/manifests/cry-01-aead-store-integrity.json
         sha256: 32c1cb12feda97c1cc91da38dd47c588d596f94eb9216fdf46aec7c99c2742e4
@@ -479,14 +479,14 @@ records:
     mitigation_assertion: Preserve the approved Cargo.lock sources/versions and run slopcheck before accepting any dependency change; no new package is authorized.
     implementation_refs:
       - path: Cargo.lock
-        sha256: a8a0676c6b12aa37c5f44a6d12c200366442d5bc0efb9e9594905d6167438696
+        sha256: 4972afce736b39e53843e3c9568d357bb14eb138d47e4ffb6633e770d3e1b809
     evidence_attempt_ids:
       - 5c30f253-d29e-413b-9be6-1c52910fff5d
     required_machine_roles:
       - hungdinh-lt:developer_orchestrator
     artifact_refs:
       - path: Cargo.lock
-        sha256: a8a0676c6b12aa37c5f44a6d12c200366442d5bc0efb9e9594905d6167438696
+        sha256: 4972afce736b39e53843e3c9568d357bb14eb138d47e4ffb6633e770d3e1b809
         role: hungdinh-lt:developer_orchestrator
     reviewer_identity:
       kind: independent_verifier
@@ -512,11 +512,11 @@ records:
     mitigation_assertion: Separate content/metadata corruption, authenticate before copy, exact integrity status, encrypted evidence preservation, and zero-plaintext checks.
     implementation_refs:
       - path: crates/dlp-storage/src/store.rs
-        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
       - path: crates/dlp-storage/tests/integrity.rs
         sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
       - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
     evidence_attempt_ids:
       - 297b4ae9-80f9-41c2-9e57-ecb4761d3827
       - 20da498a-65b8-4a58-8228-5c35dfe3cd57
@@ -528,13 +528,13 @@ records:
         sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
         role: LAB-CLIENT01:endpoint_runtime
       - path: crates/dlp-storage/src/store.rs
-        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
         role: hungdinh-lt:developer_orchestrator
       - path: crates/dlp-storage/tests/integrity.rs
         sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
         role: hungdinh-lt:developer_orchestrator
       - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
         role: hungdinh-lt:developer_orchestrator
       - path: evidence/phase1/manifests/cry-01-aead-store-integrity.json
         sha256: 32c1cb12feda97c1cc91da38dd47c588d596f94eb9216fdf46aec7c99c2742e4
@@ -563,11 +563,11 @@ records:
     mitigation_assertion: Injected NoSpace before pointer publication, exact disk-full status, baseline-hash readback, and no mixed generation.
     implementation_refs:
       - path: crates/dlp-storage/src/store.rs
-        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
       - path: crates/dlp-storage/tests/integrity.rs
         sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
       - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
     evidence_attempt_ids:
       - 9f4b5e32-ea1c-4344-ac26-a3af01cfd9b1
       - 20da498a-65b8-4a58-8228-5c35dfe3cd57
@@ -579,13 +579,13 @@ records:
         sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
         role: LAB-CLIENT01:endpoint_runtime
       - path: crates/dlp-storage/src/store.rs
-        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
         role: hungdinh-lt:developer_orchestrator
       - path: crates/dlp-storage/tests/integrity.rs
         sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
         role: hungdinh-lt:developer_orchestrator
       - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: ef4fc0b3a60da366480e06b7d3cf41b3f96b68d5792c2c325460574d46db01e9
+        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
         role: hungdinh-lt:developer_orchestrator
     reviewer_identity:
       kind: independent_verifier
@@ -611,7 +611,7 @@ records:
     mitigation_assertion: Separate digest-bound 01-20 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates.
     implementation_refs:
       - path: crates/dlp-storage/src/store.rs
-        sha256: 1090702c943192f242f023161afcb3189f08f17cd954feef24ef40c55f646346
+        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
       - path: crates/dlp-storage/tests/integrity.rs
         sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
       - path: tests/windows/Invoke-ServiceSessionSmoke.ps1
