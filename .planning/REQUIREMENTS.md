@@ -45,7 +45,7 @@
 - [ ] **CRY-01**: Use authenticated encryption for file contents and sensitive metadata at rest.
 - [ ] **CRY-02**: Sign configuration bundles with Ed25519; agents verify signature and schema version before activation.
 - [ ] **CRY-03**: Implement per-user encryption key hierarchy with a DEK wrapped by a DPAPI-NG-protected KEK and server-escrowed recovery key.
-- [ ] **CRY-04**: Store no long-lived secret in plaintext on the endpoint.
+- [x] **CRY-04**: Store no long-lived secret in plaintext on the endpoint.
 - [ ] **CRY-05**: Support server key rotation with a key identifier in each bundle.
 
 ### Endpoint Agent (AGT)
@@ -171,7 +171,7 @@
 | CRY-01 | Phase 1 | Gaps Found |
 | CRY-02 | Phase 1 | Gaps Found |
 | CRY-03 | Phase 3 | Pending |
-| CRY-04 | Phase 1 | Gaps Found |
+| CRY-04 | Phase 1 | Complete |
 | CRY-05 | Phase 2 | Pending |
 | AGT-01 | Phase 1 | Gaps Found |
 | AGT-02 | Phase 1 | Gaps Found |
