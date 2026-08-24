@@ -29,9 +29,13 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 18/18 plans executed; 13 executed source-complete, 1 WinFsp metadata gap-closure plan pending execution
+**Plans**: 18/21 plans executed; 13 executed source-complete, 1 WinFsp metadata gap-closure plan pending execution
 
 Plans:
+
+- [ ] 01-31-PLAN.md
+- [ ] 01-32-PLAN.md
+- [ ] 01-33-PLAN.md
 
 - [x] 01-27-PLAN.md
 - [x] 01-28-PLAN.md
@@ -200,7 +204,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 18/18 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 18/21 | In Progress|  |
 | 1.1. Add env-var docs | 1/1 | Complete | 2026-08-15 |
 | 1.2. Automatic enrollment token acquisition | 1/1 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
