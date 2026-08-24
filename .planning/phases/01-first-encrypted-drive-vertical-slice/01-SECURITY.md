@@ -1,9 +1,9 @@
 ---
 phase: 01
 slug: first-encrypted-drive-vertical-slice
-status: complete
+status: gaps_found
 # threats_open = count of OPEN threats at or above workflow.security_block_on severity (the blocking gate)
-threats_open: 0
+threats_open: 7
 asvs_level: 1
 block_on: high
 created: 2026-08-15
@@ -49,13 +49,13 @@ updated: 2026-08-21
 | T-01-14-SC | Tampering | dependency graph | high | mitigate | Preserve the approved Cargo.lock and reject any unaudited dependency change. | closed |
 | T-01-15-01 | Spoofing/Elevation | session identity | high | mitigate | TokenUser-derived immutable session/SID, idempotent actors, no caller identity/store selector, adjacent/empty/concurrency tests. | closed |
 | T-01-15-02 | Spoofing/Elevation | storage IPC | high | mitigate | Service-owned DACL plus connecting SID/session/PID/generation validation and bounded versioned messages. | closed |
-| T-01-15-03 | Information disclosure | per-SID key/store | high | mitigate | Random DEK, machine-DPAPI wrapper, service-only ACL, zeroization, and marker scans. | closed |
+| T-01-15-03 | Information disclosure | per-SID key/store | high | mitigate | Random DEK, machine-DPAPI wrapper, service-only ACL, zeroization, and marker scans. | open |
 | T-01-15-04 | Tampering/Denial of service | sign-out/restart | high | mitigate | Atomic draining, reject opens, 30-second bound, cancellation/unmount/resource disposal, and authenticated recovery before remount. | closed |
 | T-01-15-05 | Information disclosure | health/evidence | medium | mitigate | Stable codes/opaque digests and machine-tagged marker scans; no raw SID, path, key, or content. | open â€” below high threshold |
 | T-01-15-06 | Elevation/Repudiation | privileged session changes | high | mitigate | Separate digest-bound 01-15 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates. | closed |
 | T-01-16-01 | Spoofing/Repudiation | machine provenance | high | mitigate | Role-guarded commands and required execution machine in every attempt. | closed |
-| T-01-16-02 | Spoofing/Elevation | production trust chain | high | mitigate | No fixture providers and negative fingerprint, DC, CSR, cert, revocation, TLS, bundle, and IPC cases. | closed |
-| T-01-16-03 | Tampering/Information disclosure | encrypted-store result | high | mitigate | Hash equality, unique markers, authenticate-before-copy, corruption denial, and non-vacuous scans. | closed |
+| T-01-16-02 | Spoofing/Elevation | production trust chain | high | mitigate | No fixture providers and negative fingerprint, DC, CSR, cert, revocation, TLS, bundle, and IPC cases. | open |
+| T-01-16-03 | Tampering/Information disclosure | encrypted-store result | high | mitigate | Hash equality, unique markers, authenticate-before-copy, corruption denial, and non-vacuous scans. | open |
 | T-01-16-04 | Information disclosure | evidence/logs | high | mitigate | Strict sanitized schema, forbidden-field/marker scan, runtime-only secrets, and no protected payload bytes. | closed |
 | T-01-16-05 | Denial of service | large/application matrix | medium | mitigate | Bounded manifest, per-case timeout/cleanup, deterministic retry, and isolated test-file cleanup. | open â€” below high threshold |
 | T-01-16-06 | Elevation | matrix mutations | high | mitigate | Separate digest-bound 01-16 approval, baseline, role allowlist, idempotent apply/verify/remove, cleanup, and pinned tools. | closed |
@@ -69,17 +69,17 @@ updated: 2026-08-21
 | T-01-18-02 | Spoofing | configuration transport | high | mitigate | Consume only Plan 01-14 device mTLS with ordinary server identity validation and no bearer fallback. | closed |
 | T-01-18-03 | Information disclosure | diagnostics/evidence | high | mitigate | Stable codes and digests only, machine-specific redaction scans, and Plan 01-17 publication gates. | closed |
 | T-01-18-04 | Elevation/Repudiation | service-data cache changes | high | mitigate | Separate digest-bound 01-18 manifest, LAB-CLIENT01 role guard, baseline/apply/verify/remove, cleanup, and immutable evidence. | closed |
-| T-01-18-SC | Tampering | existing dependency graph | high | mitigate | Preserve the approved Cargo.lock sources/versions and run slopcheck before accepting any dependency change; no new package is authorized. | closed |
+| T-01-18-SC | Tampering | existing dependency graph | high | mitigate | Preserve the approved Cargo.lock sources/versions and run slopcheck before accepting any dependency change; no new package is authorized. | open |
 | T-01-19-01 | Spoofing | fingerprint collector | high | mitigate | Documented Windows API sources, exact normalization, server-side confirmation, missing/sentinel rejection, and no agent-selected identity. | closed |
 | T-01-19-02 | Denial of service | SCM lifecycle | medium | mitigate | Accurate pending states, bounded stop/shutdown, last-usable state retention, and force-kill/restart checks. | closed |
 | T-01-19-03 | Information disclosure | diagnostics | high | mitigate | Stable redacted codes and marker scans across health, logs, evidence, and configuration. | closed |
 | T-01-19-04 | Elevation/Repudiation | privileged service changes | high | mitigate | Separate digest-bound 01-19 manifest, role guard, baseline/apply/verify/remove, cleanup, and immutable Plan 01-17 evidence. | closed |
 | T-01-19-SC | Tampering | dependency graph | high | mitigate | Preserve the approved Cargo.lock and reject any unaudited dependency change. | closed |
-| T-01-20-01 | Tampering/Information disclosure | corruption mapping | high | mitigate | Separate content/metadata corruption, authenticate before copy, exact integrity status, encrypted evidence preservation, and zero-plaintext checks. | closed |
-| T-01-20-02 | Tampering/Denial of service | disk-full publication | high | mitigate | Injected NoSpace before pointer publication, exact disk-full status, baseline-hash readback, and no mixed generation. | closed |
+| T-01-20-01 | Tampering/Information disclosure | corruption mapping | high | mitigate | Separate content/metadata corruption, authenticate before copy, exact integrity status, encrypted evidence preservation, and zero-plaintext checks. | open |
+| T-01-20-02 | Tampering/Denial of service | disk-full publication | high | mitigate | Injected NoSpace before pointer publication, exact disk-full status, baseline-hash readback, and no mixed generation. | open |
 | T-01-20-03 | Tampering | restart/reboot recovery | high | mitigate | Authenticate credential, current/LKG, selected pointer, manifest, and chunks before remount. | closed |
 | T-01-20-04 | Tampering | WinFsp runtime provenance | high | mitigate | Prior package approval, pinned installer hash, Authenticode verification, LAB-CLIENT01 guard, and delay-load helper only. | closed |
-| T-01-20-05 | Elevation/Repudiation | privileged runtime/evidence | high | mitigate | Separate digest-bound 01-20 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates. | closed |
+| T-01-20-05 | Elevation/Repudiation | privileged runtime/evidence | high | mitigate | Separate digest-bound 01-20 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates. | open |
 | T-01-21-01 | Tampering/Repudiation | abrupt-loss harness | high | mitigate | Guest durability barrier, hungdinh-lt host-side hard-off, no graceful guest event, post-boot hash/provenance capture. | closed |
 | T-01-21-02 | Spoofing/Repudiation | machine/tier provenance | high | mitigate | Role-guarded execution machine, verification-tier and substitute checks in `verify-phase1.ps1`. | closed |
 | T-01-21-03 | Information disclosure | evidence bundle | high | mitigate | Allowlisted schema, forbidden-field and non-vacuous marker scans, runtime-only secrets, and sealed digest. | closed |
@@ -120,6 +120,7 @@ No accepted risks. All previously reviewed gaps are documented as open threats i
 | 2026-08-15 | 62 | 41 | 19 | 2 | 0 | gsd-security-auditor (opus) |
 | 2026-08-21 | 62 | 60 | 0 | 2 | 0 | lab/administrator |
 | 2026-08-24 | 62 | 60 | 0 | 2 | 0 | lab/administrator |
+| 2026-08-24 | 62 | 53 | 7 | 2 | 0 | Plan 01-28 gap closure |
 
 **2026-08-24 re-audit:** Phase verification detected that the T-01-15-03
 `credential.rs` digest had become stale. The current credential implementation was
@@ -130,19 +131,25 @@ resealing. The current closure-manifest SHA-256 is
 `92bf224f2c5db79beac59d4f943afbfad994840017dd7e1a38b69362c2c31699`;
 independent reviewer identity remains `lab/administrator`.
 
+**2026-08-24 attestation correction:** The seven current payloads for T-01-15-03,
+T-01-16-02, T-01-16-03, T-01-18-SC, T-01-20-01, T-01-20-02, and T-01-20-05
+retain structurally verified current file hashes, but the Aug 21 review did not attest
+their later bytes. Their historical review material is preserved as legacy/unbound;
+fresh authenticated independent review is required before signed-off status can return.
+
 ---
 
 ## Sign-Off
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [ ] Accepted risks documented in Accepted Risks Log (none)
-- [x] `threats_open: 0` confirmed
-- [x] `status: complete` set in frontmatter
+- [ ] `threats_open: 0` confirmed (7 current-payload attestations pending)
+- [x] `status: gaps_found` set in frontmatter
 - [x] Closure manifest `evidence/phase1/security-closure.yaml` verified for all 19 blocking threats
-- [x] Signed-off verifier `scripts/verify-phase1-security.ps1 -RequireSignedOff` passed
-- [x] Phase 1 FinalGate `scripts/verify-phase1.ps1` passed
+- [ ] Signed-off verifier pending seven authenticated current-payload attestations
+- [ ] Phase 1 FinalGate pending security re-sign-off
 
-**Approval:** complete — 0 blocking threats remain. Phase 01 security gate cleared.
+**Approval:** reopened — 7 blocking threats await authenticated independent review.
 
 *Closure basis: immutable requirement-matrix digest `5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414`, 19 verified closure records, independent verifier identity lab/administrator.*
 

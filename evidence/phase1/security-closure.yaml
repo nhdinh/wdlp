@@ -1,874 +1,1745 @@
-schema_version: phase1-security-closure/v1
-matrix_digest: 5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414
-closure_targets:
-  - T-01-15-01
-  - T-01-15-02
-  - T-01-15-03
-  - T-01-15-04
-  - T-01-15-06
-  - T-01-16-01
-  - T-01-16-02
-  - T-01-16-03
-  - T-01-16-04
-  - T-01-16-06
-  - T-01-18-SC
-  - T-01-20-01
-  - T-01-20-02
-  - T-01-20-05
-  - T-01-21-01
-  - T-01-21-02
-  - T-01-21-03
-  - T-01-21-04
-  - T-01-21-05
-records:
-  - threat_id: T-01-15-01
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: TokenUser-derived immutable session/SID, idempotent actors, no caller identity/store selector, adjacent/empty/concurrency tests.
-    implementation_refs:
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-      - path: crates/dlp-windows-service/tests/session_lifecycle.rs
-        sha256: 022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab
-    evidence_attempt_ids:
-      - 0c050cbf-2c33-419d-acba-b7d7b4920672
-      - fa0959c2-6f68-49f4-9f6a-3f5c099d042f
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/tests/session_lifecycle.rs
-        sha256: 022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-15-02
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Service-owned DACL plus connecting SID/session/PID/generation validation and bounded versioned messages.
-    implementation_refs:
-      - path: crates/dlp-windows-service/src/pipe.rs
-        sha256: f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-    evidence_attempt_ids:
-      - 7deb761f-745a-4e3a-bcf9-4dfc22d80595
-      - fa0959c2-6f68-49f4-9f6a-3f5c099d042f
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-windows-service/src/pipe.rs
-        sha256: f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-15-03
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Random DEK, machine-DPAPI wrapper, service-only ACL, zeroization, and marker scans.
-    implementation_refs:
-      - path: crates/dlp-windows-service/src/credential.rs
-        sha256: 093672144ea7c75119e71f7ba3777b4477b8891ece0eb86ad4a05933e7ad845d
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-    evidence_attempt_ids:
-      - 7deb761f-745a-4e3a-bcf9-4dfc22d80595
-      - 297b4ae9-80f9-41c2-9e57-ecb4761d3827
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-windows-service/src/credential.rs
-        sha256: 093672144ea7c75119e71f7ba3777b4477b8891ece0eb86ad4a05933e7ad845d
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-15-04
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Atomic draining, reject opens, 30-second bound, cancellation/unmount/resource disposal, and authenticated recovery before remount.
-    implementation_refs:
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-      - path: crates/dlp-windows-service/src/service.rs
-        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
-      - path: crates/dlp-windows-service/tests/session_lifecycle.rs
-        sha256: 022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab
-    evidence_attempt_ids:
-      - c618578c-da4c-43c6-9049-46aeffab165b
-      - 12aa5391-b7d4-4739-bafd-f3b0933e6a2e
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/src/service.rs
-        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/tests/session_lifecycle.rs
-        sha256: 022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-15-06
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Separate digest-bound 01-15 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates.
-    implementation_refs:
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-      - path: crates/dlp-windows-service/src/pipe.rs
-        sha256: f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a
-    evidence_attempt_ids:
-      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: config/lab.phase1.example.yaml
-        sha256: 03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/src/pipe.rs
-        sha256: f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: authenticated_domain_operator
-      name: nhdinh
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-16-01
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Role-guarded commands and required execution machine in every attempt.
-    implementation_refs:
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-    evidence_attempt_ids:
-      - c5baff45-3657-49c0-847d-fa9867aa6c02
-      - 49815541-0652-4840-9294-76731de9757a
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-16-02
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: No fixture providers and negative fingerprint, DC, CSR, cert, revocation, TLS, bundle, and IPC cases.
-    implementation_refs:
-      - path: crates/dlp-server/src/enrollment.rs
-        sha256: edc61dc96055f492d24a93b06cdbd94bbd643e383cbafe4e778d91c8d07c3de1
-      - path: crates/dlp-server/src/pki.rs
-        sha256: d541ded6c9ebba0ffd528b23c87da1683a15ba57bcf82a84d856c36475d8a6de
-      - path: crates/dlp-server/src/tls.rs
-        sha256: 9e3a13d4c849beb3bde8a912d762c8bc9255bd17f11ba45e3e6efea3668d2e9a
-      - path: crates/dlp-agent-core/src/client.rs
-        sha256: 8b7b70e7df6810ca481c7bccfa27ba8f2411133896863ebba228a3d79a9e677d
-    evidence_attempt_ids:
-      - ed99db33-2f8e-4445-aab2-e87f99c1b8e3
-      - 7deb761f-745a-4e3a-bcf9-4dfc22d80595
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - LAB-DC01:primary_directory_server
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-server/src/enrollment.rs
-        sha256: edc61dc96055f492d24a93b06cdbd94bbd643e383cbafe4e778d91c8d07c3de1
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-server/src/pki.rs
-        sha256: d541ded6c9ebba0ffd528b23c87da1683a15ba57bcf82a84d856c36475d8a6de
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-server/src/tls.rs
-        sha256: 9e3a13d4c849beb3bde8a912d762c8bc9255bd17f11ba45e3e6efea3668d2e9a
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-agent-core/src/client.rs
-        sha256: 8b7b70e7df6810ca481c7bccfa27ba8f2411133896863ebba228a3d79a9e677d
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-16-03
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Hash equality, unique markers, authenticate-before-copy, corruption denial, and non-vacuous scans.
-    implementation_refs:
-      - path: crates/dlp-storage/src/store.rs
-        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
-      - path: crates/dlp-storage/tests/integrity.rs
-        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
-      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
-    evidence_attempt_ids:
-      - 297b4ae9-80f9-41c2-9e57-ecb4761d3827
-      - 3d18c1a0-2541-4f6a-a273-43eb4e74eb62
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-storage/src/store.rs
-        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-storage/tests/integrity.rs
-        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
-        role: hungdinh-lt:developer_orchestrator
-      - path: evidence/phase1/manifests/cry-01-aead-store-integrity.json
-        sha256: 32c1cb12feda97c1cc91da38dd47c588d596f94eb9216fdf46aec7c99c2742e4
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-16-04
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Strict sanitized schema, forbidden-field/marker scan, runtime-only secrets, and no protected payload bytes.
-    implementation_refs:
-      - path: crates/dlp-windows-service/src/service.rs
-        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-    evidence_attempt_ids:
-      - c618578c-da4c-43c6-9049-46aeffab165b
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-windows-service/src/service.rs
-        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-        role: hungdinh-lt:developer_orchestrator
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-16-06
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Separate digest-bound 01-16 approval, baseline, role allowlist, idempotent apply/verify/remove, cleanup, and pinned tools.
-    implementation_refs:
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-    evidence_attempt_ids:
-      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: config/lab.phase1.example.yaml
-        sha256: 03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee
-        role: hungdinh-lt:developer_orchestrator
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-        role: hungdinh-lt:developer_orchestrator
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: authenticated_domain_operator
-      name: nhdinh
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-18-SC
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Preserve the approved Cargo.lock sources/versions and run slopcheck before accepting any dependency change; no new package is authorized.
-    implementation_refs:
-      - path: Cargo.lock
-        sha256: 4972afce736b39e53843e3c9568d357bb14eb138d47e4ffb6633e770d3e1b809
-    evidence_attempt_ids:
-      - 5c30f253-d29e-413b-9be6-1c52910fff5d
-    required_machine_roles:
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: Cargo.lock
-        sha256: 4972afce736b39e53843e3c9568d357bb14eb138d47e4ffb6633e770d3e1b809
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-20-01
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Separate content/metadata corruption, authenticate before copy, exact integrity status, encrypted evidence preservation, and zero-plaintext checks.
-    implementation_refs:
-      - path: crates/dlp-storage/src/store.rs
-        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
-      - path: crates/dlp-storage/tests/integrity.rs
-        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
-      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
-    evidence_attempt_ids:
-      - 297b4ae9-80f9-41c2-9e57-ecb4761d3827
-      - 20da498a-65b8-4a58-8228-5c35dfe3cd57
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-storage/src/store.rs
-        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-storage/tests/integrity.rs
-        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
-        role: hungdinh-lt:developer_orchestrator
-      - path: evidence/phase1/manifests/cry-01-aead-store-integrity.json
-        sha256: 32c1cb12feda97c1cc91da38dd47c588d596f94eb9216fdf46aec7c99c2742e4
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-20-02
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Injected NoSpace before pointer publication, exact disk-full status, baseline-hash readback, and no mixed generation.
-    implementation_refs:
-      - path: crates/dlp-storage/src/store.rs
-        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
-      - path: crates/dlp-storage/tests/integrity.rs
-        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
-      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
-    evidence_attempt_ids:
-      - 9f4b5e32-ea1c-4344-ac26-a3af01cfd9b1
-      - 20da498a-65b8-4a58-8228-5c35dfe3cd57
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-storage/src/store.rs
-        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-storage/tests/integrity.rs
-        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-drive/tests/mounted_smoke.rs
-        sha256: 6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-20-05
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Separate digest-bound 01-20 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates.
-    implementation_refs:
-      - path: crates/dlp-storage/src/store.rs
-        sha256: 93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183
-      - path: crates/dlp-storage/tests/integrity.rs
-        sha256: e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7
-      - path: tests/windows/Invoke-ServiceSessionSmoke.ps1
-        sha256: f364f698ef2d2e41c8e660f673cfab79e77364f10468e7b9fcecc07429a862c1
-      - path: tests/windows/Install-WinFsp.ps1
-        sha256: 88f7ab46baa3ea2484e6bbc56081779e1dbaa72a5ac632aeb95b911e29a65ba3
-    evidence_attempt_ids:
-      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: config/lab.phase1.example.yaml
-        sha256: 03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee
-        role: hungdinh-lt:developer_orchestrator
-      - path: tests/windows/Invoke-ServiceSessionSmoke.ps1
-        sha256: f364f698ef2d2e41c8e660f673cfab79e77364f10468e7b9fcecc07429a862c1
-        role: hungdinh-lt:developer_orchestrator
-      - path: tests/windows/Install-WinFsp.ps1
-        sha256: 88f7ab46baa3ea2484e6bbc56081779e1dbaa72a5ac632aeb95b911e29a65ba3
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: authenticated_domain_operator
-      name: nhdinh
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-21-01
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Guest durability barrier, hungdinh-lt host-side hard-off, no graceful guest event, post-boot hash/provenance capture.
-    implementation_refs:
-      - path: crates/dlp-windows-service/src/service.rs
-        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-      - path: tests/windows/Invoke-AbruptLossHarness.ps1
-        sha256: 9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3
-    evidence_attempt_ids:
-      - 20da498a-65b8-4a58-8228-5c35dfe3cd57
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: crates/dlp-windows-service/src/service.rs
-        sha256: d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e
-        role: hungdinh-lt:developer_orchestrator
-      - path: crates/dlp-windows-service/src/session.rs
-        sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
-        role: hungdinh-lt:developer_orchestrator
-      - path: tests/windows/Invoke-AbruptLossHarness.ps1
-        sha256: 9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-21-02
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Role-guarded execution machine, verification-tier and substitute checks in verify-phase1.ps1.
-    implementation_refs:
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-    evidence_attempt_ids:
-      - 49815541-0652-4840-9294-76731de9757a
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-        role: hungdinh-lt:developer_orchestrator
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-21-03
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Allowlisted schema, forbidden-field and non-vacuous marker scans, runtime-only secrets, and sealed digest.
-    implementation_refs:
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-    evidence_attempt_ids:
-      - 20da498a-65b8-4a58-8228-5c35dfe3cd57
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-        role: hungdinh-lt:developer_orchestrator
-      - path: tests/windows/Invoke-Phase1Matrix.ps1
-        sha256: 21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-21-04
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Authenticated independent identity, matrix digest, current/superseded attempts, deviation policy, artifact integrity, and retention/hold validation.
-    implementation_refs:
-      - path: scripts/add-independent-review.ps1
-        sha256: aaa38dbd36b84687ffcbf01dd873c7f0cee653e0686e9d7e99339192985e49a9
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-    evidence_attempt_ids:
-      - f225f12f-083d-4d42-8495-438466fbc1f7
-      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
-    required_machine_roles:
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: hungdinh-lt:developer_orchestrator
-      - path: scripts/add-independent-review.ps1
-        sha256: aaa38dbd36b84687ffcbf01dd873c7f0cee653e0686e9d7e99339192985e49a9
-        role: hungdinh-lt:developer_orchestrator
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: independent_verifier
-      name: lab/administrator
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
-  - threat_id: T-01-21-05
-    disposition: mitigate
-    severity: high
-    mitigation_assertion: Separate digest-bound 01-21 privilege approval, baseline, strict machine allowlist, idempotent apply/verify/remove, cleanup, and pinned tooling.
-    implementation_refs:
-      - path: tests/windows/Invoke-AbruptLossHarness.ps1
-        sha256: 9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-    evidence_attempt_ids:
-      - 9303c9cb-5c69-44d6-ba42-5b70d8a82bfe
-    required_machine_roles:
-      - LAB-CLIENT01:endpoint_runtime
-      - hungdinh-lt:developer_orchestrator
-    artifact_refs:
-      - path: tests/windows/results/phase1-evidence.json
-        sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
-        role: LAB-CLIENT01:endpoint_runtime
-      - path: config/lab.phase1.example.yaml
-        sha256: 03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee
-        role: hungdinh-lt:developer_orchestrator
-      - path: tests/windows/Invoke-AbruptLossHarness.ps1
-        sha256: 9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3
-        role: hungdinh-lt:developer_orchestrator
-      - path: scripts/verify-phase1-evidence.ps1
-        sha256: ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18
-        role: hungdinh-lt:developer_orchestrator
-    reviewer_identity:
-      kind: authenticated_domain_operator
-      name: nhdinh
-    review_utc: "2026-08-21T07:30:00Z"
-    procedure_version: 01-25/v1
-    environment_fingerprint:
-      machine_identity: hungdinh-lt
-      role: developer_orchestrator
-      os_build: Windows 11 Pro 10.0.26200
-      dependency_versions:
-        rust: locked workspace
-      service_config_digest: approved-phase1-config
-      test_tool_versions:
-        cargo: locked
-      domain_network_identity: not-applicable-portable
-      baseline_id: phase1-locked-build
-      binary_hashes:
-        phase1: approved-binary-digest
+{
+    "schema_version":  "phase1-security-closure/v2",
+    "matrix_digest":  "5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414",
+    "closure_targets":  [
+                            "T-01-15-01",
+                            "T-01-15-02",
+                            "T-01-15-03",
+                            "T-01-15-04",
+                            "T-01-15-06",
+                            "T-01-16-01",
+                            "T-01-16-02",
+                            "T-01-16-03",
+                            "T-01-16-04",
+                            "T-01-16-06",
+                            "T-01-18-SC",
+                            "T-01-20-01",
+                            "T-01-20-02",
+                            "T-01-20-05",
+                            "T-01-21-01",
+                            "T-01-21-02",
+                            "T-01-21-03",
+                            "T-01-21-04",
+                            "T-01-21-05"
+                        ],
+    "records":  [
+                    {
+                        "threat_id":  "T-01-15-01",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "TokenUser-derived immutable session/SID, idempotent actors, no caller identity/store selector, adjacent/empty/concurrency tests.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/session.rs",
+                                                        "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/tests/session_lifecycle.rs",
+                                                        "sha256":  "022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "0c050cbf-2c33-419d-acba-b7d7b4920672",
+                                                     "fa0959c2-6f68-49f4-9f6a-3f5c099d042f"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/session.rs",
+                                                  "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/tests/session_lifecycle.rs",
+                                                  "sha256":  "022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "ede7e954288dbfd209716ee7d9b41450867a59df56d4ed17abfda46266896160",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-15-01",
+                                                 "payload_digest":  "ede7e954288dbfd209716ee7d9b41450867a59df56d4ed17abfda46266896160",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "4f24f7235829cff8f344a410decb60b7ef1f52644d84f0fb4d7b78c5e9654d44"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-15-02",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Service-owned DACL plus connecting SID/session/PID/generation validation and bounded versioned messages.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/pipe.rs",
+                                                        "sha256":  "f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/session.rs",
+                                                        "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "7deb761f-745a-4e3a-bcf9-4dfc22d80595",
+                                                     "fa0959c2-6f68-49f4-9f6a-3f5c099d042f"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/pipe.rs",
+                                                  "sha256":  "f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/session.rs",
+                                                  "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "4f6eaba95f55a64a26b652c08ac540974f328a4aad7afec7cd73eb6bb03529e8",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-15-02",
+                                                 "payload_digest":  "4f6eaba95f55a64a26b652c08ac540974f328a4aad7afec7cd73eb6bb03529e8",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "e013132caab585ac706776f6689ee884f307ae8d298cfdeb5855d4037bfaa704"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-15-03",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Random DEK, machine-DPAPI wrapper, service-only ACL, zeroization, and marker scans.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/credential.rs",
+                                                        "sha256":  "093672144ea7c75119e71f7ba3777b4477b8891ece0eb86ad4a05933e7ad845d"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/session.rs",
+                                                        "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "7deb761f-745a-4e3a-bcf9-4dfc22d80595",
+                                                     "297b4ae9-80f9-41c2-9e57-ecb4761d3827"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/credential.rs",
+                                                  "sha256":  "093672144ea7c75119e71f7ba3777b4477b8891ece0eb86ad4a05933e7ad845d",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/session.rs",
+                                                  "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "309cac0e9a8b497c0449c6e7e9e5a57b1153cd757d629046e813b83b1565d78a",
+                        "attestations":  [
+
+                                         ],
+                        "historical_reviews":  [
+                                                   {
+                                                       "status":  "legacy_unbound",
+                                                       "reviewer_identity":  {
+                                                                                 "kind":  "independent_verifier",
+                                                                                 "name":  "lab/administrator"
+                                                                             },
+                                                       "review_utc":  "2026-08-21T07:30:00Z",
+                                                       "note":  "Historical review retained but not bound to the current payload."
+                                                   }
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-15-04",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Atomic draining, reject opens, 30-second bound, cancellation/unmount/resource disposal, and authenticated recovery before remount.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/session.rs",
+                                                        "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/service.rs",
+                                                        "sha256":  "d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/tests/session_lifecycle.rs",
+                                                        "sha256":  "022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "c618578c-da4c-43c6-9049-46aeffab165b",
+                                                     "12aa5391-b7d4-4739-bafd-f3b0933e6a2e"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/session.rs",
+                                                  "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/service.rs",
+                                                  "sha256":  "d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/tests/session_lifecycle.rs",
+                                                  "sha256":  "022b0d43aef2c223b23e9d3371c809ea7a96aa058650f80982dc74ac88b610ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "e892561b0203609ef6c1d1abf4de6eb237fb6b570072abe7c158b35de98ae51b",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-15-04",
+                                                 "payload_digest":  "e892561b0203609ef6c1d1abf4de6eb237fb6b570072abe7c158b35de98ae51b",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "21560f938fe7c0dfb67b72979cab1040ab43812b18d9c5cfdc6b80be0aff1a3c"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-15-06",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Separate digest-bound 01-15 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/session.rs",
+                                                        "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/pipe.rs",
+                                                        "sha256":  "f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "9303c9cb-5c69-44d6-ba42-5b70d8a82bfe"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "config/lab.phase1.example.yaml",
+                                                  "sha256":  "03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/session.rs",
+                                                  "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/pipe.rs",
+                                                  "sha256":  "f0aeb1312fb49c85b0484e449af9d490ffa273b59f930f950ca459efa9c4804a",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "26b78a9069f1f622e62f19274e6bbd7db2d209564728b1b4b58bd163c36cdafe",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-15-06",
+                                                 "payload_digest":  "26b78a9069f1f622e62f19274e6bbd7db2d209564728b1b4b58bd163c36cdafe",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "nhdinh"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "c204dd00138a6744a91aa43604887c88f73ea6f053a6379412776399e23db70d"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-16-01",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Role-guarded commands and required execution machine in every attempt.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                        "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "c5baff45-3657-49c0-847d-fa9867aa6c02",
+                                                     "49815541-0652-4840-9294-76731de9757a"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                  "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "d3272a7abf65a9fdf5594248798ef318f6723c3cd6f223790430e172d64ba752",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-16-01",
+                                                 "payload_digest":  "d3272a7abf65a9fdf5594248798ef318f6723c3cd6f223790430e172d64ba752",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "bede6599cc18f778f3ed863fe2221c0f81d2f66d616fb668c132aeeadac2fb77"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-16-02",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "No fixture providers and negative fingerprint, DC, CSR, cert, revocation, TLS, bundle, and IPC cases.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-server/src/enrollment.rs",
+                                                        "sha256":  "edc61dc96055f492d24a93b06cdbd94bbd643e383cbafe4e778d91c8d07c3de1"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-server/src/pki.rs",
+                                                        "sha256":  "d541ded6c9ebba0ffd528b23c87da1683a15ba57bcf82a84d856c36475d8a6de"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-server/src/tls.rs",
+                                                        "sha256":  "9e3a13d4c849beb3bde8a912d762c8bc9255bd17f11ba45e3e6efea3668d2e9a"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-agent-core/src/client.rs",
+                                                        "sha256":  "8b7b70e7df6810ca481c7bccfa27ba8f2411133896863ebba228a3d79a9e677d"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "ed99db33-2f8e-4445-aab2-e87f99c1b8e3",
+                                                     "7deb761f-745a-4e3a-bcf9-4dfc22d80595"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "LAB-DC01:primary_directory_server"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-server/src/enrollment.rs",
+                                                  "sha256":  "edc61dc96055f492d24a93b06cdbd94bbd643e383cbafe4e778d91c8d07c3de1",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-server/src/pki.rs",
+                                                  "sha256":  "d541ded6c9ebba0ffd528b23c87da1683a15ba57bcf82a84d856c36475d8a6de",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-server/src/tls.rs",
+                                                  "sha256":  "9e3a13d4c849beb3bde8a912d762c8bc9255bd17f11ba45e3e6efea3668d2e9a",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-agent-core/src/client.rs",
+                                                  "sha256":  "8b7b70e7df6810ca481c7bccfa27ba8f2411133896863ebba228a3d79a9e677d",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "b919cc4b407deb8d032919832e7f740d0869b4ceae22c1661f85c049e80d2519",
+                        "attestations":  [
+
+                                         ],
+                        "historical_reviews":  [
+                                                   {
+                                                       "status":  "legacy_unbound",
+                                                       "reviewer_identity":  {
+                                                                                 "kind":  "independent_verifier",
+                                                                                 "name":  "lab/administrator"
+                                                                             },
+                                                       "review_utc":  "2026-08-21T07:30:00Z",
+                                                       "note":  "Historical review retained but not bound to the current payload."
+                                                   }
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-16-03",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Hash equality, unique markers, authenticate-before-copy, corruption denial, and non-vacuous scans.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-storage/src/store.rs",
+                                                        "sha256":  "93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-storage/tests/integrity.rs",
+                                                        "sha256":  "e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-drive/tests/mounted_smoke.rs",
+                                                        "sha256":  "6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "297b4ae9-80f9-41c2-9e57-ecb4761d3827",
+                                                     "3d18c1a0-2541-4f6a-a273-43eb4e74eb62"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-storage/src/store.rs",
+                                                  "sha256":  "93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-storage/tests/integrity.rs",
+                                                  "sha256":  "e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-drive/tests/mounted_smoke.rs",
+                                                  "sha256":  "6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "evidence/phase1/manifests/cry-01-aead-store-integrity.json",
+                                                  "sha256":  "32c1cb12feda97c1cc91da38dd47c588d596f94eb9216fdf46aec7c99c2742e4",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "bba94716bd8a96e0e1bacf95e361e843a1cea96ed671bc925826f8c584fe23dc",
+                        "attestations":  [
+
+                                         ],
+                        "historical_reviews":  [
+                                                   {
+                                                       "status":  "legacy_unbound",
+                                                       "reviewer_identity":  {
+                                                                                 "kind":  "independent_verifier",
+                                                                                 "name":  "lab/administrator"
+                                                                             },
+                                                       "review_utc":  "2026-08-21T07:30:00Z",
+                                                       "note":  "Historical review retained but not bound to the current payload."
+                                                   }
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-16-04",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Strict sanitized schema, forbidden-field/marker scan, runtime-only secrets, and no protected payload bytes.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/service.rs",
+                                                        "sha256":  "d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/session.rs",
+                                                        "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab"
+                                                    },
+                                                    {
+                                                        "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                        "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "c618578c-da4c-43c6-9049-46aeffab165b"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/service.rs",
+                                                  "sha256":  "d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/session.rs",
+                                                  "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                  "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "88332156d70b40872780862591f311b0359f89f27ea9b57d586a45118737ec2c",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-16-04",
+                                                 "payload_digest":  "88332156d70b40872780862591f311b0359f89f27ea9b57d586a45118737ec2c",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "0a13f494a160d6a913c11eed6fb4ecc47beacf013255f3fbedbb5d0887d3803c"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-16-06",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Separate digest-bound 01-16 approval, baseline, role allowlist, idempotent apply/verify/remove, cleanup, and pinned tools.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                        "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d"
+                                                    },
+                                                    {
+                                                        "path":  "scripts/verify-phase1-evidence.ps1",
+                                                        "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "9303c9cb-5c69-44d6-ba42-5b70d8a82bfe"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "config/lab.phase1.example.yaml",
+                                                  "sha256":  "03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                  "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "scripts/verify-phase1-evidence.ps1",
+                                                  "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "39f14da175f69f5f0e261c9b25c30271729b5d8a203f354941af8fbced8feebf",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-16-06",
+                                                 "payload_digest":  "39f14da175f69f5f0e261c9b25c30271729b5d8a203f354941af8fbced8feebf",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "nhdinh"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "fe2161fe8c0ab67db536a9986851093171da84567761fd1596cf46eb6ebd78c0"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-18-SC",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Preserve the approved Cargo.lock sources/versions and run slopcheck before accepting any dependency change; no new package is authorized.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "Cargo.lock",
+                                                        "sha256":  "4972afce736b39e53843e3c9568d357bb14eb138d47e4ffb6633e770d3e1b809"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "5c30f253-d29e-413b-9be6-1c52910fff5d"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "Cargo.lock",
+                                                  "sha256":  "4972afce736b39e53843e3c9568d357bb14eb138d47e4ffb6633e770d3e1b809",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "746b993d8f5c9543ff7a29483d6830853d1bf8e5bbb66d8f0ad48f1da8ec890c",
+                        "attestations":  [
+
+                                         ],
+                        "historical_reviews":  [
+                                                   {
+                                                       "status":  "legacy_unbound",
+                                                       "reviewer_identity":  {
+                                                                                 "kind":  "independent_verifier",
+                                                                                 "name":  "lab/administrator"
+                                                                             },
+                                                       "review_utc":  "2026-08-21T07:30:00Z",
+                                                       "note":  "Historical review retained but not bound to the current payload."
+                                                   }
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-20-01",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Separate content/metadata corruption, authenticate before copy, exact integrity status, encrypted evidence preservation, and zero-plaintext checks.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-storage/src/store.rs",
+                                                        "sha256":  "93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-storage/tests/integrity.rs",
+                                                        "sha256":  "e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-drive/tests/mounted_smoke.rs",
+                                                        "sha256":  "6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "297b4ae9-80f9-41c2-9e57-ecb4761d3827",
+                                                     "20da498a-65b8-4a58-8228-5c35dfe3cd57"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-storage/src/store.rs",
+                                                  "sha256":  "93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-storage/tests/integrity.rs",
+                                                  "sha256":  "e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-drive/tests/mounted_smoke.rs",
+                                                  "sha256":  "6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "evidence/phase1/manifests/cry-01-aead-store-integrity.json",
+                                                  "sha256":  "32c1cb12feda97c1cc91da38dd47c588d596f94eb9216fdf46aec7c99c2742e4",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "0acf402ef5289f7217fb0d4c7c07d087fb0bebe2ac90ad349074ed28a7801f5a",
+                        "attestations":  [
+
+                                         ],
+                        "historical_reviews":  [
+                                                   {
+                                                       "status":  "legacy_unbound",
+                                                       "reviewer_identity":  {
+                                                                                 "kind":  "independent_verifier",
+                                                                                 "name":  "lab/administrator"
+                                                                             },
+                                                       "review_utc":  "2026-08-21T07:30:00Z",
+                                                       "note":  "Historical review retained but not bound to the current payload."
+                                                   }
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-20-02",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Injected NoSpace before pointer publication, exact disk-full status, baseline-hash readback, and no mixed generation.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-storage/src/store.rs",
+                                                        "sha256":  "93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-storage/tests/integrity.rs",
+                                                        "sha256":  "e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-drive/tests/mounted_smoke.rs",
+                                                        "sha256":  "6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "9f4b5e32-ea1c-4344-ac26-a3af01cfd9b1",
+                                                     "20da498a-65b8-4a58-8228-5c35dfe3cd57"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-storage/src/store.rs",
+                                                  "sha256":  "93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-storage/tests/integrity.rs",
+                                                  "sha256":  "e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-drive/tests/mounted_smoke.rs",
+                                                  "sha256":  "6e5ead2a299298196de427d4f98a26ed505006b53d1a73b047ac0faff3be9553",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "7731e75e9dbe5bb84f544f1cd12fc0c93e748e19c8858d275c460b3ffa1c85c4",
+                        "attestations":  [
+
+                                         ],
+                        "historical_reviews":  [
+                                                   {
+                                                       "status":  "legacy_unbound",
+                                                       "reviewer_identity":  {
+                                                                                 "kind":  "independent_verifier",
+                                                                                 "name":  "lab/administrator"
+                                                                             },
+                                                       "review_utc":  "2026-08-21T07:30:00Z",
+                                                       "note":  "Historical review retained but not bound to the current payload."
+                                                   }
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-20-05",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Separate digest-bound 01-20 manifest, baseline/apply/verify/remove/cleanup, role guard, and Plan 01-17 evidence gates.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-storage/src/store.rs",
+                                                        "sha256":  "93d3c5b2c3dc62157a82da081bd5e43bce10168f51072ce11cc3a4b2b4444183"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-storage/tests/integrity.rs",
+                                                        "sha256":  "e4bd182b7293438ecd09ba08446daf2c3452f37b52c4b4c8027e1f8057932ad7"
+                                                    },
+                                                    {
+                                                        "path":  "tests/windows/Invoke-ServiceSessionSmoke.ps1",
+                                                        "sha256":  "f364f698ef2d2e41c8e660f673cfab79e77364f10468e7b9fcecc07429a862c1"
+                                                    },
+                                                    {
+                                                        "path":  "tests/windows/Install-WinFsp.ps1",
+                                                        "sha256":  "88f7ab46baa3ea2484e6bbc56081779e1dbaa72a5ac632aeb95b911e29a65ba3"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "9303c9cb-5c69-44d6-ba42-5b70d8a82bfe"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "config/lab.phase1.example.yaml",
+                                                  "sha256":  "03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Invoke-ServiceSessionSmoke.ps1",
+                                                  "sha256":  "f364f698ef2d2e41c8e660f673cfab79e77364f10468e7b9fcecc07429a862c1",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Install-WinFsp.ps1",
+                                                  "sha256":  "88f7ab46baa3ea2484e6bbc56081779e1dbaa72a5ac632aeb95b911e29a65ba3",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "a3d49c0b0eda98f7c3d1cd5794d847fa97de1d03292903647ced7952056f4c42",
+                        "attestations":  [
+
+                                         ],
+                        "historical_reviews":  [
+                                                   {
+                                                       "status":  "legacy_unbound",
+                                                       "reviewer_identity":  {
+                                                                                 "kind":  "authenticated_domain_operator",
+                                                                                 "name":  "nhdinh"
+                                                                             },
+                                                       "review_utc":  "2026-08-21T07:30:00Z",
+                                                       "note":  "Historical review retained but not bound to the current payload."
+                                                   }
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-21-01",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Guest durability barrier, hungdinh-lt host-side hard-off, no graceful guest event, post-boot hash/provenance capture.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/service.rs",
+                                                        "sha256":  "d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e"
+                                                    },
+                                                    {
+                                                        "path":  "crates/dlp-windows-service/src/session.rs",
+                                                        "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab"
+                                                    },
+                                                    {
+                                                        "path":  "tests/windows/Invoke-AbruptLossHarness.ps1",
+                                                        "sha256":  "9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "20da498a-65b8-4a58-8228-5c35dfe3cd57"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/service.rs",
+                                                  "sha256":  "d3d37e819d37603434a4877d32ca812b570422c6eb0ab3249f34ea6e4f60c72e",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "crates/dlp-windows-service/src/session.rs",
+                                                  "sha256":  "642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Invoke-AbruptLossHarness.ps1",
+                                                  "sha256":  "9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "db8694c387518e21f1cc4ef0284ec772057a269a4bdfc2f96f69cae275ca86a4",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-21-01",
+                                                 "payload_digest":  "db8694c387518e21f1cc4ef0284ec772057a269a4bdfc2f96f69cae275ca86a4",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "167635a4542436bbeb15e0de205abf4f560c9a93969b5220125f5a8df1a0263c"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-21-02",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Role-guarded execution machine, verification-tier and substitute checks in verify-phase1.ps1.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "scripts/verify-phase1-evidence.ps1",
+                                                        "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18"
+                                                    },
+                                                    {
+                                                        "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                        "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "49815541-0652-4840-9294-76731de9757a"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "scripts/verify-phase1-evidence.ps1",
+                                                  "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                  "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "a6757171f1dc1fa781a4b682db87c96c8f0e4db1922e4eb9f4d036d06ef3eb57",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-21-02",
+                                                 "payload_digest":  "a6757171f1dc1fa781a4b682db87c96c8f0e4db1922e4eb9f4d036d06ef3eb57",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "34b2047297796c876c90a927434ee9a36dfa7ae65bf46865755c4dacae3da100"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-21-03",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Allowlisted schema, forbidden-field and non-vacuous marker scans, runtime-only secrets, and sealed digest.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "scripts/verify-phase1-evidence.ps1",
+                                                        "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18"
+                                                    },
+                                                    {
+                                                        "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                        "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "20da498a-65b8-4a58-8228-5c35dfe3cd57"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "scripts/verify-phase1-evidence.ps1",
+                                                  "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Invoke-Phase1Matrix.ps1",
+                                                  "sha256":  "21c5b6e8e4c487ae9eb219abdb51ffaf76175153d38a84bbc3cc6601343c655d",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "4e00a3dfbbb12dcc0c15e63e50329732d5181e22dd2ad633dded6857f88e718c",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-21-03",
+                                                 "payload_digest":  "4e00a3dfbbb12dcc0c15e63e50329732d5181e22dd2ad633dded6857f88e718c",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "1265c277c09c96a47a1f6ed6855c1b92de31d2bb8c3c2f185bce805232fed19f"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-21-04",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Authenticated independent identity, matrix digest, current/superseded attempts, deviation policy, artifact integrity, and retention/hold validation.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "scripts/add-independent-review.ps1",
+                                                        "sha256":  "aaa38dbd36b84687ffcbf01dd873c7f0cee653e0686e9d7e99339192985e49a9"
+                                                    },
+                                                    {
+                                                        "path":  "scripts/verify-phase1-evidence.ps1",
+                                                        "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "f225f12f-083d-4d42-8495-438466fbc1f7",
+                                                     "9303c9cb-5c69-44d6-ba42-5b70d8a82bfe"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "scripts/add-independent-review.ps1",
+                                                  "sha256":  "aaa38dbd36b84687ffcbf01dd873c7f0cee653e0686e9d7e99339192985e49a9",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "scripts/verify-phase1-evidence.ps1",
+                                                  "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "930fdadb50f30cf744e2db57d02e2a9a289883ebb3f69728d4ca946587738498",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-21-04",
+                                                 "payload_digest":  "930fdadb50f30cf744e2db57d02e2a9a289883ebb3f69728d4ca946587738498",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "independent_verifier",
+                                                                           "name":  "lab/administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "dbc7bf552f696a46ad65ac092089d767d8d8c03eb20d69b1969c60e265f4f054"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    },
+                    {
+                        "threat_id":  "T-01-21-05",
+                        "disposition":  "mitigate",
+                        "severity":  "high",
+                        "mitigation_assertion":  "Separate digest-bound 01-21 privilege approval, baseline, strict machine allowlist, idempotent apply/verify/remove, cleanup, and pinned tooling.",
+                        "implementation_refs":  [
+                                                    {
+                                                        "path":  "tests/windows/Invoke-AbruptLossHarness.ps1",
+                                                        "sha256":  "9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3"
+                                                    },
+                                                    {
+                                                        "path":  "scripts/verify-phase1-evidence.ps1",
+                                                        "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18"
+                                                    }
+                                                ],
+                        "evidence_attempt_ids":  [
+                                                     "9303c9cb-5c69-44d6-ba42-5b70d8a82bfe"
+                                                 ],
+                        "required_machine_roles":  [
+                                                       "LAB-CLIENT01:endpoint_runtime",
+                                                       "hungdinh-lt:developer_orchestrator"
+                                                   ],
+                        "artifact_refs":  [
+                                              {
+                                                  "path":  "tests/windows/results/phase1-evidence.json",
+                                                  "sha256":  "98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1",
+                                                  "role":  "LAB-CLIENT01:endpoint_runtime"
+                                              },
+                                              {
+                                                  "path":  "config/lab.phase1.example.yaml",
+                                                  "sha256":  "03fa6e0ff2a3c3d653a4c8ea9df50bf6a33575ce0da6a49fac064a562f41d1ee",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "tests/windows/Invoke-AbruptLossHarness.ps1",
+                                                  "sha256":  "9327605457889dee2c6e3293b859d4db9937366cf30d5902a9021ebd7a9948b3",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              },
+                                              {
+                                                  "path":  "scripts/verify-phase1-evidence.ps1",
+                                                  "sha256":  "ad2f2f9bcf711c1bb975e13c65467b7bb6d3aac2b5cc99eb5afd3b0410609c18",
+                                                  "role":  "hungdinh-lt:developer_orchestrator"
+                                              }
+                                          ],
+                        "procedure_version":  "01-25/v1",
+                        "environment_fingerprint":  {
+                                                        "machine_identity":  "hungdinh-lt",
+                                                        "role":  "developer_orchestrator",
+                                                        "os_build":  "Windows 11 Pro 10.0.26200",
+                                                        "dependency_versions":  {
+                                                                                    "rust":  "locked workspace"
+                                                                                },
+                                                        "service_config_digest":  "approved-phase1-config",
+                                                        "test_tool_versions":  {
+                                                                                   "cargo":  "locked"
+                                                                               },
+                                                        "domain_network_identity":  "not-applicable-portable",
+                                                        "baseline_id":  "phase1-locked-build",
+                                                        "binary_hashes":  {
+                                                                              "phase1":  "approved-binary-digest"
+                                                                          }
+                                                    },
+                        "payload_digest":  "10e1ee897ad4eae6bab56c0ff242b70325fdc4a17cba7640f320f201e035ebb0",
+                        "attestations":  [
+                                             {
+                                                 "threat_id":  "T-01-21-05",
+                                                 "payload_digest":  "10e1ee897ad4eae6bab56c0ff242b70325fdc4a17cba7640f320f201e035ebb0",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "nhdinh"
+                                                                       },
+                                                 "review_utc":  "2026-08-21T07:30:00Z",
+                                                 "procedure_version":  "01-25/v1",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "hungdinh-lt",
+                                                                                 "role":  "developer_orchestrator",
+                                                                                 "os_build":  "Windows 11 Pro 10.0.26200",
+                                                                                 "dependency_versions":  {
+                                                                                                             "rust":  "locked workspace"
+                                                                                                         },
+                                                                                 "service_config_digest":  "approved-phase1-config",
+                                                                                 "test_tool_versions":  {
+                                                                                                            "cargo":  "locked"
+                                                                                                        },
+                                                                                 "domain_network_identity":  "not-applicable-portable",
+                                                                                 "baseline_id":  "phase1-locked-build",
+                                                                                 "binary_hashes":  {
+                                                                                                       "phase1":  "approved-binary-digest"
+                                                                                                   }
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "304267f9e709812faf0b4ba6755429b60e9727f3f1635f55e44a64114fd50056"
+                                             }
+                                         ],
+                        "historical_reviews":  [
+
+                                               ]
+                    }
+                ]
+}
