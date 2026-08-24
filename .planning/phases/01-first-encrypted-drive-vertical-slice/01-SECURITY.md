@@ -119,6 +119,16 @@ No accepted risks. All previously reviewed gaps are documented as open threats i
 |------------|---------------|--------|-----------------|---------------------|----------|--------|
 | 2026-08-15 | 62 | 41 | 19 | 2 | 0 | gsd-security-auditor (opus) |
 | 2026-08-21 | 62 | 60 | 0 | 2 | 0 | lab/administrator |
+| 2026-08-24 | 62 | 60 | 0 | 2 | 0 | lab/administrator |
+
+**2026-08-24 re-audit:** Phase verification detected that the T-01-15-03
+`credential.rs` digest had become stale. The current credential implementation was
+reviewed in full and still provides random DEK generation, machine-scope DPAPI wrapping,
+SYSTEM/service-only ACL enforcement, atomic persistence, zeroization, and redacted
+diagnostics. The focused T-01-15-03 verifier and the 18-case tamper suite passed after
+resealing. The current closure-manifest SHA-256 is
+`92bf224f2c5db79beac59d4f943afbfad994840017dd7e1a38b69362c2c31699`;
+independent reviewer identity remains `lab/administrator`.
 
 ---
 
