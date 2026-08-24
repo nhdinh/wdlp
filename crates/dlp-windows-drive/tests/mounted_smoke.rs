@@ -113,6 +113,14 @@ fn sid_bound_context_mounts_roundtrips_denies_corruption_and_unmounts() {
 
     let directory = format!("{}Documents", mounted_path.display());
     fs::create_dir(&directory).expect("Win32 create directory through mounted drive");
+    let directory_modified = fs::metadata(&directory)
+        .expect("query directory metadata through mounted drive")
+        .modified()
+        .expect("mounted directory exposes a last-write timestamp");
+    assert!(
+        directory_modified > std::time::UNIX_EPOCH,
+        "mounted directory last-write timestamp is later than the FILETIME epoch"
+    );
     let file = format!("{}\\smoke.txt", directory);
     fs::write(&file, MARKER).expect("Win32 write through mounted drive");
     let mut concurrent_reader = fs::File::open(&file).expect("second handle opens the same file");
