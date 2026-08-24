@@ -3,7 +3,9 @@ param(
     [Parameter(Mandatory)][ValidateSet('hungdinh-lt')][string]$CallerMachine,
     [Parameter(Mandatory)][ValidateSet('LAB-DC01')][string]$ServerMachine,
     [Parameter(Mandatory)][ValidateSet('LAB-DC02')][string]$SecondaryDcMachine,
-    [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$EndpointMachine
+    [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$EndpointMachine,
+    [Parameter(Mandatory)][string]$TrustedRootPath,
+    [Parameter(Mandatory)][string]$ReviewerPolicyPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -246,7 +248,17 @@ try { $matrixDigest = ([System.BitConverter]::ToString($sha.ComputeHash($matrixB
 $script:Report.matrix_digest = $matrixDigest
 [System.IO.File]::WriteAllText($matrixDigestPath, "$matrixDigest  phase1-requirement-matrix`n", (New-Object System.Text.UTF8Encoding($false)))
 
-# 8. Report.
+# 8. Authenticated security closure subgate. This must pass before FinalGate can pass.
+$securityVerifier = Join-Path $repoRoot 'scripts/verify-phase1-security.ps1'
+$closurePath = Join-Path $repoRoot 'evidence/phase1/security-closure.yaml'
+$securityJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $securityVerifier -ClosurePath $closurePath -TrustedRootPath $TrustedRootPath -ReviewerPolicyPath $ReviewerPolicyPath -RequireSignedOff -DiagnosticFormat Json
+$securityExit = $LASTEXITCODE
+if ($securityExit -ne 0) { throw "authenticated security subgate failed ($securityExit): $securityJson" }
+$securityResult = $securityJson | ConvertFrom-Json
+Write-Host "Security manifest digest : $($securityResult.manifest_digest)"
+Write-Host "Reviewer policy identity: $($securityResult.reviewer_policy_identity)"
+
+# 9. Report.
 Write-Host "`n=== Phase 1 Final Verifier Report ==="
 Write-Host "Checks run        : $($script:Report.checks)"
 Write-Host "Passed            : $($script:Report.passed)"
