@@ -32,4 +32,5 @@ $tmp=Join-Path $env:TEMP("closure-$([guid]::NewGuid()).json");Copy-Item $manifes
 
 # Publication source contract: named cross-process mutex, locked re-read, flush-through, atomic replace, and test hooks.
 foreach($needle in @('Mutex','PublicationBarrierPath','CrashBeforeReplace','Flush($true)','Replace(')){Assert ($captureSource-match[regex]::Escape($needle)) "publication contract includes $needle"}
+Assert ($captureSource-match'Get-PublicationMutexName' -and $captureSource-match'WaitOne') 'all publishers serialize on the canonical manifest path'
 Write-Host 'Phase 1 security closure tests passed.'
