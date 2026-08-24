@@ -29,9 +29,15 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 14/14 plans; 13 executed source-complete, 1 WinFsp metadata gap-closure plan pending execution
+**Plans**: 18/18 plans executed; 13 executed source-complete, 1 WinFsp metadata gap-closure plan pending execution
 
 Plans:
+
+- [x] 01-27-PLAN.md
+- [x] 01-28-PLAN.md
+- [x] 01-29-PLAN.md
+- [x] 01-30-PLAN.md
+
 **Wave 1**
 
 - [x] 01-17-PLAN.md (Wave 1) — Establish layered evidence/provenance, substitute boundaries, four-machine roles, and exact privilege-manifest approvals
@@ -86,7 +92,7 @@ Plans:
 
 **Wave 14** *(gap closure for SC-04)*
 
-- [ ] 01-26-PLAN.md (Wave 14) — Fix WinFsp directory metadata, wildcard patterns, change notifications, and re-verify SC-04 on LAB-CLIENT01
+- [x] 01-26-PLAN.md (Wave 14) — Fix WinFsp directory metadata, wildcard patterns, change notifications, and re-verify SC-04 on LAB-CLIENT01
 
 ### Phase 01.3: Make a background app that run in devices to collect log and provide the result through a HTTP port for easier debugging (INSERTED)
 
@@ -194,7 +200,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 13/14 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 18/18 | In Progress|  |
 | 1.1. Add env-var docs | 1/1 | Complete | 2026-08-15 |
 | 1.2. Automatic enrollment token acquisition | 1/1 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
