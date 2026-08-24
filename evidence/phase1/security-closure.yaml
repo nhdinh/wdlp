@@ -111,7 +111,7 @@ records:
     mitigation_assertion: Random DEK, machine-DPAPI wrapper, service-only ACL, zeroization, and marker scans.
     implementation_refs:
       - path: crates/dlp-windows-service/src/credential.rs
-        sha256: b81d274891b26388445ba79831d7e85fe7d5cbcc37a3497190058730d17bbef5
+        sha256: 093672144ea7c75119e71f7ba3777b4477b8891ece0eb86ad4a05933e7ad845d
       - path: crates/dlp-windows-service/src/session.rs
         sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
     evidence_attempt_ids:
@@ -124,7 +124,7 @@ records:
         sha256: 98f918eab2b25b91b1d2b8fefb6f274c4d7577d7506641589c6159465c3472c1
         role: LAB-CLIENT01:endpoint_runtime
       - path: crates/dlp-windows-service/src/credential.rs
-        sha256: b81d274891b26388445ba79831d7e85fe7d5cbcc37a3497190058730d17bbef5
+        sha256: 093672144ea7c75119e71f7ba3777b4477b8891ece0eb86ad4a05933e7ad845d
         role: hungdinh-lt:developer_orchestrator
       - path: crates/dlp-windows-service/src/session.rs
         sha256: 642e127cc0e386154cc5b75f33eee8d6142e6202ff07847a93ea051f366dd2ab
