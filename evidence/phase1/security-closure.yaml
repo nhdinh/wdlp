@@ -268,7 +268,23 @@
                                                     },
                         "payload_digest":  "309cac0e9a8b497c0449c6e7e9e5a57b1153cd757d629046e813b83b1565d78a",
                         "attestations":  [
-
+                                             {
+                                                 "threat_id":  "T-01-15-03",
+                                                 "payload_digest":  "309cac0e9a8b497c0449c6e7e9e5a57b1153cd757d629046e813b83b1565d78a",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "LAB\\Administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-24T08:38:50.3158536Z",
+                                                 "procedure_version":  "01-28/v2",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "LAB-CLIENT01",
+                                                                                 "role":  "independent_reviewer",
+                                                                                 "domain_network_identity":  "LAB"
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "b45c79ed7a68acd28276da314ba703809c32f4141fa6103a6112b09bbdb7f693"
+                                             }
                                          ],
                         "historical_reviews":  [
                                                    {
@@ -645,7 +661,23 @@
                                                     },
                         "payload_digest":  "b919cc4b407deb8d032919832e7f740d0869b4ceae22c1661f85c049e80d2519",
                         "attestations":  [
-
+                                             {
+                                                 "threat_id":  "T-01-16-02",
+                                                 "payload_digest":  "b919cc4b407deb8d032919832e7f740d0869b4ceae22c1661f85c049e80d2519",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "LAB\\Administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-24T08:38:51.8331576Z",
+                                                 "procedure_version":  "01-28/v2",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "LAB-CLIENT01",
+                                                                                 "role":  "independent_reviewer",
+                                                                                 "domain_network_identity":  "LAB"
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "a267046eacadffce878134f2ea99fdb63d92d261f2432a7ef1b086dff2c44846"
+                                             }
                                          ],
                         "historical_reviews":  [
                                                    {
@@ -733,7 +765,23 @@
                                                     },
                         "payload_digest":  "bba94716bd8a96e0e1bacf95e361e843a1cea96ed671bc925826f8c584fe23dc",
                         "attestations":  [
-
+                                             {
+                                                 "threat_id":  "T-01-16-03",
+                                                 "payload_digest":  "bba94716bd8a96e0e1bacf95e361e843a1cea96ed671bc925826f8c584fe23dc",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "LAB\\Administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-24T08:38:52.9261566Z",
+                                                 "procedure_version":  "01-28/v2",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "LAB-CLIENT01",
+                                                                                 "role":  "independent_reviewer",
+                                                                                 "domain_network_identity":  "LAB"
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "1a87f609b413c19d0b3681bcffcabcb69e75b79c12a6bc8416e934e4077ae18b"
+                                             }
                                          ],
                         "historical_reviews":  [
                                                    {
@@ -991,7 +1039,23 @@
                                                     },
                         "payload_digest":  "746b993d8f5c9543ff7a29483d6830853d1bf8e5bbb66d8f0ad48f1da8ec890c",
                         "attestations":  [
-
+                                             {
+                                                 "threat_id":  "T-01-18-SC",
+                                                 "payload_digest":  "746b993d8f5c9543ff7a29483d6830853d1bf8e5bbb66d8f0ad48f1da8ec890c",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "LAB\\Administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-24T08:38:53.8572407Z",
+                                                 "procedure_version":  "01-28/v2",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "LAB-CLIENT01",
+                                                                                 "role":  "independent_reviewer",
+                                                                                 "domain_network_identity":  "LAB"
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "1d2447e7352cd328981f78466fce484762c9b12b061d528565bf54372750270f"
+                                             }
                                          ],
                         "historical_reviews":  [
                                                    {
@@ -1079,7 +1143,23 @@
                                                     },
                         "payload_digest":  "0acf402ef5289f7217fb0d4c7c07d087fb0bebe2ac90ad349074ed28a7801f5a",
                         "attestations":  [
-
+                                             {
+                                                 "threat_id":  "T-01-20-01",
+                                                 "payload_digest":  "0acf402ef5289f7217fb0d4c7c07d087fb0bebe2ac90ad349074ed28a7801f5a",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "LAB\\Administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-24T08:38:55.1015966Z",
+                                                 "procedure_version":  "01-28/v2",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "LAB-CLIENT01",
+                                                                                 "role":  "independent_reviewer",
+                                                                                 "domain_network_identity":  "LAB"
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "7176498ad1aa1b014a1c5cab99f21ce9e768f327dc2188b2beb759a5ba4ebc87"
+                                             }
                                          ],
                         "historical_reviews":  [
                                                    {
@@ -1162,7 +1242,23 @@
                                                     },
                         "payload_digest":  "7731e75e9dbe5bb84f544f1cd12fc0c93e748e19c8858d275c460b3ffa1c85c4",
                         "attestations":  [
-
+                                             {
+                                                 "threat_id":  "T-01-20-02",
+                                                 "payload_digest":  "7731e75e9dbe5bb84f544f1cd12fc0c93e748e19c8858d275c460b3ffa1c85c4",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "LAB\\Administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-24T08:38:56.3650482Z",
+                                                 "procedure_version":  "01-28/v2",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "LAB-CLIENT01",
+                                                                                 "role":  "independent_reviewer",
+                                                                                 "domain_network_identity":  "LAB"
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "bddaf47e20af803e4ff2d0b2463a05f4fda2aede7260157095999cf29b3a7226"
+                                             }
                                          ],
                         "historical_reviews":  [
                                                    {
@@ -1248,7 +1344,23 @@
                                                     },
                         "payload_digest":  "a3d49c0b0eda98f7c3d1cd5794d847fa97de1d03292903647ced7952056f4c42",
                         "attestations":  [
-
+                                             {
+                                                 "threat_id":  "T-01-20-05",
+                                                 "payload_digest":  "a3d49c0b0eda98f7c3d1cd5794d847fa97de1d03292903647ced7952056f4c42",
+                                                 "reviewer_identity":  {
+                                                                           "kind":  "authenticated_domain_operator",
+                                                                           "name":  "LAB\\Administrator"
+                                                                       },
+                                                 "review_utc":  "2026-08-24T08:38:57.7099470Z",
+                                                 "procedure_version":  "01-28/v2",
+                                                 "environment_fingerprint":  {
+                                                                                 "machine_identity":  "LAB-CLIENT01",
+                                                                                 "role":  "independent_reviewer",
+                                                                                 "domain_network_identity":  "LAB"
+                                                                             },
+                                                 "previous_attestation_digest":  "",
+                                                 "attestation_digest":  "092d007e792faa9651dd9b46224ad4daae019f441671acd9447f3f6e7b48c26f"
+                                             }
                                          ],
                         "historical_reviews":  [
                                                    {
