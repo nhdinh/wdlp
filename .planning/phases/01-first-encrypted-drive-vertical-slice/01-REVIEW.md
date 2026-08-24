@@ -1,19 +1,21 @@
 ---
 phase: 01-first-encrypted-drive-vertical-slice
-reviewed: 2026-08-24T04:45:00Z
+reviewed: 2026-08-24T08:57:49Z
 depth: standard
-files_reviewed: 2
+files_reviewed: 4
 files_reviewed_list:
-  - crates/dlp-windows-drive/tests/mounted_smoke.rs
+  - scripts/verify-phase1-security.ps1
+  - scripts/add-security-closure-review.ps1
+  - scripts/evidence/Phase1.Security.Tests.ps1
   - evidence/phase1/security-closure.yaml
 findings:
-  critical: 0
-  warning: 0
+  critical: 3
+  warning: 3
   info: 0
-  total: 0
+  total: 6
 resolved_findings:
   critical: 1
-status: resolved
+status: issues_found
 ---
 
 # Phase 01: Code Review Report
@@ -69,3 +71,121 @@ interface (`hungdinh-lt`, `LAB-DC01`, `LAB-SERVER01` evidence,
 success criteria, 50/50 decisions, and 9/9 privilege manifests, with 62
 INTEGRATE and 21 OPT-OUT coverage rows. Evidence bundle/hash, sanitization,
 and independent review were all valid. CR-01 is resolved.
+
+## Gap-Closure Code Review — 2026-08-24
+
+The original CR-01 finding and its resolution above are retained as append-only
+audit history. This review covers the v2 verifier, review-capture command,
+security regression suite, and current closure manifest. The 11-check suite
+passes on Windows PowerShell 5.1, but the security boundary still has three
+blocking defects and three robustness/test defects.
+
+### Critical Issues
+
+#### CR-02: Attestations are forgeable by anyone who can edit the manifest
+
+**Classification:** BLOCKER  
+**File:** `C:/Users/nhdinh/dev/dleakprevention/scripts/verify-phase1-security.ps1:13-20`  
+**Issue:** An attestation is authenticated only by an unkeyed SHA-256 digest over
+fields stored beside that digest. The verifier neither checks a digital
+signature nor validates the claimed reviewer name, identity kind, machine,
+domain, role, procedure version, or review time against an external trust root.
+An editor can therefore invent `LAB\\Administrator`/`LAB-CLIENT01`, recompute the
+payload and attestation digests, and obtain `-RequireSignedOff` success. The
+predecessor hashes detect accidental edits but provide no tamper resistance
+against a party capable of recomputing SHA-256, so the claimed independent
+approval is not verifiable.
+**Fix:** Have the reviewer sign the canonical payload with a reviewer-controlled
+certificate/key whose trust chain and intended identity are validated by the
+verifier (or publish the approval into an append-only externally authenticated
+system and verify its receipt). Validate the required LAB identity/machine/role,
+procedure version, and timestamp policy before accepting the signature. Do not
+treat a self-contained hash chain as authentication.
+
+#### CR-03: The capture command can publish approval without reviewer confirmation
+
+**Classification:** BLOCKER  
+**File:** `C:/Users/nhdinh/dev/dleakprevention/scripts/add-security-closure-review.ps1:2,13`  
+**Issue:** `-ConfirmEach` is optional. Omitting both `-DryRun` and
+`-ConfirmEach` silently appends attestations for every requested threat. Even
+when confirmation is enabled, the displayed object omits protected fields such
+as disposition, severity, evidence attempt IDs, required machine roles,
+procedure version, and environment fingerprint, so the prompt's “exact payload”
+claim is false. A caller can thus clear human-review gates without an affirmative
+per-payload decision, or obtain confirmation without showing the complete
+payload being attested.
+**Fix:** Make interactive confirmation mandatory for publication unless a
+separate, strongly authenticated signed-input mode is used. Render the exact
+canonical payload (all fields in `Payload`) and its digest before each prompt,
+then require an affirmative response bound to that digest. Reject publication
+when neither a valid signed approval nor explicit confirmation is present.
+
+#### CR-04: Drift check has a race that can overwrite concurrent manifest updates
+
+**Classification:** BLOCKER  
+**File:** `C:/Users/nhdinh/dev/dleakprevention/scripts/add-security-closure-review.ps1:12-14`  
+**Issue:** The command hashes the manifest, builds an in-memory copy, checks the
+hash once, then writes a temporary file and performs `Move-Item -Force`. Another
+reviewer can publish after the final hash check but before the move; the later
+move replaces that newer manifest with the stale in-memory copy, losing the
+other review while still reporting success. The check-and-replace sequence is
+not a compare-and-swap operation, and the regression suite has no concurrent
+writer case.
+**Fix:** Serialize writers with an exclusive lock held from the initial read
+through replacement, or use a storage/API primitive providing atomic
+compare-and-swap on the expected digest. Revalidate while holding the lock and
+use a same-volume durable atomic replacement that does not introduce a
+delete/replace window. Add a two-writer regression proving neither attestation
+is lost.
+
+### Warnings
+
+#### WR-01: “Canonical” digests are runtime-dependent and the scripts do not enforce the runtime
+
+**Classification:** WARNING  
+**File:** `C:/Users/nhdinh/dev/dleakprevention/scripts/verify-phase1-security.ps1:8-13`; `C:/Users/nhdinh/dev/dleakprevention/scripts/add-security-closure-review.ps1:4-6`  
+**Issue:** Canonicalization delegates to `ConvertTo-Json`, whose serialization
+differs between Windows PowerShell 5.1 and PowerShell 7 for these objects. The
+review workflow already encountered widespread digest mismatches under `pwsh`,
+yet neither script declares or enforces Windows PowerShell 5.1. The same valid
+manifest can therefore pass or fail depending on the host executable.
+**Fix:** Implement a version-independent canonical JSON serializer (for example,
+RFC 8785 with explicit schema/type handling) and test it under both engines. As
+an immediate fail-closed guard, reject unsupported `$PSVersionTable` values with
+a clear diagnostic.
+
+#### WR-02: Mutation tests do not model an attacker who recomputes digests
+
+**Classification:** WARNING  
+**File:** `C:/Users/nhdinh/dev/dleakprevention/scripts/evidence/Phase1.Security.Tests.ps1:10-20`  
+**Issue:** The “payload reseal” case changes an assertion but leaves the stored
+payload digest stale, and the attestation cases mutate fields without
+recomputing their digests or downstream links. These tests prove checksum
+consistency, not tamper resistance. The suite also exercises only capture
+dry-run/failure, not successful confirmed capture, omitted confirmation,
+provenance validation, or concurrent publication. Consequently it passes while
+CR-02 through CR-04 remain exploitable.
+**Fix:** Add adversarial fixtures that recompute every unkeyed digest/link after
+tampering and require rejection by a trusted signature/provenance check. Add
+end-to-end success and refusal tests for capture, plus an interleaved two-writer
+publication test and cross-PowerShell canonicalization vectors.
+
+#### WR-03: Public command contracts advertise behavior they do not implement
+
+**Classification:** WARNING  
+**File:** `C:/Users/nhdinh/dev/dleakprevention/scripts/add-security-closure-review.ps1:1-14`; `C:/Users/nhdinh/dev/dleakprevention/scripts/verify-phase1-security.ps1:2`  
+**Issue:** The capture cmdlet declares `SupportsShouldProcess` but never calls
+`$PSCmdlet.ShouldProcess`, so `-WhatIf` does not prevent publication. The
+verifier accepts `-SecurityPath` but never reads or validates it, although the
+test and FinalGate invocation pass the argument as if it were part of the gate.
+These misleading interfaces can cause operators and callers to believe a write
+was simulated or a security artifact was validated when neither is true.
+**Fix:** Guard the replacement with `$PSCmdlet.ShouldProcess` (and test
+`-WhatIf`), and either remove `-SecurityPath` or implement and test the intended
+binding/validation.
+
+---
+
+_Reviewed: 2026-08-24T08:57:49Z_  
+_Reviewer: the agent (gsd-code-reviewer)_  
+_Depth: standard_
