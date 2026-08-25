@@ -1,4 +1,4 @@
-[CmdletBinding()]param()
+[CmdletBinding()]param([ValidateSet('All','Publication','Verifier','FinalGate')][string]$Focus='All')
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $root=Split-Path -Parent (Split-Path -Parent $PSScriptRoot);$manifest=Join-Path $root 'evidence/phase1/security-closure.yaml';$verifier=Join-Path $root 'scripts/verify-phase1-security.ps1';$capture=Join-Path $root 'scripts/add-security-closure-review.ps1'
 function Assert($condition,$message){if(!$condition){throw "FAILED: $message"}}
@@ -7,6 +7,43 @@ function HashText($value){$s=[Security.Cryptography.SHA256]::Create();try{$json=
 function Body($a){[ordered]@{threat_id=[string]$a.threat_id;payload_digest=[string]$a.payload_digest;reviewer_identity=$a.reviewer_identity;review_utc=[string]$a.review_utc;procedure_version=[string]$a.procedure_version;environment_fingerprint=$a.environment_fingerprint;previous_attestation_digest=[string]$a.previous_attestation_digest}}
 function Invoke-Verify($path,[string[]]$extra=@()){$out=[IO.Path]::GetTempFileName();$err=[IO.Path]::GetTempFileName();try{$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifier,'-ClosurePath',$path,'-DiagnosticFormat','Json')+$extra;$p=Start-Process powershell -ArgumentList $args -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err;[pscustomobject]@{Exit=$p.ExitCode;Out=(Get-Content -Raw $out);Err=(Get-Content -Raw $err)}}finally{Remove-Item $out,$err -Force -ErrorAction SilentlyContinue}}
 function Mutate([scriptblock]$change){$p=Join-Path $env:TEMP("closure-$([guid]::NewGuid()).json");$c=Get-Content -Raw $manifest|ConvertFrom-Json;&$change $c;[IO.File]::WriteAllText($p,($c|ConvertTo-Json -Depth 20),[Text.UTF8Encoding]::new($false));$p}
+function Start-Publisher($path,$threat,$thumbprint,$policyPath,[string[]]$extra=@()){
+ $stdin=Join-Path $env:TEMP("publisher-stdin-$([guid]::NewGuid()).txt");$stdout=Join-Path $env:TEMP("publisher-out-$([guid]::NewGuid()).txt");$stderr=Join-Path $env:TEMP("publisher-err-$([guid]::NewGuid()).txt")
+ [IO.File]::WriteAllText($stdin,"YES`r`n",[Text.UTF8Encoding]::new($false));$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$capture,'-ClosurePath',$path,'-ThreatId',$threat,'-ReviewerPolicyPath',$policyPath,'-SignerThumbprint',$thumbprint)+$extra
+ $process=Start-Process powershell -ArgumentList $args -PassThru -NoNewWindow -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+ [pscustomobject]@{Process=$process;Input=$stdin;Output=$stdout;Error=$stderr}
+}
+function Wait-Publisher($publisher,[int]$timeoutSeconds=15){
+ if(!$publisher.Process.WaitForExit($timeoutSeconds*1000)){try{$publisher.Process.Kill()}catch{};throw 'FAILED: publisher timed out'}
+ [pscustomobject]@{Exit=$publisher.Process.ExitCode;Out=(Get-Content -Raw $publisher.Output -ErrorAction SilentlyContinue);Err=(Get-Content -Raw $publisher.Error -ErrorAction SilentlyContinue)}
+}
+function Remove-Publisher($publisher){Remove-Item $publisher.Input,$publisher.Output,$publisher.Error -Force -ErrorAction SilentlyContinue}
+function New-PublicationTestCertificate {
+ $rsa=[Security.Cryptography.RSA]::Create(2048);$request=[Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=Phase1 Publication Test Reviewer',$rsa,[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1)
+ $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new([Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature,$true));$certificate=$request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddMinutes(-5),[DateTimeOffset]::UtcNow.AddHours(1));$persisted=[Security.Cryptography.X509Certificates.X509Certificate2]::new($certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Pfx),$null,[Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet)
+ $store=[Security.Cryptography.X509Certificates.X509Store]::new('My',[Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser);try{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite);$store.Add($persisted)}finally{$store.Dispose();$certificate.Dispose();$rsa.Dispose()};$persisted
+}
+function Remove-PublicationTestCertificate($certificate){$store=[Security.Cryptography.X509Certificates.X509Store]::new('My',[Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser);try{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite);$store.Remove($certificate)}finally{$store.Dispose();$certificate.Dispose()}}
+
+if($Focus-in@('All','Publication')){
+ $publicationRoot=Join-Path $env:TEMP("phase1-publication-$([guid]::NewGuid())");New-Item -ItemType Directory -Path $publicationRoot|Out-Null
+ $certificate=New-PublicationTestCertificate
+ $policyPath=Join-Path $publicationRoot 'reviewer-policy.json';$policy=[ordered]@{procedure_version='phase1-publication-test/v1';reviewers=@([ordered]@{thumbprint=$certificate.Thumbprint;identity='publication-test-reviewer';machine_identity=$env:COMPUTERNAME;role='independent_security_reviewer';domain_network_identity='test.local'})};[IO.File]::WriteAllText($policyPath,($policy|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))
+ try{
+  $threat='T-01-15-03'
+  $driftPath=Join-Path $publicationRoot 'drift.json';Copy-Item $manifest $driftPath;$barrier=Join-Path $publicationRoot 'drift-barrier';New-Item -ItemType File -Path "$barrier.wait"|Out-Null
+  $driftPublisher=Start-Publisher $driftPath $threat $certificate.Thumbprint $policyPath @('-PublicationBarrierPath',$barrier)
+  try{for($i=0;$i-lt150-and!(Test-Path $barrier);$i++){Start-Sleep -Milliseconds 50};Assert (Test-Path $barrier) 'drift publisher acquired publication lock';$drift=Get-Content -Raw $driftPath|ConvertFrom-Json;(@($drift.records|Where-Object threat_id -eq $threat))[0].mitigation_assertion+=' concurrent mutation';[IO.File]::WriteAllText($driftPath,($drift|ConvertTo-Json -Depth 20),[Text.UTF8Encoding]::new($false));$mutatedHash=FileHash $driftPath;Remove-Item "$barrier.wait" -Force;$driftResult=Wait-Publisher $driftPublisher;Assert ($driftResult.Exit-ne0) 'protected-field drift is rejected';Assert (($driftResult.Out+$driftResult.Err)-match"publication_conflict:$threat") 'protected-field drift has stable diagnostic';Assert ((FileHash $driftPath)-eq$mutatedHash) 'rejected drift leaves manifest byte-identical'}finally{Remove-Item "$barrier.wait" -Force -ErrorAction SilentlyContinue;Remove-Publisher $driftPublisher}
+
+  $racePath=Join-Path $publicationRoot 'race.json';Copy-Item $manifest $racePath;$raceBarrier=Join-Path $publicationRoot 'race-barrier';New-Item -ItemType File -Path "$raceBarrier.wait"|Out-Null
+  $first=Start-Publisher $racePath $threat $certificate.Thumbprint $policyPath @('-PublicationBarrierPath',$raceBarrier)
+  try{for($i=0;$i-lt150-and!(Test-Path $raceBarrier);$i++){Start-Sleep -Milliseconds 50};Assert (Test-Path $raceBarrier) 'first publisher acquired publication lock';$second=Start-Publisher $racePath $threat $certificate.Thumbprint $policyPath;Start-Sleep -Milliseconds 500;Remove-Item "$raceBarrier.wait" -Force;$firstResult=Wait-Publisher $first;$secondResult=Wait-Publisher $second;Assert ($firstResult.Exit-eq0) 'one concurrent publisher succeeds';Assert ($secondResult.Exit-ne0) 'stale concurrent publisher is rejected';Assert (($secondResult.Out+$secondResult.Err)-match"publication_conflict:$threat") 'stale publisher has stable diagnostic';$race=Get-Content -Raw $racePath|ConvertFrom-Json;Assert (@((@($race.records|Where-Object threat_id -eq $threat))[0].attestations).Count-gt0) 'one attestation remains published'}finally{Remove-Item "$raceBarrier.wait" -Force -ErrorAction SilentlyContinue;Remove-Publisher $first;if($second){Remove-Publisher $second}}
+
+  $crashPath=Join-Path $publicationRoot 'crash.json';Copy-Item $manifest $crashPath;$beforeCrash=FileHash $crashPath;$crash=Start-Publisher $crashPath $threat $certificate.Thumbprint $policyPath @('-CrashBeforeReplace');try{$crashResult=Wait-Publisher $crash;Assert ($crashResult.Exit-ne0) 'injected pre-replace crash fails';Assert (($crashResult.Out+$crashResult.Err)-match'injected_crash_before_replace') 'injected crash has stable diagnostic';Assert ((FileHash $crashPath)-eq$beforeCrash) 'injected crash preserves original manifest bytes';Assert (@(Get-ChildItem $publicationRoot -Filter '.crash.json.*.tmp').Count-eq0) 'injected crash removes publication temporary files'}finally{Remove-Publisher $crash}
+ }finally{Remove-PublicationTestCertificate $certificate;Remove-Item $publicationRoot -Recurse -Force -ErrorAction SilentlyContinue}
+}
+
+if($Focus-eq'Publication'){Write-Host 'Phase 1 publication security tests passed.';exit 0}
 
 $base=Invoke-Verify $manifest;Assert ($base.Exit-eq0) 'canonical pre-sign-off validation'
 $missing=Invoke-Verify $manifest @('-RequireSignedOff');Assert ($missing.Exit-eq2) 'signed-off mode requires external trust inputs';Assert (($missing.Out|ConvertFrom-Json).error-eq'trusted_root_missing') 'stable missing-root diagnostic'
