@@ -189,3 +189,53 @@ binding/validation.
 _Reviewed: 2026-08-24T08:57:49Z_  
 _Reviewer: the agent (gsd-code-reviewer)_  
 _Depth: standard_
+
+## Plan 01-33 Resolution of 2026-08-24 Re-verification Findings
+
+This section is append-only. It resolves CR-02 through CR-04 without altering
+their original wording or the earlier review history. Plans 01-31 through 01-33
+implemented the hardened verifier/publication boundary, obtained fresh
+independent signatures, and reconciled the canonical FinalGate.
+
+### CR-02 resolved: authenticated, externally rooted attestations
+
+`recomputed forgery rejected`, `signed-off mode requires external trust
+inputs`, `stable missing-root diagnostic`, and `malformed external trust inputs
+fail closed` all passed. The verifier accepted 19/19 current detached CMS
+signatures from authenticated reviewer `LAB\dlp-reviewer`, certificate
+thumbprint `E5AC839BE9C7F8800941B81E73A2AB3EF07C5CF7`, under procedure
+`01-32/independent-security-review/v1`. The exact manifest SHA-256 was
+`341d42cddafcfa0119924ec5c052051e32627b7b83a8b0efd5abad916fad8bef`;
+the mandatory external reviewer-policy identity was
+`21b488cdee3e5181f9195c2c0dc7b84d7c6b6c7575636d641ec4ffc679d4a0c6`.
+
+### CR-03 resolved: exact affirmative review and non-mutating simulation
+
+The regressions/source contracts `optional confirmation bypass removed`,
+`exact affirmative input required`, `capture protects field <field>`, `dry run
+succeeds`, `dry run byte-identical`, and `WhatIf byte-identical` passed. The
+capture path displays every protected payload field, requires the literal
+affirmative response, signs through reviewer-controlled CMS material, and
+cannot publish through `-DryRun` or `-WhatIf`.
+
+### CR-04 resolved: lossless serialized publication
+
+The publication contracts requiring `Mutex`, `Get-PublicationMutexName`,
+`WaitOne`, locked re-read, `Flush($true)`, atomic `Replace(`,
+`PublicationBarrierPath`, and `CrashBeforeReplace` passed. These cover the
+deterministic two-writer interleaving and crash-before-replace preservation
+paths established by Plan 01-31, preventing a stale writer from silently
+overwriting a newer attestation.
+
+### Canonical FinalGate reconciliation
+
+The Phase 1 security suite passed, followed by the signed-off verifier with
+zero diagnostics and the same manifest/policy identities above. The canonical
+FinalGate forwarded the exact `TrustedRootPath` and `ReviewerPolicyPath` with
+`-RequireSignedOff`, reported those identical identities, and passed: 34/34
+checks, 30/30 requirements, 7/7 success criteria, 50/50 decisions, 9/9
+privilege manifests, 62 INTEGRATE and 21 OPT-OUT coverage rows, valid evidence
+bundle/hash, valid sanitization, and valid independent review. Its regression
+contract also requires a nonzero exit when the authenticated security subgate
+fails. CR-02, CR-03, and CR-04 are resolved; SEC-01 through SEC-03 remain
+complete only while these gates continue to pass.
