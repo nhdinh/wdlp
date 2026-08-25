@@ -127,3 +127,29 @@ This standard-depth adversarial review covers the three Plan 01-34 PowerShell so
 _Reviewed: 2026-08-25T15:10:00Z_  
 _Reviewer: the agent (gsd-code-reviewer)_  
 _Depth: standard_
+
+## Plan 01-36 Resolution — 2026-08-25
+
+The CR-05 through CR-07 findings above remain verbatim as the failed review interval. They are now resolved with authenticated, append-only evidence; no earlier finding, attestation, signature, or superseded interval was deleted or rewritten.
+
+### CR-05 Resolved — observed reviewer identity and station
+
+Commit `3b7341a` captures `[Security.Principal.WindowsIdentity]::GetCurrent().Name` and `COMPUTERNAME`, requires them to match the sole policy reviewer before preview, affirmation, locking, signing, or mutation, and writes the observed values into the signed record. The authenticated Plan 01-36 ceremony ran as `LAB\dlp-reviewer` on the policy-approved `LAB-DC02` reviewer station and signed with thumbprint `E9407299128C7A1292E3B78F7F2E369CB71B67A5`. Wrong-user and wrong-machine behavioral regressions pass without mutation.
+
+### CR-06 Resolved — complete historical CMS commitment
+
+Commit `6d6da21` adds a signed `phase1-history-envelope/v1` commitment over the ordered attestation digests and SHA-256 digest of every historical CMS byte sequence. Commit `3bff65b` publishes that envelope for all 19 records. The pre/post inventory proves all 76 prior attestations are byte-identical; exactly 19 additive attestations and 19 envelopes were added. Superseded CMS byte mutation, history removal, and history reordering each fail closed in the complete security suite.
+
+### CR-07 Resolved — final-handle repository containment
+
+Commit `5e60d7e` opens each reference once, resolves its final Windows path with `GetFinalPathNameByHandleW`, proves the final target remains within the repository boundary, and hashes from the same accepted handle. Real junction, symbolic-link, and path-swap/handle-stability regressions pass and reject external targets.
+
+### Closure identities and gates
+
+- Ceremony procedure: `01-32/independent-security-review/v1`, review interval `2026-08-25T10:51:45.4958996Z`–`2026-08-25T10:51:46.2670017Z`.
+- Current manifest digest: `fcadc1d8609afc0357083b843715f6a1db15e2878978d97759ee8d44e75815c3`.
+- Reviewer-policy identity: `edfa1018ee5c9fbb5073af0a16b71bf82e83f144a48568164b8a691fdff960fd`.
+- Direct signed-off verifier: `valid`, zero diagnostics.
+- Canonical FinalGate: passed 34/34 checks; 30/30 requirements; 7/7 success criteria; 50/50 decisions; 9/9 privilege manifests; identical manifest and policy identities.
+
+**Resolution status:** CR-05, CR-06, and CR-07 closed. A fresh D-48 verifier distinct from the archival-envelope signer must still review and sign the final frozen evidence digest before Phase 1 completion.
