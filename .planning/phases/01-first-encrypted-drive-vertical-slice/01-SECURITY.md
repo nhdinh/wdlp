@@ -191,3 +191,19 @@ regression reopens this status.
 
 - Fix mitigations then re-run: `/gsd-secure-phase 01`
 - Or document accepted risks in SECURITY.md and re-run.
+
+---
+
+## Plan 01-34 Hardened Trust-Boundary Closure — 2026-08-25
+
+All earlier failed, corrected, and superseded intervals above remain part of this append-only record. Plan 01-34 closed the four verification blockers without deleting prior attestations. The D-22 ceremony ran on the corrected trusted reviewer signing station `LAB-DC02` in an authenticated `LAB\dlp-reviewer` session. It appended 19 replacement-certificate attestations from `2026-08-25T08:45:12.9957078Z` through `2026-08-25T08:45:13.1833425Z`; signer thumbprint `E9407299128C7A1292E3B78F7F2E369CB71B67A5` has digital-signature usage, the policy-required code-signing EKU, and HTTP base/delta CRL endpoints. The prior revocation-indeterminate interval and its superseded signatures remain inspectable.
+
+Remediation commits are `a5517d0` (purpose, revocation, and containment enforcement), `94a8450` (process-scoped `CustomRootTrust` chain construction without trust-store import), `cb82615` (consent continuity), `1d15e58` (FinalGate propagation), and `f4ad69d` (LAB-DC02 topology correction).
+
+Executed evidence:
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/evidence/Phase1.Security.Tests.ps1` — passed. Diagnostic-specific cases execute protected-payload drift (`publication_conflict:<threat>`), two concurrent publishers, injected pre-replace crash cleanup, missing digital-signature usage, missing required EKU, valid-trust recomputed forgery (`signature_invalid`), rooted/traversing/prefix-collision/mixed-separator references, and canonical FinalGate security-subgate failure propagation.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-phase1-security.ps1 -ClosurePath evidence/phase1/security-closure.yaml -TrustedRootPath $env:PHASE1_TRUSTED_ROOT_PATH -ReviewerPolicyPath $env:PHASE1_REVIEWER_POLICY_PATH -RequireSignedOff -DiagnosticFormat Json` — `valid`, zero diagnostics, 19/19 current attestations; manifest `4b30d328d5967f8f2346be1d61811b8ae56b26404dc8bef0150e61ba1619c591`; policy `edfa1018ee5c9fbb5073af0a16b71bf82e83f144a48568164b8a691fdff960fd`.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-phase1.ps1 -CallerMachine hungdinh-lt -ServerMachine LAB-DC01 -SecondaryDcMachine LAB-DC02 -EndpointMachine LAB-CLIENT01 -TrustedRootPath $env:PHASE1_TRUSTED_ROOT_PATH -ReviewerPolicyPath $env:PHASE1_REVIEWER_POLICY_PATH` — FinalGate passed: 34/34 checks, 30/30 requirements, 7/7 success criteria, 50/50 decisions, and 9/9 privilege manifests. It reported the same manifest and policy identities as the direct security subgate.
+
+SEC-01 through SEC-04 are closed. Revoked, offline, unknown, untrusted, wrong-purpose, escaped-path, drifted-consent, interrupted-publication, forged-signature, or failing-subgate states remain fail-closed and reopen this status.
