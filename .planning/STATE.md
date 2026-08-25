@@ -5,15 +5,15 @@ current_phase: 01
 current_phase_name: First Encrypted-Drive Vertical Slice
 current_plan: 1
 status: executing
-stopped_at: Completed 01-34-PLAN.md
-last_updated: "2026-08-25T09:47:09.155Z"
+stopped_at: Completed 01-35-PLAN.md
+last_updated: "2026-08-25T10:15:59.153Z"
 last_activity: 2026-08-25
-state_head: 9da371f29e74f1ab690fe27daf812bae031ef58a
+state_head: 5e60d7eea6f01aa0e11a6fe36339c7e94fdff84f
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 29
-  completed_plans: 27
+  completed_plans: 28
 milestone_name: milestone
 last_activity_desc: Completed Plan 01-21 Task 2; FinalGate verifier passes (30/30 requirements, 7/7 success criteria, 50/50 decisions, 9/9 privilege manifests, valid independent review by lab/administrator, matrix digest 5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414).
 ---
@@ -51,7 +51,7 @@ Last activity: 2026-08-25
 ## Current Position
 
 - **Phase:** 01 (First Encrypted-Drive Vertical Slice) — READY TO EXECUTE
-- **Plan:** 5 of 21
+- **Plan:** 6 of 21
 - **Task:** 2 of 2
 - **Status:** Ready to execute
 - **Progress:** [██████████] 100% of Phase 01
@@ -100,6 +100,7 @@ Last activity: 2026-08-25
 | Phase 01 P32 | 1d | 1 tasks | 1 files |
 | Phase 01 P33 | 25m | 2 tasks | 6 files |
 | Phase 01 P34 | 5h28m | 3 tasks | 7 files |
+| Phase 01 P35 | 50m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -131,8 +132,8 @@ Last activity: 2026-08-25
 
 **Resume file:** None
 
-**Last session:** 2026-08-25T09:10:08.779Z
-**Stopped at:** Completed 01-34-PLAN.md
+**Last session:** 2026-08-25T10:15:59.088Z
+**Stopped at:** Completed 01-35-PLAN.md
 
 **Current session:** 2026-08-21T07:15:00Z
 **Resumed at:** /gsd-resume-work — completed Plan 01-21 Task 2 and passed FinalGate.
@@ -215,6 +216,8 @@ Last activity: 2026-08-25
 - [Phase 01]: Windows PowerShell security scripts explicitly load System.Security and distinguish unavailable PKCS runtime from invalid signatures.
 - [Phase 01]: Preserve Windows PowerShell canonical CMS bytes and isolate CustomRootTrust chain construction in a short-lived pwsh process.
 - [Phase 01]: LAB-DC02 is the D-22 trusted reviewer signing station; LAB-DC01 retains management, CA, and FinalGate roles.
+- [Phase 01]: Plan 01-35 authorizes publication only from captured WindowsIdentity and COMPUTERNAME before preview or mutation.
+- [Phase 01]: Plan 01-35 keeps the signed archival envelope additive and requires Plan 01-36 to publish the canonical generation.
 
 ### Blockers
 
