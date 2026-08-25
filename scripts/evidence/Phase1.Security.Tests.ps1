@@ -45,6 +45,16 @@ if($Focus-in@('All','Publication')){
 
 if($Focus-eq'Publication'){Write-Host 'Phase 1 publication security tests passed.';exit 0}
 
+if($Focus-in@('All','Verifier')){
+ $referenceCases=@(
+  @{Name='rooted';Path='C:\Windows\System32\drivers\etc\hosts';Error='reference_path_rooted'},
+  @{Name='parent traversal';Path='..\outside-security-evidence.bin';Error='reference_path_outside'},
+  @{Name='prefix collision';Path='..\dleakprevention-evil\evidence.bin';Error='reference_path_outside'},
+  @{Name='mixed separator normalization';Path='scripts/..\..\outside-security-evidence.bin';Error='reference_path_outside'}
+ )
+ foreach($case in $referenceCases){$candidate=Mutate {param($c)$c.records[0].implementation_refs[0].path=$case.Path};try{$result=Invoke-Verify $candidate;Assert ($result.Exit-eq2) "$($case.Name) reference is rejected";$json=$result.Out|ConvertFrom-Json;Assert ($json.error-eq$case.Error) "$($case.Name) reference has stable containment diagnostic"}finally{Remove-Item $candidate -Force -ErrorAction SilentlyContinue}}
+}
+
 $base=Invoke-Verify $manifest;Assert ($base.Exit-eq0) 'canonical pre-sign-off validation'
 $missing=Invoke-Verify $manifest @('-RequireSignedOff');Assert ($missing.Exit-eq2) 'signed-off mode requires external trust inputs';Assert (($missing.Out|ConvertFrom-Json).error-eq'trusted_root_missing') 'stable missing-root diagnostic'
 $fakeRoot=Join-Path $env:TEMP("root-$([guid]::NewGuid()).cer");$fakePolicy=Join-Path $env:TEMP("policy-$([guid]::NewGuid()).json");[IO.File]::WriteAllText($fakeRoot,'manifest copied trust cannot substitute',[Text.UTF8Encoding]::new($false));[IO.File]::WriteAllText($fakePolicy,'{}',[Text.UTF8Encoding]::new($false));try{$bad=Invoke-Verify $manifest @('-RequireSignedOff','-TrustedRootPath',$fakeRoot,'-ReviewerPolicyPath',$fakePolicy);Assert ($bad.Exit-eq2) 'malformed external trust inputs fail closed'}finally{Remove-Item $fakeRoot,$fakePolicy -Force}
