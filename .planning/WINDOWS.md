@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 18
 waived_count: 0
-fixed_count: 1
-total_count: 19
-last_updated: 2026-08-14T07:16:37.541Z
+fixed_count: 3
+total_count: 21
+last_updated: 2026-08-25T09:12:27.255Z
 ---
 
 # Broken Windows Ledger
@@ -34,6 +34,8 @@ last_updated: 2026-08-14T07:16:37.541Z
 | 17 | 01 | unrun-verify | tests/windows/Invoke-AgentServiceSmoke.ps1 |  | LAB-CLIENT01 ConfigurationCache runtime smoke not executed due to missing runtime token and VM reachability | open |  | 2026-08-12T04:56:49.047Z |  |
 | 18 | 01.2 | unrun-verify | scripts/lab/Invoke-Client01Runtime.ps1 | 360 | End-to-end tracer with -EnrollmentTokenProvider TrustedProvisioning -Apply requires elevated PowerShell and live LAB-DC01/LAB-CLIENT01 VMs; not executed from this shell. | open |  | 2026-08-13T16:26:14.385Z |  |
 | 19 | 01.3 | deviation | crates/dlp-log-debug-service/src/config.rs | 23 | Added required max_tail_lines configuration for the user-selected default tail contract. | open |  | 2026-08-14T07:16:37.541Z |  |
+| 20 | 01 | deviation | scripts/verify-phase1-security.ps1 |  | Replaced .NET Framework ExtraStore chain construction with process-scoped pwsh CustomRootTrust to avoid false revocation indeterminacy. | fixed |  | 2026-08-25T09:10:54.846Z | 2026-08-25T09:12:26.827Z |
+| 21 | 01 | deviation | scripts/verify-phase1-security.ps1 |  | Legacy reviewer policies without required_eku_oids now fail with stable reviewer_policy_invalid diagnostics. | fixed |  | 2026-08-25T09:10:55.350Z | 2026-08-25T09:12:27.255Z |
 
 ````json
 [
@@ -264,6 +266,30 @@ last_updated: 2026-08-14T07:16:37.541Z
     "reason": "",
     "recorded_at": "2026-08-14T07:16:37.541Z",
     "resolved_at": null
+  },
+  {
+    "id": 20,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "scripts/verify-phase1-security.ps1",
+    "line": null,
+    "description": "Replaced .NET Framework ExtraStore chain construction with process-scoped pwsh CustomRootTrust to avoid false revocation indeterminacy.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-25T09:10:54.846Z",
+    "resolved_at": "2026-08-25T09:12:26.827Z"
+  },
+  {
+    "id": 21,
+    "kind": "deviation",
+    "phase": "01",
+    "file": "scripts/verify-phase1-security.ps1",
+    "line": null,
+    "description": "Legacy reviewer policies without required_eku_oids now fail with stable reviewer_policy_invalid diagnostics.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-25T09:10:55.350Z",
+    "resolved_at": "2026-08-25T09:12:27.255Z"
   }
 ]
 ````
