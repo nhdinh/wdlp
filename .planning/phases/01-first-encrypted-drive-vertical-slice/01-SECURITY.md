@@ -122,6 +122,7 @@ No accepted risks. All previously reviewed gaps are documented as open threats i
 | 2026-08-24 | 62 | 60 | 0 | 2 | 0 | lab/administrator |
 | 2026-08-24 | 62 | 53 | 7 | 2 | 0 | Plan 01-28 gap closure |
 | 2026-08-24 | 62 | 60 | 0 | 2 | 0 | LAB\Administrator on LAB-CLIENT01 |
+| 2026-08-25 | 62 | 60 | 0 | 2 | 0 | LAB\dlp-reviewer signed closure / Plan 01-33 |
 
 **2026-08-24 re-audit:** Phase verification detected that the T-01-15-03
 `credential.rs` digest had become stale. The current credential implementation was
@@ -147,6 +148,26 @@ hash-only reseal. The immutable attestation chains and current environment
 provenance passed validation for all 19 targets. The canonical manifest SHA-256 is
 `936e185dd3953e1a8d24431b6a81ecc16d989d833b9295b3c43aa9d5e056c4db`;
 the 11-check tamper suite and `-RequireSignedOff` verifier both passed.
+
+**2026-08-25 authenticated closure re-sign-off:** The Aug 24 failed and
+superseded intervals above remain inspectable. All 19 current payloads were
+reviewed and signed by `LAB\dlp-reviewer` from
+`2026-08-25T02:33:38.3395629Z` through `2026-08-25T02:33:38.5269496Z` using
+procedure `01-32/independent-security-review/v1`. The detached CMS signer
+certificate thumbprint is `E5AC839BE9C7F8800941B81E73A2AB3EF07C5CF7`.
+The canonical closure-manifest SHA-256 is
+`341d42cddafcfa0119924ec5c052051e32627b7b83a8b0efd5abad916fad8bef`.
+The external reviewer-policy identity (file SHA-256) is
+`21b488cdee3e5181f9195c2c0dc7b84d7c6b6c7575636d641ec4ffc679d4a0c6`
+(`phase1-independent-review-2026-08-24`). The Phase 1 security regression
+suite passed, including recomputed-forgery rejection, external-trust
+substitution rejection, exact-payload confirmation/refusal source contracts,
+dry-run/WhatIf non-mutation, serialized durable publication/two-writer and
+crash-before-replace contracts, and FinalGate authenticated-subgate wiring.
+The signed-off verifier then returned `valid` with zero diagnostics for all
+19/19 current payloads. SEC-01 through SEC-03 therefore return to complete with
+zero blocking threats; failure of any current signature or adversarial
+regression reopens this status.
 
 ---
 

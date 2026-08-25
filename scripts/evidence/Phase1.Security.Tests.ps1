@@ -18,6 +18,7 @@ try{$fakeRoot=Join-Path $env:TEMP("root-$([guid]::NewGuid()).cer");$fakePolicy=J
 
 $verifierSource=Get-Content -Raw $verifier;$finalSource=Get-Content -Raw (Join-Path $root 'scripts/verify-phase1.ps1')
 Assert ($verifierSource-match'SignedCms' -and $verifierSource-match'CheckSignature') 'detached CMS verification is wired'
+Assert ($verifierSource-match'Add-Type\s+-AssemblyName\s+System\.Security' -and $verifierSource-match'pkcs_runtime_unavailable') 'verifier loads PKCS runtime explicitly with a distinct failure diagnostic'
 Assert ($finalSource-match'TrustedRootPath' -and $finalSource-match'ReviewerPolicyPath' -and $finalSource-match'RequireSignedOff') 'FinalGate forwards authenticated trust inputs'
 Assert ($finalSource-match'manifest_digest' -and $finalSource-match'reviewer_policy_identity') 'FinalGate reports matching identities'
 
@@ -27,6 +28,7 @@ foreach($field in @('threat_id','disposition','severity','mitigation_assertion',
 Assert ($captureSource-notmatch'ConfirmEach') 'optional confirmation bypass removed'
 Assert ($captureSource-match'Read-Host' -and $captureSource-match"-ne\s*'YES'") 'exact affirmative input required'
 Assert ($captureSource-match'SignedCms' -and $captureSource-match'ComputeSignature') 'reviewer-controlled CMS signing wired'
+Assert ($captureSource-match'Add-Type\s+-AssemblyName\s+System\.Security' -and $captureSource-match'pkcs_runtime_unavailable') 'capture loads PKCS runtime explicitly and fails closed when unavailable'
 
 $tmp=Join-Path $env:TEMP("closure-$([guid]::NewGuid()).json");Copy-Item $manifest $tmp;try{$before=FileHash $tmp;&powershell -NoProfile -ExecutionPolicy Bypass -File $capture -ClosurePath $tmp -ThreatId T-01-15-03 -DryRun;$exit=$LASTEXITCODE;Assert ($exit-eq0) 'dry run succeeds';Assert ((FileHash $tmp)-eq$before) 'dry run byte-identical';&powershell -NoProfile -ExecutionPolicy Bypass -File $capture -ClosurePath $tmp -ThreatId T-01-15-03 -WhatIf 2>$null;Assert ((FileHash $tmp)-eq$before) 'WhatIf byte-identical'}finally{Remove-Item $tmp -Force}
 

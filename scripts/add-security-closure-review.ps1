@@ -1,6 +1,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param([Parameter(Mandatory)][string]$ClosurePath,[Parameter(Mandatory)][string[]]$ThreatId,[string]$SignerThumbprint,[string]$ReviewerPolicyPath,[switch]$DryRun,[string]$PublicationBarrierPath,[switch]$CrashBeforeReplace)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+try{Add-Type -AssemblyName System.Security -ErrorAction Stop}catch{throw 'pkcs_runtime_unavailable'}
 function HashText($v){$s=[Security.Cryptography.SHA256]::Create();try{$j=$v|ConvertTo-Json -Depth 20 -Compress;$b=[Text.UTF8Encoding]::new($false).GetBytes(($j-replace"`r`n","`n"));([BitConverter]::ToString($s.ComputeHash($b))).Replace('-','').ToLowerInvariant()}finally{$s.Dispose()}}
 function HashFile($p){$s=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($s.ComputeHash([IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $p))))).Replace('-','').ToLowerInvariant()}finally{$s.Dispose()}}
 function Payload($r){[ordered]@{threat_id=[string]$r.threat_id;disposition=[string]$r.disposition;severity=[string]$r.severity;mitigation_assertion=[string]$r.mitigation_assertion;implementation_refs=@($r.implementation_refs|%{[ordered]@{path=[string]$_.path;sha256=[string]$_.sha256}});evidence_attempt_ids=@($r.evidence_attempt_ids|%{[string]$_});required_machine_roles=@($r.required_machine_roles|%{[string]$_});artifact_refs=@($r.artifact_refs|%{[ordered]@{path=[string]$_.path;sha256=[string]$_.sha256;role=[string]$_.role}});procedure_version=[string]$r.procedure_version;environment_fingerprint=$r.environment_fingerprint}}

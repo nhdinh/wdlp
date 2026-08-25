@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$ClosurePath,[string]$ThreatId,[switch]$RequireSignedOff,[string]$TrustedRootPath,[string]$ReviewerPolicyPath,[ValidateSet('Text','Json')][string]$DiagnosticFormat='Text')
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+try{Add-Type -AssemblyName System.Security -ErrorAction Stop}catch{$result=[pscustomobject]@{status='execution_error';diagnostics=@();error='pkcs_runtime_unavailable'};if($DiagnosticFormat-eq'Json'){$result|ConvertTo-Json -Compress}else{[Console]::Error.WriteLine('SECURITY CLOSURE ERROR: pkcs_runtime_unavailable')};exit 2}
 $repoRoot=Split-Path -Parent $PSScriptRoot;$matrixPath=Join-Path $repoRoot 'evidence/phase1/requirement-matrix.yaml'
 $script:Targets=@('T-01-15-01','T-01-15-02','T-01-15-03','T-01-15-04','T-01-15-06','T-01-16-01','T-01-16-02','T-01-16-03','T-01-16-04','T-01-16-06','T-01-18-SC','T-01-20-01','T-01-20-02','T-01-20-05','T-01-21-01','T-01-21-02','T-01-21-03','T-01-21-04','T-01-21-05');$script:Diagnostics=[Collections.Generic.List[object]]::new()
 function Get-HashText([string]$Text){$s=[Security.Cryptography.SHA256]::Create();try{$b=[Text.UTF8Encoding]::new($false).GetBytes(($Text-replace"`r`n","`n"));([BitConverter]::ToString($s.ComputeHash($b))).Replace('-','').ToLowerInvariant()}finally{$s.Dispose()}}
