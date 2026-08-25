@@ -1,19 +1,17 @@
 ---
 phase: 01-first-encrypted-drive-vertical-slice
-reviewed: 2026-08-25T00:00:00Z
+reviewed: 2026-08-25T15:10:00Z
 depth: standard
-files_reviewed: 5
+files_reviewed: 3
 files_reviewed_list:
-  - evidence/phase1/security-closure.yaml
   - scripts/add-security-closure-review.ps1
   - scripts/evidence/Phase1.Security.Tests.ps1
   - scripts/verify-phase1-security.ps1
-  - scripts/verify-phase1.ps1
 findings:
-  critical: 4
+  critical: 3
   warning: 1
   info: 0
-  total: 5
+  total: 4
 status: issues_found
 ---
 
@@ -91,3 +89,41 @@ Commit `a5517d0` rejects rooted children, normalizes the repository root with a 
 Commits `c58c197`, `441c4cc`, `d41150c`, `26b2cc8`, and `1d15e58` replace false-positive source assertions with child-process behavior. The suite proves real concurrency/crash behavior, valid-trust recomputed forgery reaches `signature_invalid`, the ceremony closure passes process-scoped external-root validation, and canonical FinalGate fails specifically when its copied security fixture fails. The successful FinalGate and direct subgate both report manifest `4b30d328d5967f8f2346be1d61811b8ae56b26404dc8bef0150e61ba1619c591` and policy `edfa1018ee5c9fbb5073af0a16b71bf82e83f144a48568164b8a691fdff960fd`.
 
 **Resolution status:** CR-01 through CR-04 closed. Exact commands and counts are appended to `01-SECURITY.md`; remediation topology correction is `f4ad69d`.
+
+## Plan 01-34 Advisory Code Review — 2026-08-25
+
+This standard-depth adversarial review covers the three Plan 01-34 PowerShell source files listed in the current frontmatter. The historical findings and resolution record above remain append-only. Four additional defects remain open.
+
+### Critical Issues
+
+#### CR-05: Signing station identity is asserted from policy instead of the executing machine (BLOCKER)
+
+**File:** `scripts/add-security-closure-review.ps1:16,22`
+**Issue:** The preview displays `$env:COMPUTERNAME`, but publication never compares the executing machine or user to the selected policy reviewer. The signed attestation instead copies `machine_identity`, role, domain, and reviewer name directly from the policy. Anyone who obtains the reviewer's certificate/private-key access can run the script on another host and produce an attestation that falsely claims it was created on `LAB-DC02`; the verifier later compares the claim to the same policy data and accepts it. This defeats the D-22 station restriction and makes `environment_fingerprint` self-asserted rather than observed.
+**Fix:** Before prompting or signing, resolve exactly one policy reviewer and require the observed `$env:COMPUTERNAME` and `[Security.Principal.WindowsIdentity]::GetCurrent().Name` to match the approved machine and identity. Populate the attestation from those observed values, not copied policy values, and add a child-process regression proving signing from a non-D-22 machine fails without mutation.
+
+#### CR-06: Historical CMS signatures are not verified (BLOCKER)
+
+**File:** `scripts/verify-phase1-security.ps1:43-44`
+**Issue:** `Test-Record` checks digest/predecessor linkage for every attestation, but calls `Test-SignedAttestation` only for the latest entry. `signature_cms_base64` is deliberately excluded from `attestation_digest`, so an attacker can replace or corrupt any superseded signature without changing its digest or the latest signed predecessor. Signed-off verification still returns valid, even though the append-only historical evidence is no longer authentic or auditable.
+**Fix:** In signed-off mode, verify the CMS signature and applicable trust contract for every attestation in the chain (or define and verify a separately signed archival envelope that commits to historical signature bytes). Add a regression that flips one byte in a non-latest CMS signature and requires `signature_invalid` for that historical entry.
+
+#### CR-07: Lexical containment follows reparse points outside the repository (BLOCKER)
+
+**File:** `scripts/verify-phase1-security.ps1:15-19,42`
+**Issue:** `GetFullPath` plus `StartsWith` rejects textual `..` traversal but does not resolve directory junctions or symbolic links. A manifest reference such as `evidence/link/outside.bin` passes the prefix check when `link` is an in-repository reparse point targeting an external directory; `ReadAllBytes` then hashes the external file. This reopens the artifact-boundary bypass under a Windows-native path mechanism not covered by the four lexical tests.
+**Fix:** Walk each existing path component from the repository root and reject reparse points, or resolve the final filesystem target/handle and prove it remains beneath the canonical repository root before hashing. Add junction and symlink regression cases that point to an external sentinel file and require a stable containment diagnostic.
+
+### Warnings
+
+#### WR-02: Chain helper destroys pre-existing caller environment variables (WARNING)
+
+**File:** `scripts/verify-phase1-security.ps1:21-22`
+**Issue:** `Invoke-CustomRootChainValidation` overwrites `PHASE1_CHAIN_CERT` and `PHASE1_CHAIN_ROOTS`, then unconditionally removes both in `finally`. If the caller already defined either variable, invoking the verifier silently destroys caller state. This can break nested verification/tooling and makes the helper non-composable.
+**Fix:** Snapshot whether each variable exists and its prior value before assignment, then restore the original value (or remove only variables that were previously absent) in `finally`. Prefer passing values directly in a process start environment map when available.
+
+---
+
+_Reviewed: 2026-08-25T15:10:00Z_  
+_Reviewer: the agent (gsd-code-reviewer)_  
+_Depth: standard_
