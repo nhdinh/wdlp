@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 current_plan: 40 of 21
-status: executing
-stopped_at: Completed 01-40-PLAN.md
-last_updated: "2026-08-26T09:58:42.859Z"
+status: verifying
+stopped_at: Completed 01-41-PLAN.md
+last_updated: "2026-08-26T10:17:50.277Z"
 last_activity: 2026-08-26
-state_head: 677088aa237aa0b3e164e2507e59544da2ff0518
+state_head: cc78a965d14542941592f935d9918cd40e25112e
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 34
-  completed_plans: 33
+  completed_plans: 34
 milestone_name: milestone
 last_activity_desc: Completed Plan 01-21 Task 2; FinalGate verifier passes (30/30 requirements, 7/7 success criteria, 50/50 decisions, 9/9 privilege manifests, valid independent review by lab/administrator, matrix digest 5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414).
 ---
@@ -53,7 +53,7 @@ Last activity: 2026-08-26
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — READY TO EXECUTE
 - **Plan:** 40 of 21
 - **Task:** 2 of 2
-- **Status:** Ready to execute
+- **Status:** Phase complete — ready for verification
 - **Progress:** [██████████] 100% of Phase 01
 - **Current plan:** 40 of 21
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 secure session-host lifecycle, application/operation/size matrix, and D-19 failure/recovery matrix verified. Security closure manifest signed off with 19/19 blocking threats closed.
@@ -103,6 +103,7 @@ Last activity: 2026-08-26
 | Phase 01 P35 | 50m | 3 tasks | 3 files |
 | Phase 01 P39 | 30m | 2 tasks | 1 files |
 | Phase 01 P40 | 15m | 2 tasks | 2 files |
+| Phase 01 P41 | 25m | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -134,8 +135,8 @@ Last activity: 2026-08-26
 
 **Resume file:** None
 
-**Last session:** 2026-08-26T09:57:41.547Z
-**Stopped at:** Completed 01-40-PLAN.md
+**Last session:** 2026-08-26T10:17:50.238Z
+**Stopped at:** Completed 01-41-PLAN.md
 
 **Current session:** 2026-08-26T05:00:00.000Z
 **Resumed at:** /gsd-resume-work — restored the 01-37 implementation and closed its missing summary.
@@ -221,6 +222,8 @@ Last activity: 2026-08-26
 - [Phase 01]: Plan 01-35 authorizes publication only from captured WindowsIdentity and COMPUTERNAME before preview or mutation.
 - [Phase 01]: Plan 01-35 keeps the signed archival envelope additive and requires Plan 01-36 to publish the canonical generation.
 - [Phase 01]: Retain observed Windows identity and COMPUTERNAME binding; mismatches fail before consent and mutation.
+- [Phase 01]: Signed-off verification cryptographically checks every non-legacy historical CMS while preserving authenticated envelope compatibility for the legacy first entry.
+- [Phase 01]: D-48 T-01-21-04 digest mismatch remains an explicit fail-closed diagnostic.
 
 ### Blockers
 
