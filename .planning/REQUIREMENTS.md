@@ -96,7 +96,7 @@
 - [ ] **TST-05**: Write integration tests for server enrollment through first policy activation.
 - [ ] **TST-06**: Write integration tests for offline enforcement followed by event synchronization.
 - [ ] **TST-07**: Write integration tests for per-user drive isolation and device revocation.
-- [ ] **TST-08**: Validate WinFsp with representative Windows applications in an early spike.
+- [x] **TST-08**: Validate WinFsp with representative Windows applications in an early spike.
 
 ## v2 Requirements
 
@@ -207,7 +207,7 @@
 | TST-05 | Phase 1 | Gaps Found |
 | TST-06 | Phase 3 | Pending |
 | TST-07 | Phase 2 | Pending |
-| TST-08 | Phase 1 | Gaps Found |
+| TST-08 | Phase 1 | Complete |
 
 **Coverage:**
 
