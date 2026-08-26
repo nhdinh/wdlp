@@ -19,7 +19,10 @@ $store=[Security.Cryptography.X509Certificates.X509Store]::new('My',[Security.Cr
 try{$store.Open('ReadOnly');$certs=@($store.Certificates|?{$_.Thumbprint.Replace(' ','').ToUpperInvariant()-eq$thumbprint-and$_.HasPrivateKey})}finally{$store.Close()}
 if($certs.Count-ne1){throw 'd48_signer_certificate_count_invalid'};$cert=$certs[0]
 $usage=@($cert.Extensions|?{$_.Oid.Value-eq'2.5.29.15'});if(!$usage-or-($usage[0].KeyUsages-band[Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature)-eq0){throw 'd48_signer_wrong_key_usage'}
-foreach($reviewer in @($archive.reviewers)){if($reviewer.identity-eq$identity-or$reviewer.subject-eq$cert.Subject-or$reviewer.thumbprint.Replace(' ','').ToUpperInvariant()-eq$thumbprint){throw 'd48_archival_signer_reuse'}}
+foreach($reviewer in @($archive.reviewers)){
+    $archivalSubject = if($reviewer.PSObject.Properties['subject']){[string]$reviewer.subject}else{''}
+    if($reviewer.identity-eq$identity-or$archivalSubject-eq$cert.Subject-or$reviewer.thumbprint.Replace(' ','').ToUpperInvariant()-eq$thumbprint){throw 'd48_archival_signer_reuse'}
+}
 $mutexName='Global\Phase1-D48-'+([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($ReviewStorePath))))).Substring(0,24)
 $mutex=[Threading.Mutex]::new($false,$mutexName);if(!$mutex.WaitOne([TimeSpan]::FromSeconds(30))){throw 'd48_publication_lock_timeout'}
 try{
