@@ -5,13 +5,19 @@ param(
     [Parameter(Mandatory)][ValidateSet('LAB-DC02')][string]$SecondaryDcMachine,
     [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$EndpointMachine,
     [Parameter(Mandatory)][string]$TrustedRootPath,
-    [Parameter(Mandatory)][string]$ReviewerPolicyPath
+    [Parameter(Mandatory)][string]$ReviewerPolicyPath,
+    [string]$IndependentReviewerPolicyPath,
+    [string]$IndependentReviewerRootPath,
+    [string]$IndependentReviewIndexPath
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+if (-not $IndependentReviewerPolicyPath) { $IndependentReviewerPolicyPath = Join-Path $repoRoot 'evidence-private/phase1/independent-reviewer-policy.json' }
+if (-not $IndependentReviewerRootPath) { $IndependentReviewerRootPath = Join-Path $repoRoot 'evidence-private/phase1/independent-reviewer-root.cer' }
+if (-not $IndependentReviewIndexPath) { $IndependentReviewIndexPath = Join-Path $repoRoot 'evidence/phase1/independent-reviews/index.json' }
 $evidenceModulePath = Join-Path $repoRoot 'scripts/evidence/Phase1.Evidence.psm1'
 $matrixPath = Join-Path $repoRoot 'evidence/phase1/requirement-matrix.yaml'
 $configPath = Join-Path $repoRoot 'config/lab.phase1.example.yaml'
@@ -221,25 +227,11 @@ $bundleJson = $bundle | ConvertTo-Json -Depth 20
 $script:Report.sanitization_pass = Test-Phase1Redaction -Text $bundleJson
 Assert-Phase1 $script:Report.sanitization_pass 'evidence bundle contains forbidden secret pattern'
 
-# 6. Independent review record (optional unless present).
-$independentReview = $bundle.PSObject.Properties['independent_review']
-if ($independentReview -and $independentReview.Value) {
-    $script:Report.independent_review_present = $true
-    $review = $independentReview.Value
-    $reviewResult = Test-Phase1VisualReview -Record $bundle.independent_review -Kind independent_review
-    if ($reviewResult.Valid) {
-        $matrixBytes = [System.Text.Encoding]::UTF8.GetBytes((Get-Content -LiteralPath $matrixPath -Raw))
-        $sha = [System.Security.Cryptography.SHA256]::Create()
-        try { $matrixDigest = ([System.BitConverter]::ToString($sha.ComputeHash($matrixBytes)) -replace '-', '').ToLowerInvariant() } finally { $sha.Dispose() }
-        if ($bundle.independent_review.matrix_digest -eq $matrixDigest) {
-            $script:Report.independent_review_valid = $true
-        } else {
-            Warn-Phase1 'independent review matrix digest does not match current matrix'
-        }
-    } else {
-        Warn-Phase1 "independent review invalid: $($reviewResult.Errors -join '; ')"
-    }
-}
+# 6. The immutable signed generation/index is the sole authoritative D-48 record.
+$reviewResult = Test-Phase1IndependentReview -RepositoryRoot $repoRoot -IndexPath $IndependentReviewIndexPath -ReviewerPolicyPath $IndependentReviewerPolicyPath -ReviewerRootPath $IndependentReviewerRootPath -ArchivalPolicyPath $ReviewerPolicyPath
+$script:Report.independent_review_present = [bool]$reviewResult.Present
+$script:Report.independent_review_valid = [bool]$reviewResult.Valid
+if (-not $reviewResult.Valid) { Warn-Phase1 "independent review invalid: $($reviewResult.Errors -join '; ')" }
 
 # 7. Compute and write final sanitized matrix digest.
 $matrixBytes = [System.Text.Encoding]::UTF8.GetBytes((Get-Content -LiteralPath $matrixPath -Raw))
@@ -290,7 +282,9 @@ $overall = (
     $script:Report.coverage_fail.Count -eq 0 -and
     $script:Report.evidence_bundle_valid -and
     $script:Report.evidence_hash_valid -and
-    $script:Report.sanitization_pass
+    $script:Report.sanitization_pass -and
+    $script:Report.independent_review_present -and
+    $script:Report.independent_review_valid
 )
 
 if ($overall) {

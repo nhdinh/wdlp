@@ -181,4 +181,88 @@ function Test-Phase1VisualReview {
     [pscustomobject]@{ Valid = ($errors.Count -eq 0); Errors = $errors }
 }
 
-Export-ModuleMember -Function New-Phase1Evidence, Test-Phase1Evidence, Publish-Phase1Evidence, Test-Phase1PrivilegeManifest, Test-Phase1VisualReview, Resolve-Phase1EvidenceStatus, Get-Phase1PrivilegeManifestDigest, Get-Phase1Sha256
+function ConvertTo-Phase1CanonicalBytes {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Value)
+    [System.Text.UTF8Encoding]::new($false).GetBytes((($Value | ConvertTo-Json -Depth 40 -Compress) -replace "`r`n", "`n"))
+}
+
+function Get-Phase1ReviewCommitment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepositoryRoot,
+        [Parameter(Mandatory)][string]$ReviewerPolicyPath,
+        [Parameter(Mandatory)][string]$ReviewerRootPath,
+        [Parameter(Mandatory)][string]$ArchivalPolicyPath,
+        [Parameter(Mandatory)]$Signer,
+        [string]$PreviousGenerationDigest = ''
+    )
+    $paths = [ordered]@{
+        security_closure = 'evidence/phase1/security-closure.yaml'
+        archival_policy = (Resolve-Path $ArchivalPolicyPath).Path
+        reviewer_policy = (Resolve-Path $ReviewerPolicyPath).Path
+        reviewer_root = (Resolve-Path $ReviewerRootPath).Path
+        security_review = '.planning/phases/01-first-encrypted-drive-vertical-slice/01-SECURITY.md'
+        code_review = '.planning/phases/01-first-encrypted-drive-vertical-slice/01-REVIEW.md'
+        requirement_matrix = 'evidence/phase1/requirement-matrix.yaml'
+        evidence_bundle = 'tests/windows/results/phase1-evidence.json'
+        evidence_digest = 'tests/windows/results/phase1-evidence.sha256'
+    }
+    $artifacts = @()
+    foreach ($entry in $paths.GetEnumerator()) {
+        $path = if ([IO.Path]::IsPathRooted([string]$entry.Value)) { [string]$entry.Value } else { Join-Path $RepositoryRoot ([string]$entry.Value) }
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "d48_frozen_artifact_missing:$($entry.Key)" }
+        $artifacts += [ordered]@{ name = $entry.Key; sha256 = Get-Phase1Sha256 $path; accessible = $true }
+    }
+    $matrix = Read-Phase1Json (Join-Path $RepositoryRoot 'evidence/phase1/requirement-matrix.yaml')
+    $d49 = @($matrix.decisions | Where-Object id -eq 'D-49')
+    if ($d49.Count -ne 1) { throw 'd48_d49_disposition_missing' }
+    [ordered]@{
+        schema_version = 'phase1-independent-review-commitment/v1'
+        procedure_version = '01-37/d48/v1'
+        created_utc = [DateTime]::UtcNow.ToString('o')
+        clock_offset_seconds = 0
+        commit_id = (& git -C $RepositoryRoot rev-parse HEAD).Trim()
+        signer = $Signer
+        previous_generation_digest = $PreviousGenerationDigest
+        d49_disposition = [ordered]@{ id = $d49[0].id; status = $d49[0].status; evidence_id = $d49[0].current_evidence_id }
+        retention = [ordered]@{ evidence_retained = $true; legal_hold_observed = $false }
+        artifacts = $artifacts
+    }
+}
+
+function Test-Phase1IndependentReview {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepositoryRoot, [Parameter(Mandatory)][string]$IndexPath, [Parameter(Mandatory)][string]$ReviewerPolicyPath, [Parameter(Mandatory)][string]$ReviewerRootPath, [Parameter(Mandatory)][string]$ArchivalPolicyPath)
+    $errors = [Collections.Generic.List[string]]::new()
+    if (-not (Test-Path $IndexPath)) { return [pscustomobject]@{ Present=$false; Valid=$false; Errors=@('independent_review_missing') } }
+    try {
+        $index = Read-Phase1Json $IndexPath
+        if ($index.schema_version -ne 'phase1-independent-review-index/v1' -or @($index.generations).Count -lt 1) { throw 'independent_review_index_invalid' }
+        $latest = @($index.generations)[-1]
+        $generationPath = Join-Path (Split-Path $IndexPath -Parent) $latest.path
+        $generation = Read-Phase1Json $generationPath
+        $canonical = [Convert]::FromBase64String([string]$generation.commitment_base64)
+        $cmsBytes = [Convert]::FromBase64String([string]$generation.signature_cms_base64)
+        $cms = [Security.Cryptography.Pkcs.SignedCms]::new([Security.Cryptography.Pkcs.ContentInfo]::new($canonical), $true)
+        $cms.Decode($cmsBytes); $cms.CheckSignature($true)
+        if ($cms.SignerInfos.Count -ne 1) { throw 'independent_review_signer_count_invalid' }
+        $commitment = [Text.Encoding]::UTF8.GetString($canonical) | ConvertFrom-Json
+        if ($commitment.schema_version -ne 'phase1-independent-review-commitment/v1') { throw 'independent_review_commitment_invalid' }
+        $policy = Read-Phase1Json $ReviewerPolicyPath; $archive = Read-Phase1Json $ArchivalPolicyPath
+        $cert = $cms.SignerInfos[0].Certificate; $thumb = $cert.Thumbprint.Replace(' ','').ToUpperInvariant()
+        $authorized = @($policy.reviewers | Where-Object { $_.thumbprint.Replace(' ','').ToUpperInvariant() -eq $thumb -and $_.identity -eq $commitment.signer.identity -and $_.machine_identity -eq $commitment.signer.machine })
+        if ($authorized.Count -ne 1) { throw 'independent_review_policy_mismatch' }
+        foreach ($reviewer in @($archive.reviewers)) {
+            if ($reviewer.identity -eq $commitment.signer.identity -or $reviewer.thumbprint.Replace(' ','').ToUpperInvariant() -eq $thumb -or $reviewer.subject -eq $cert.Subject) { throw 'independent_review_archival_signer_reuse' }
+        }
+        foreach ($artifact in @($commitment.artifacts)) {
+            $map = @{ security_closure='evidence/phase1/security-closure.yaml'; security_review='.planning/phases/01-first-encrypted-drive-vertical-slice/01-SECURITY.md'; code_review='.planning/phases/01-first-encrypted-drive-vertical-slice/01-REVIEW.md'; requirement_matrix='evidence/phase1/requirement-matrix.yaml'; evidence_bundle='tests/windows/results/phase1-evidence.json'; evidence_digest='tests/windows/results/phase1-evidence.sha256' }
+            $path = if ($map.ContainsKey([string]$artifact.name)) { Join-Path $RepositoryRoot $map[[string]$artifact.name] } elseif ($artifact.name -eq 'archival_policy') { $ArchivalPolicyPath } elseif ($artifact.name -eq 'reviewer_policy') { $ReviewerPolicyPath } else { $ReviewerRootPath }
+            if (-not (Test-Path $path) -or (Get-Phase1Sha256 $path) -ne $artifact.sha256) { throw "independent_review_artifact_drift:$($artifact.name)" }
+        }
+        [pscustomobject]@{ Present=$true; Valid=$true; Errors=@(); Generation=$generation }
+    } catch { [pscustomobject]@{ Present=$true; Valid=$false; Errors=@($_.Exception.Message) } }
+}
+
+Export-ModuleMember -Function New-Phase1Evidence, Test-Phase1Evidence, Publish-Phase1Evidence, Test-Phase1PrivilegeManifest, Test-Phase1VisualReview, Resolve-Phase1EvidenceStatus, Get-Phase1PrivilegeManifestDigest, Get-Phase1Sha256, ConvertTo-Phase1CanonicalBytes, Get-Phase1ReviewCommitment, Test-Phase1IndependentReview
