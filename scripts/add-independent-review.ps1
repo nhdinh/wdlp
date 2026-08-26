@@ -9,6 +9,7 @@ param(
 )
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $repoRoot=Split-Path -Parent $PSScriptRoot
+try{Add-Type -AssemblyName System.Security -ErrorAction Stop}catch{throw 'd48_pkcs_assembly_missing'}
 Import-Module (Join-Path $repoRoot 'scripts/evidence/Phase1.Evidence.psm1') -Force
 function Get-Sha256Bytes([byte[]]$bytes){$sha=[Security.Cryptography.SHA256]::Create();try{$sha.ComputeHash($bytes)}finally{$sha.Dispose()}}
 function ConvertTo-Hex([byte[]]$bytes){([BitConverter]::ToString($bytes)-replace '-','')}
