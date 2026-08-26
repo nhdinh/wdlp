@@ -29,12 +29,15 @@
   6. The user can read the file back through the drive; corrupted ciphertext fails without returning unauthenticated plaintext.
   7. A fully committed file survives service and machine restarts; an interrupted write is either committed completely or discarded without corrupting prior state.
 
-**Plans**: 23/24 plans executed; 13 executed source-complete, 1 WinFsp metadata gap-closure plan pending execution
+**Plans**: 30 completed plans; D-48 ceremony and final Phase 1 verification remain pending
 
 Plans:
 
 - [x] 01-35-PLAN.md
-- [ ] 01-36-PLAN.md
+- [x] 01-36-PLAN.md
+- [x] 01-37-PLAN.md
+- [ ] 01-38-PLAN.md
+- [ ] 01-39-PLAN.md
 
 - [x] 01-34-PLAN.md
 
