@@ -122,6 +122,8 @@ Assert ($captureSource-match'Get-PublicationMutexName' -and $captureSource-match
 
 # Approved Plan 01-37 payload supersession is explicit, authenticated, additive, and fail closed.
 foreach($needle in @('RefreshImplementationDigests','superseded_payload_history','phase1-superseded-protected-payload/v1','successor_payload_digest','reviewer_identity_mismatch','reviewer_machine_mismatch')){Assert ($captureSource-match[regex]::Escape($needle)) "supersession contract includes $needle"}
+Assert ($captureSource-match '\$repoRoot=Split-Path -Parent \$PSScriptRoot') 'supersession resolves relative implementation references from the checkout root'
+Assert ($captureSource-notmatch '\$repoRoot=Split-Path -Parent \(Split-Path -Parent \$PSScriptRoot\)') 'supersession never escapes to the checkout parent'
 $verifySource=Get-Content -Raw $verifier
 foreach($needle in @('Test-SupersededPayloadHistory','superseded_history_invalid','superseded_successor_mismatch')){Assert ($verifySource-match[regex]::Escape($needle)) "supersession verifier includes $needle"}
 $refreshCopy=Join-Path $env:TEMP("closure-refresh-$([guid]::NewGuid()).json");Copy-Item $manifest $refreshCopy
