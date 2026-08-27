@@ -1,6 +1,6 @@
 ---
 phase: 01-first-encrypted-drive-vertical-slice
-reviewed: 2026-08-28T00:00:00Z
+reviewed: 2026-08-27T16:00:00Z
 depth: standard
 files_reviewed: 1
 files_reviewed_list:
@@ -15,29 +15,35 @@ status: issues_found
 
 # Phase 01: Code Review Report
 
-**Reviewed:** 2026-08-28T00:00:00Z
+**Reviewed:** 2026-08-27T16:00:00Z
 **Depth:** standard
 **Files Reviewed:** 1
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Phase 01 gap-closure diff in `scripts/evidence/Phase1.Security.Tests.ps1`, including the disposable trust setup and corrupted-CMS FinalGate oracle. The recorded focused FinalGate and complete `All` runs on `LAB-CLIENT01` demonstrate that the intended corrupted-signature path and canonical success path execute successfully in the binding environment. One false-positive class remains: the oracle rejects a finite blacklist of unrelated diagnostics instead of proving that `signature_invalid` is the sole security diagnostic.
+The Phase 01-43 canonical-success assertions correctly require an exit-zero FinalGate result and the requested final counters. The preserved tampered-copy branch is not specific enough to prove that its CMS mutation caused the failure, leaving the security regression vulnerable to a false positive from an unrelated copied-file digest mismatch.
 
 ## Narrative Findings (AI reviewer)
 
 ## Warnings
 
-### WR-01: Diagnostic substring blacklist still permits unrelated failures
+### WR-01: Tampered-CMS regression accepts an unrelated digest failure
 
+**Classification:** WARNING
 **File:** `scripts/evidence/Phase1.Security.Tests.ps1:77`
+**Issue:** The test deliberately changes `signature_cms_base64`, but then accepts either `signature_invalid` or the generic text `file digest mismatch`. A stale or incomplete copied fixture can therefore satisfy the assertion through a referenced-file digest failure even if detached CMS verification no longer rejects the corrupted signature. The nonzero-exit assertion does not close this gap because any earlier FinalGate failure also produces a nonzero exit. This weakens the preserved tampered-copy branch that Plan 01-43 relies on to show the canonical success change did not reduce D-41/D-48 integrity coverage.
+**Fix:** Require the diagnostic caused by the mutation and reject unrelated execution errors. For example:
 
-**Issue:** The new assertions require the combined child output to contain `signature_invalid`, but they reject only a hand-maintained list of unrelated messages. The branch therefore still passes when FinalGate emits `signature_invalid` and then encounters an unrelated failure whose text is not on that list, such as access denial, a parameter-binding error, JSON parsing failure, or a new stable setup diagnostic. Because the assertion checks the entire free-form stdout/stderr transcript with `-match`, any incidental occurrence of `signature_invalid` is sufficient. The successful focused and full LAB runs prove the current happy fixture, but they do not close this fail-open behavior for future or mixed failures.
-
-**Fix:** Consume the security subgate's structured diagnostic result (or add a dedicated structured output mode) and assert the exact outcome: nonzero FinalGate exit, exactly one relevant failing diagnostic, and its code equal to `signature_invalid`. If FinalGate cannot expose structured diagnostics yet, parse an anchored, uniquely delimited security-result line and fail when any additional failure/error record is present; do not rely on a blacklist of possible unrelated text.
+```powershell
+$failedText = $failedGate.Out + $failedGate.Err
+Assert ($failedGate.Exit -ne 0) 'canonical FinalGate propagates failing security subgate'
+Assert ($failedText -match 'signature_invalid') 'corrupted CMS signature is rejected'
+Assert ($failedText -notmatch 'file digest mismatch') 'tampered fixture has no unrelated digest failure'
+```
 
 ---
 
-_Reviewed: 2026-08-28T00:00:00Z_
+_Reviewed: 2026-08-27T16:00:00Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
