@@ -135,6 +135,7 @@ Assert ($captureSource-match'Get-PublicationMutexName' -and $captureSource-match
 foreach($needle in @('RefreshImplementationDigests','superseded_payload_history','phase1-superseded-protected-payload/v1','successor_payload_digest','reviewer_identity_mismatch','reviewer_machine_mismatch')){Assert ($captureSource-match[regex]::Escape($needle)) "supersession contract includes $needle"}
 Assert ($captureSource-match '\$repoRoot\s*=\s*Split-Path\s+-Parent\s+\$PSScriptRoot') 'supersession resolves relative implementation references from the checkout root'
 Assert ($captureSource-notmatch '\$repoRoot=Split-Path -Parent \(Split-Path -Parent \$PSScriptRoot\)') 'supersession never escapes to the checkout parent'
+Assert ([regex]::Matches($captureSource,'@\(\$(?:record|r)\[0\]\.implementation_refs\)\s*\+\s*@\(\$(?:record|r)\[0\]\.artifact_refs\)').Count-eq2) 'supersession refreshes implementation and artifact references in preview and publication passes'
 $verifySource=Get-Content -Raw $verifier
 foreach($needle in @('Test-SupersededPayloadHistory','superseded_history_invalid','superseded_successor_mismatch')){Assert ($verifySource-match[regex]::Escape($needle)) "supersession verifier includes $needle"}
 $refreshCopy=Join-Path $env:TEMP("closure-refresh-$([guid]::NewGuid()).json");Copy-Item $manifest $refreshCopy
