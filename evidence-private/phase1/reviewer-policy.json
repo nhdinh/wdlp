@@ -7,12 +7,19 @@
     "procedure_version":  "01-32/independent-security-review/v1",
     "max_clock_skew_seconds":  300,
     "reviewers":  [
-                      {
-                          "identity":  "LAB\\dlp-reviewer",
-                          "thumbprint":  "E9407299128C7A1292E3B78F7F2E369CB71B67A5",
-                          "machine_identity":  "LAB-DC02",
-                          "role":  "independent_reviewer",
-                          "domain_network_identity":  "lab.local"
-                      }
-                  ]
+        {
+            "identity":  "LAB\\dlp-reviewer",
+            "thumbprint":  "E9407299128C7A1292E3B78F7F2E369CB71B67A5",
+            "machine_identity":  "LAB-DC02",
+            "role":  "independent_reviewer",
+            "domain_network_identity":  "lab.local"
+        },
+        {
+            "identity":  "LAB\\dlp-reviewer",
+            "thumbprint":  "E5AC839BE9C7F8800941B81E73A2AB3EF07C5CF7",
+            "machine_identity":  "LAB-DC02",
+            "role":  "independent_reviewer",
+            "domain_network_identity":  "lab.local"
+        }
+    ]
 }
