@@ -153,3 +153,68 @@ This standard-depth adversarial review covers the three Plan 01-34 PowerShell so
 _Reviewed: 2026-08-25T15:10:00Z_  
 _Reviewer: the agent (gsd-code-reviewer)_  
 _Depth: standard_
+
+## Plan 01-40/01-41 Advisory Code Review — 2026-08-26
+
+This interval reviews `scripts/add-independent-review.ps1`, `scripts/evidence/Phase1.Security.Tests.ps1`, and `scripts/verify-phase1-security.ps1` after the gap-closure implementation. Earlier findings and their resolution records remain append-only above.
+
+### Critical Issues
+
+#### CR-08: Historical-envelope signer bypasses the required trust contract (BLOCKER)
+
+**File:** `scripts/verify-phase1-security.ps1:63`
+**Issue:** `Test-HistoryEnvelope` verifies only CMS cryptographic validity, signer count, and a thumbprint/identity/context match against the policy. Unlike `Test-SignedAttestation`, it never checks the envelope signer certificate's digital-signature key usage, required EKU, custom-root chain, revocation status, certificate validity at `review_utc`, or future-clock bounds. A revoked, wrong-purpose, or otherwise untrusted envelope signer can therefore keep a forged historical envelope `valid` as long as its thumbprint remains listed in policy. Plan 01-41 requires envelope signer checks under the same external trust contract.
+**Fix:** Route the envelope certificate through the same key-usage, EKU, custom-root, revocation, validity, and reviewer-context validation used for the current attestation (with a dedicated diagnostic prefix if needed), and validate the envelope review timestamp against policy clock skew.
+
+#### CR-09: Publisher trusts an unvalidated index and permits history truncation/forks (BLOCKER)
+
+**File:** `scripts/add-independent-review.ps1:34-45`
+**Issue:** The publisher deserializes `index.json` and takes the last `generation_digest` as `$previous` without validating the index schema, generation paths, stored generation digests, or predecessor continuity. An edited or truncated index can make a new signed generation reference an attacker-selected predecessor (including an empty history); the independent-review verifier consumes only the latest indexed generation and does not detect the lost entries. This breaks the claimed append-only D-48 history and allows rollback/forked publication to be accepted.
+**Fix:** Before signing, canonicalize and validate every existing index entry, hash each referenced `generation.json`, require its digest and `previous_generation_digest` chain to match, reject missing/duplicate/out-of-order entries, and bind the index head (or a signed index digest) into the published commitment. Refuse publication on any index drift instead of treating the last JSON element as authoritative.
+
+### Warnings
+
+#### WR-03: Publication writes are not flushed durably before replacement (WARNING)
+
+**File:** `scripts/add-independent-review.ps1:43-45`
+**Issue:** `WriteAllBytes` followed by `Move-Item` does not flush the generation or index temporary file with `Flush(true)`. A power loss can leave an incomplete generation, a missing index update, or an orphaned directory despite the script claiming crash-recoverable immutable publication.
+**Fix:** Write through opened `FileStream` instances, call `Flush($true)` before each rename, and use the same durable replacement protocol for the index (including a documented directory-metadata durability strategy on Windows).
+
+#### WR-04: Environment-restoration regression is vacuous across a child process (WARNING)
+
+**File:** `scripts/evidence/Phase1.Security.Tests.ps1:81-84`
+**Issue:** `Invoke-Verify` launches a separate PowerShell process. Changes to `PHASE1_CHAIN_CERT` and `PHASE1_CHAIN_ROOTS` in that child can never alter the parent process, so the sentinel assertions at lines 83-84 pass even if `Invoke-CustomRootChainValidation` permanently deletes or overwrites its caller's variables. The source-regex check is not behavioral coverage.
+**Fix:** Exercise the helper in-process (for example, dot-source an injectable function or add a test-only entry point) and assert sentinel values before/after both success and failure paths; alternatively have the child report its post-call environment and assert that report.
+
+#### WR-05: Pre-sign-off verifier success is not asserted (WARNING)
+
+**File:** `scripts/evidence/Phase1.Security.Tests.ps1:99`
+**Issue:** The test only checks the known digest diagnostic when `$base.Exit -ne 0`; if the verifier incorrectly returns exit code 0 for a malformed or incomplete canonical manifest, the test performs no assertion and continues. This leaves a fail-open regression undetected.
+**Fix:** Add an explicit `else` assertion that exit 0 is accompanied by `status == 'valid'` and zero diagnostics (or fail unless the expected digest-mismatch exit is observed).
+
+---
+
+_Reviewed: 2026-08-26T11:40:12.7350048Z_  
+_Reviewer: the agent (gsd-code-reviewer)_  
+_Depth: standard_
+
+## Plan 01-42 Critical-Finding Resolution — 2026-08-27
+
+The CR-08 and CR-09 findings above remain verbatim as the advisory review interval. They are resolved by commit `ffaecf88e19f5eda79b85c15351436b78f4c25e5`; no earlier finding or signed evidence was rewritten.
+
+### CR-08 Resolved — historical-envelope signer trust
+
+Current and superseded historical envelopes now require exactly one signer and apply the complete reviewer trust contract: approved thumbprint and identity/context, digital-signature key usage, required EKU, custom-root anchoring, online revocation, certificate validity at `review_utc`, and future-clock-skew enforcement. Wrong-purpose, untrusted, and revoked/indeterminate envelope signers fail closed with stable diagnostics. The legacy unsigned-first-entry compatibility rule is unchanged.
+
+### CR-09 Resolved — append-only D-48 index validation
+
+The D-48 publisher now validates the existing index before signing: schema, canonical entry identifiers and paths, generation file digests, embedded commitment predecessor linkage, ordering, uniqueness, missing or extra generation directories, truncation, and fork consistency. Any drift is rejected before staging or publication.
+
+### Verification
+
+- `Phase1.Security.Tests.ps1 -Focus Publication` — passed.
+- `Phase1.Security.Tests.ps1 -Focus Verifier` — passed.
+- `Phase1.Security.Tests.ps1 -Focus All` — passed.
+- GitNexus staged change analysis — LOW risk, no affected indexed execution flows.
+
+**Resolution status:** CR-08 and CR-09 closed. WR-03 through WR-05 remain advisory and were not authorized for remediation in this interval.
