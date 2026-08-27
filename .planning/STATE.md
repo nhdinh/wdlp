@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 01
 current_phase_name: first-encrypted-drive-vertical-slice
 current_plan: 40 of 21
-status: executing
-stopped_at: Completed 01-41-PLAN.md
-last_updated: "2026-08-27T01:32:24.051Z"
+status: verifying
+stopped_at: Completed 01-42-PLAN.md
+last_updated: "2026-08-27T09:27:21.688Z"
 last_activity: 2026-08-27
-state_head: 25dfac6dede97e393730a7580e3d0573ce6b5558
+state_head: f5cc729b0f4058ad0a4e9bd765c212cbff7dbef8
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 35
-  completed_plans: 34
+  completed_plans: 35
 milestone_name: milestone
 last_activity_desc: Completed Plan 01-21 Task 2; FinalGate verifier passes (30/30 requirements, 7/7 success criteria, 50/50 decisions, 9/9 privilege manifests, valid independent review by lab/administrator, matrix digest 5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414).
 ---
@@ -53,7 +53,7 @@ Last activity: 2026-08-27
 - **Phase:** 01 (first-encrypted-drive-vertical-slice) — READY TO EXECUTE
 - **Plan:** 40 of 21
 - **Task:** 2 of 2
-- **Status:** Ready to execute
+- **Status:** Phase complete — ready for verification
 - **Progress:** [██████████] 100% of Phase 01
 - **Current plan:** 40 of 21
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 secure session-host lifecycle, application/operation/size matrix, and D-19 failure/recovery matrix verified. Security closure manifest signed off with 19/19 blocking threats closed.
@@ -104,6 +104,7 @@ Last activity: 2026-08-27
 | Phase 01 P39 | 30m | 2 tasks | 1 files |
 | Phase 01 P40 | 15m | 2 tasks | 2 files |
 | Phase 01 P41 | 25m | 3 tasks | 2 files |
+| Phase 01 P42 | 1d | 4 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -135,8 +136,8 @@ Last activity: 2026-08-27
 
 **Resume file:** None
 
-**Last session:** 2026-08-26T10:17:50.238Z
-**Stopped at:** Completed 01-41-PLAN.md
+**Last session:** 2026-08-27T09:27:21.633Z
+**Stopped at:** Completed 01-42-PLAN.md
 
 **Current session:** 2026-08-26T05:00:00.000Z
 **Resumed at:** /gsd-resume-work — restored the 01-37 implementation and closed its missing summary.
@@ -224,6 +225,8 @@ Last activity: 2026-08-27
 - [Phase 01]: Retain observed Windows identity and COMPUTERNAME binding; mismatches fail before consent and mutation.
 - [Phase 01]: Signed-off verification cryptographically checks every non-legacy historical CMS while preserving authenticated envelope compatibility for the legacy first entry.
 - [Phase 01]: D-48 T-01-21-04 digest mismatch remains an explicit fail-closed diagnostic.
+- [Phase 01]: Legacy archival null-subject compatibility remains versioned and authenticated by identity and thumbprint.
+- [Phase 01]: Every historical and envelope CMS signer uses the complete external trust contract.
 
 ### Blockers
 

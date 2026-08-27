@@ -35,7 +35,7 @@ Plans:
 
 - [x] 01-40-PLAN.md
 - [x] 01-41-PLAN.md
-- [ ] 01-42-PLAN.md — Close canonical FinalGate digest/PKCS compatibility, per-history signer trust, and chain-environment restoration gaps
+- [x] 01-42-PLAN.md — Close canonical FinalGate digest/PKCS compatibility, per-history signer trust, and chain-environment restoration gaps
 
 - [x] 01-35-PLAN.md
 - [x] 01-36-PLAN.md
@@ -216,7 +216,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 29/29 | In Progress|  |
+| 1. First Encrypted-Drive Vertical Slice | 30/30 | In Progress|  |
 | 1.1. Add env-var docs | 1/1 | Complete | 2026-08-15 |
 | 1.2. Automatic enrollment token acquisition | 1/1 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
