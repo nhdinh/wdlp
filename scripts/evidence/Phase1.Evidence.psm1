@@ -237,6 +237,7 @@ function Test-Phase1IndependentReview {
     $errors = [Collections.Generic.List[string]]::new()
     if (-not (Test-Path $IndexPath)) { return [pscustomobject]@{ Present=$false; Valid=$false; Errors=@('independent_review_missing') } }
     try {
+        try { Add-Type -AssemblyName System.Security -ErrorAction Stop } catch { throw 'd48_pkcs_assembly_missing' }
         $index = Read-Phase1Json $IndexPath
         if ($index.schema_version -ne 'phase1-independent-review-index/v1' -or @($index.generations).Count -lt 1) { throw 'independent_review_index_invalid' }
         $latest = @($index.generations)[-1]
@@ -253,8 +254,21 @@ function Test-Phase1IndependentReview {
         $cert = $cms.SignerInfos[0].Certificate; $thumb = $cert.Thumbprint.Replace(' ','').ToUpperInvariant()
         $authorized = @($policy.reviewers | Where-Object { $_.thumbprint.Replace(' ','').ToUpperInvariant() -eq $thumb -and $_.identity -eq $commitment.signer.identity -and $_.machine_identity -eq $commitment.signer.machine })
         if ($authorized.Count -ne 1) { throw 'independent_review_policy_mismatch' }
+        if ($archive.schema_version -ne 'phase1-reviewer-policy/v1') { throw 'independent_review_archival_policy_invalid' }
         foreach ($reviewer in @($archive.reviewers)) {
-            if ($reviewer.identity -eq $commitment.signer.identity -or $reviewer.thumbprint.Replace(' ','').ToUpperInvariant() -eq $thumb -or $reviewer.subject -eq $cert.Subject) { throw 'independent_review_archival_signer_reuse' }
+            $identityProperty = $reviewer.PSObject.Properties['identity']
+            $thumbprintProperty = $reviewer.PSObject.Properties['thumbprint']
+            $subjectProperty = $reviewer.PSObject.Properties['subject']
+            if (-not $identityProperty -or [string]::IsNullOrWhiteSpace([string]$identityProperty.Value) -or
+                -not $thumbprintProperty -or [string]::IsNullOrWhiteSpace([string]$thumbprintProperty.Value)) {
+                throw 'independent_review_archival_subject_missing'
+            }
+            # phase1-reviewer-policy/v1 predates the optional subject field. Its
+            # authenticated identity and thumbprint remain the compatibility keys.
+            $subjectMatches = $subjectProperty -and -not [string]::IsNullOrWhiteSpace([string]$subjectProperty.Value) -and [string]$subjectProperty.Value -eq $cert.Subject
+            if ([string]$identityProperty.Value -eq $commitment.signer.identity -or
+                ([string]$thumbprintProperty.Value).Replace(' ','').ToUpperInvariant() -eq $thumb -or
+                $subjectMatches) { throw 'independent_review_archival_signer_reuse' }
         }
         foreach ($artifact in @($commitment.artifacts)) {
             $map = @{ security_closure='evidence/phase1/security-closure.yaml'; security_review='.planning/phases/01-first-encrypted-drive-vertical-slice/01-SECURITY.md'; code_review='.planning/phases/01-first-encrypted-drive-vertical-slice/01-REVIEW.md'; requirement_matrix='evidence/phase1/requirement-matrix.yaml'; evidence_bundle='tests/windows/results/phase1-evidence.json'; evidence_digest='tests/windows/results/phase1-evidence.sha256' }
