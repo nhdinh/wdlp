@@ -9,6 +9,7 @@ Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $RuntimePath = Join-Path $RepoRoot 'scripts/lab/Invoke-Client01Runtime.ps1'
+$Dc01RuntimePath = Join-Path $RepoRoot 'scripts/lab/Invoke-Dc01Server.ps1'
 $SmokePath = Join-Path $RepoRoot 'tests/windows/Invoke-AgentServiceSmoke.ps1'
 $Docs = [ordered]@{
     Startup = Join-Path $RepoRoot '.planning/docs/HYPERV-DLP-STARTUP-GUIDE.md'
@@ -84,6 +85,7 @@ function Assert-NoSecretBearingExamples {
 
 function Invoke-CoreFlowCoverage {
     $runtime = Get-UncommentedSource -Path $RuntimePath
+    $dc01Runtime = Get-UncommentedSource -Path $Dc01RuntimePath
     $smoke = Get-UncommentedSource -Path $SmokePath
 
     # SRV-13 / D-05: the ordinary ServiceInstall path defaults to trusted
@@ -119,6 +121,14 @@ function Invoke-CoreFlowCoverage {
     Assert-Matches -Text $runtime -Pattern 'Wait-Client01ActivePolicy' -Message 'TST-05: ServiceInstall must wait for first signed policy activation.'
     Assert-Matches -Text $smoke -Pattern 'active_policy_version=\\S\+' -Message 'TST-05: smoke coverage must reject a null active-policy version.'
     Assert-Matches -Text $smoke -Pattern 'active_policy_state=Active' -Message 'TST-05: smoke coverage must require Active policy state.'
+
+    # Authenticated evidence must preserve both CA and hostname validation in
+    # every executable lab runner. A trust-all callback can never publish pass.
+    foreach ($runner in @($runtime, $dc01Runtime)) {
+        Assert-NotMatches -Text $runner -Pattern 'TrustAllCertsPolicy|ServerCertificateValidationCallback\s*=\s*\{\s*\$true\s*\}|CertificatePolicy\s*=\s*New-Object' -Message 'Executable lab runner contains a trust-all TLS path.'
+    }
+    Assert-Matches -Text $dc01Runtime -Pattern 'LAB-DC01\.lab\.local[\s\S]*curl\.exe[\s\S]*--cacert[\s\S]*--resolve' -Message 'LAB-DC01 evidence probes must authenticate the explicit Phase 1 CA and DNS name.'
+    Assert-Matches -Text $dc01Runtime -Pattern 'DLP_CONFIGURATION_KEY_ID[\s\S]*phase1-config-signing-key-v1[\s\S]*configuration_key_id_mismatch' -Message 'LAB-DC01 must propagate and verify the configuration key identifier.'
 
     # D-09..D-12: normal status is coded/sparse; detailed diagnostics are
     # explicit, bounded, and never contain raw managed secret material.

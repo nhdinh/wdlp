@@ -25,6 +25,7 @@ $EvidenceDir = Join-Path $RepoRoot 'evidence/phase1/attempts'
 $script:Dc01Ip = '192.168.50.10'
 $script:Server01Ip = '192.168.50.12'
 $script:ServerPort = 8443
+$script:Dc01DnsName = 'LAB-DC01.lab.local'
 
 function Stop-Dc01([string]$Code) { throw $Code }
 function Assert-Dc01([bool]$Condition, [string]$Code) {
@@ -390,6 +391,12 @@ function Start-Dc01Server {
 
     $listenAddress = "0.0.0.0:$($script:ServerPort)"
     $databaseUrl = $env:DLP_DATABASE_URL
+    $configurationKeyId = if ([string]::IsNullOrWhiteSpace($env:DLP_CONFIGURATION_KEY_ID)) {
+        'phase1-config-signing-key-v1'
+    } else {
+        $env:DLP_CONFIGURATION_KEY_ID.Trim()
+    }
+    Assert-Dc01 ($configurationKeyId.Length -ge 1 -and $configurationKeyId.Length -le 128) 'configuration_key_id_invalid'
     $adTimeoutSeconds = if ([string]::IsNullOrWhiteSpace($env:DLP_AD_TIMEOUT_SECONDS)) {
         10
     } else {
@@ -422,6 +429,7 @@ function Start-Dc01Server {
     $envLines.Add('DLP_DEVICE_ISSUING_CA_CERT_PEM=C:\dlp\secrets\device-issuing-ca.pem')
     $envLines.Add('DLP_DEVICE_ISSUING_CA_KEY_PEM=C:\dlp\secrets\device-issuing-ca-key.pem')
     $envLines.Add("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX=$($env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX)")
+    $envLines.Add("DLP_CONFIGURATION_KEY_ID=$configurationKeyId")
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         param($EnvLines, $ListenAddress, $Port)
@@ -455,6 +463,16 @@ function Start-Dc01Server {
         $proc.Id | Set-Content -Path $pidPath -Encoding UTF8
     } -ArgumentList @($envLines, $listenAddress, $script:ServerPort)
 
+    # The identifier is non-secret and must match the endpoint verifier. Check
+    # the exact persisted value before any readiness evidence can be published.
+    $persistedKeyId = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+        $lines = @([System.IO.File]::ReadAllLines('C:\dlp\server\server.env') |
+            Where-Object { $_ -like 'DLP_CONFIGURATION_KEY_ID=*' })
+        if ($lines.Count -ne 1) { throw 'configuration_key_id_missing_or_duplicate' }
+        return $lines[0].Substring('DLP_CONFIGURATION_KEY_ID='.Length)
+    }
+    Assert-Dc01 ($persistedKeyId -ceq $configurationKeyId) 'configuration_key_id_mismatch'
+
     if ($WaitForReady) {
         $deadline = (Get-Date).AddSeconds(60)
         $ready = $false
@@ -481,6 +499,52 @@ function Start-Dc01Server {
             Stop-Dc01 'server_failed_to_bind'
         }
     }
+}
+
+function Invoke-AuthenticatedDc01Probe {
+    param([Parameter()][switch]$Concurrent)
+
+    $rootCaPem = Resolve-PemContent -Name 'DLP_PHASE1_ROOT_CA_CERT_PEM' -Value $env:DLP_PHASE1_ROOT_CA_CERT_PEM
+    Invoke-LabCommand -VMName $ProbeMachine -ScriptBlock {
+        param($ServerDnsName, $ServerIp, $Port, $RootCaPem, $RunConcurrent)
+        $ErrorActionPreference = 'Stop'
+        $curl = Get-Command curl.exe -ErrorAction Stop
+        $caPath = Join-Path $env:ProgramData ('dlp-phase1-root-' + [Guid]::NewGuid().ToString('N') + '.pem')
+        try {
+            [System.IO.File]::WriteAllText($caPath, $RootCaPem, (New-Object System.Text.UTF8Encoding($false)))
+            $uris = @(
+                "https://${ServerDnsName}:$Port/health/live",
+                "https://${ServerDnsName}:$Port/health/ready"
+            )
+            $invokeProbe = {
+                param($CurlPath, $Uri, $CaPath, $ResolveEntry)
+                $body = & $CurlPath --silent --show-error --fail --cacert $CaPath --resolve $ResolveEntry $Uri
+                if ($LASTEXITCODE -ne 0) { throw "authenticated_tls_probe_failed:$LASTEXITCODE" }
+                $result = $body | ConvertFrom-Json
+                if ($result.status -ne 'ok') { throw 'authenticated_tls_probe_not_ok' }
+                return $result
+            }
+            $resolveEntry = "${ServerDnsName}:$Port`:$ServerIp"
+            if ($RunConcurrent) {
+                $jobs = for ($i = 0; $i -lt 4; $i++) {
+                    Start-Job -ScriptBlock $invokeProbe -ArgumentList $curl.Source, $uris[$i % 2], $caPath, $resolveEntry
+                }
+                try {
+                    $jobs | Wait-Job | Receive-Job -ErrorAction Stop | Out-Null
+                    $failed = @($jobs | Where-Object { $_.State -ne 'Completed' -or $_.ChildJobs[0].JobStateInfo.State -ne 'Completed' })
+                    if ($failed.Count -gt 0) { throw 'authenticated_tls_concurrent_probe_failed' }
+                } finally {
+                    $jobs | Remove-Job -Force -ErrorAction SilentlyContinue
+                }
+            } else {
+                foreach ($uri in $uris) {
+                    & $invokeProbe $curl.Source $uri $caPath $resolveEntry | Out-Null
+                }
+            }
+        } finally {
+            Remove-Item -LiteralPath $caPath -Force -ErrorAction SilentlyContinue
+        }
+    } -ArgumentList @($script:Dc01DnsName, $script:Dc01Ip, $script:ServerPort, $rootCaPem, [bool]$Concurrent)
 }
 
 function Reset-DlpDatabase {
@@ -581,37 +645,10 @@ if (`$LASTEXITCODE -ne 0) { throw "sqlx migrate failed: `$output" }
         }
         'ReadinessConcurrency' {
             Start-Dc01Server -WaitForReady
-            $serverHost = $script:Dc01Ip
-            Invoke-LabCommand -VMName $ProbeMachine -ScriptBlock {
-                param($ServerHost, $Port)
-                $ErrorActionPreference = 'Stop'
-                $trustAll = @'
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-public class TrustAllCertsPolicy : ICertificatePolicy {
-    public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) { return true; }
-}
-'@
-                Add-Type -TypeDefinition $trustAll -ErrorAction SilentlyContinue
-                [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
-                $uris = @("https://${ServerHost}:$Port/health/live", "https://${ServerHost}:$Port/health/ready")
-                $jobs = @()
-                for ($i = 0; $i -lt 4; $i++) {
-                    $uri = $uris[$i % 2]
-                    $jobs += Start-Job -ScriptBlock {
-                        param($u, $policyCode)
-                        Add-Type -TypeDefinition $policyCode -ErrorAction SilentlyContinue
-                        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-                        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
-                        Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 60
-                    } -ArgumentList $uri, $trustAll
-                }
-                $jobs | Wait-Job | Receive-Job
-            } -ArgumentList @($serverHost, $script:ServerPort)
+            Invoke-AuthenticatedDc01Probe -Concurrent
             New-Dc01Evidence -RequirementId 'SRV-12' -CheckId 'readiness-concurrency' -Status 'pass' `
                 -Expected 'concurrent liveness/readiness probes are deterministic and read-only' `
-                -Actual "probes completed from $ProbeMachine" -TargetMachine $ProbeMachine -Fingerprint (Get-EnvironmentFingerprint -TargetMachine $ProbeMachine) | Out-Null
+                -Actual "CA-validated hostname probes completed from $ProbeMachine" -TargetMachine $ProbeMachine -Fingerprint (Get-EnvironmentFingerprint -TargetMachine $ProbeMachine) | Out-Null
         }
     }
 }
@@ -628,33 +665,13 @@ function Invoke-Dc01Tracer {
 
     Write-Host 'Tracer: starting server...'
     Start-Dc01Server -WaitForReady
-    $serverHost = $script:Dc01Ip
+    $serverHost = $script:Dc01DnsName
 
     Write-Host 'Tracer: collecting probe fingerprint...'
     $probeFingerprint = Get-EnvironmentFingerprint -TargetMachine $ProbeMachine
 
     Write-Host "Tracer: probing from $ProbeMachine to $serverHost..."
-    Invoke-LabCommand -VMName $ProbeMachine -ScriptBlock {
-        param($ServerHost, $Port)
-        $ErrorActionPreference = 'Stop'
-        Add-Type -TypeDefinition @'
-        using System.Net;
-        using System.Security.Cryptography.X509Certificates;
-        public class TrustAllCertsPolicy : ICertificatePolicy {
-            public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) { return true; }
-        }
-'@ -ErrorAction SilentlyContinue
-        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
-        function Invoke-Dc01HealthProbe([string]$Uri) {
-            $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 60
-            $content = $response.Content | ConvertFrom-Json
-            return $content
-        }
-        $live = Invoke-Dc01HealthProbe -Uri "https://${ServerHost}:$Port/health/live"
-        $ready = Invoke-Dc01HealthProbe -Uri "https://${ServerHost}:$Port/health/ready"
-        if ($live.status -ne 'ok' -or $ready.status -ne 'ok') { throw "probe could not reach server at $ServerHost" }
-    } -ArgumentList @($serverHost, $script:ServerPort)
+    Invoke-AuthenticatedDc01Probe
     Write-Host 'Tracer: probes succeeded, publishing readiness evidence...'
     New-Dc01Evidence -RequirementId 'SRV-12' -CheckId 'dc01-tracer-readiness' -Status 'pass' `
         -Expected 'LAB-CLIENT01 reaches management server on LAB-DC01 over validated TLS' `
