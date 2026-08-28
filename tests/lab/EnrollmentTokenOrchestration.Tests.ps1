@@ -123,7 +123,8 @@ function Invoke-CoreFlowCoverage {
     # provisioning, contains no manual token copy, and reuses device.dpapi.
     Assert-Matches -Text $runtime -Pattern "EnrollmentTokenProvider\s*=\s*'TrustedProvisioning'" -Message 'SRV-13/D-05: TrustedProvisioning must be the default provider.'
     Assert-Matches -Text $runtime -Pattern "'ServiceInstall'\s*\{[^}]*Invoke-Client01Tracer" -Message 'SRV-13: ServiceInstall must execute the enrollment tracer.'
-    Assert-Matches -Text $runtime -Pattern "EnrollmentTokenProvider\s*-eq\s*'TrustedProvisioning'[\s\S]*Test-Client01CredentialPresent[\s\S]*existing_credential_reused" -Message 'D-05: existing usable credentials must skip provisioning.'
+    Assert-Matches -Text $runtime -Pattern "credentialPresentBeforeStart\s*=\s*Test-Client01CredentialPresent[\s\S]*EnrollmentTokenProvider\s*-eq\s*'TrustedProvisioning'[\s\S]*existing_credential_reused" -Message 'D-05: existing usable credentials must skip provisioning.'
+    Assert-Matches -Text $runtime -Pattern 'if\s*\(\s*\$ForceReenrollment\s*\)\s*\{\s*\$provisioningArguments\s*\.\s*RecoverCredential\s*=\s*\$true\s*\}' -Message 'Normal provisioning must not request server-side credential recovery.'
     Assert-Matches -Text $smoke -Pattern 'Scenario\s*=\s*''ServiceInstall''[\s\S]*Apply\s*=\s*\$true' -Message 'SRV-13: smoke coverage must invoke ordinary ServiceInstall with Apply.'
     $liveRecovery = [regex]::Match($smoke, '(?s)function\s+Invoke-LiveEnrollmentRecovery\b.*?(?=function\s+Get-AgentPreservationState)').Value
     Assert-NotMatches -Text $liveRecovery -Pattern 'EnrollmentTokenProvider|DLP_AGENT_ENROLLMENT_TOKEN' -Message 'SRV-13: normal smoke flow must not override the provider or copy a token.'
@@ -142,7 +143,11 @@ function Invoke-CoreFlowCoverage {
     Assert-Matches -Text $runtime -Pattern '\[\s*switch\s*\]\s*\$ForceReenrollment' -Message 'D-06: -ForceReenrollment must be supported.'
     Assert-Matches -Text $runtime -Pattern '\$ForceReenrollment\s*-and\s*-not\s*\$Apply[\s\S]*force_reenrollment_preview[\s\S]*return' -Message 'D-07: force preview must be non-destructive without -Apply.'
     Assert-Matches -Text $runtime -Pattern 'Reset-Client01EnrollmentCredential[\s\S]*preserv(?:e|ing)[^\r\n]*(?:service|data)[^\r\n]*cache' -Message 'D-08: force replacement must preserve service, data, and cache.'
+    Assert-Matches -Text $runtime -Pattern 'credential_files_remain[\s\S]*WriteAllText\(\$ResultPath, ''complete''\)[\s\S]*credential_reset_delete_failed[\s\S]*credential_reset_verification_failed' -Message 'Force reset must fail closed unless the SYSTEM deletion and absence checks succeed.'
     Assert-Matches -Text $smoke -Pattern 'force_reenrollment_removed_preserved_state' -Message 'D-08: smoke coverage must assert preservation after replacement.'
+    foreach ($replacementMarker in @('replacement_credential_serial_unchanged', 'replacement_predecessor_not_rejected', 'ordinary_recovery_revoked_predecessor')) {
+        Assert-Matches -Text $smoke -Pattern ([regex]::Escape($replacementMarker)) -Message "Credential replacement regression marker $replacementMarker is missing."
+    }
 
     # TST-05 / AGT-01: success means Automatic + Running and a verified first
     # signed policy with a non-null version and Active state.
@@ -150,6 +155,8 @@ function Invoke-CoreFlowCoverage {
     Assert-Matches -Text $runtime -Pattern 'start=\s*auto' -Message 'AGT-01: existing service reconfiguration must retain automatic startup.'
     Assert-Matches -Text $smoke -Pattern "StartType\s*-eq\s*'Auto'" -Message 'AGT-01: smoke coverage must verify automatic startup.'
     Assert-Matches -Text $runtime -Pattern 'Wait-Client01ActivePolicy' -Message 'TST-05: ServiceInstall must wait for first signed policy activation.'
+    Assert-Matches -Text $runtime -Pattern 'BaselineLogLength[\s\S]*authenticated configuration poll succeeded' -Message 'TST-05: policy acceptance must be bound to a post-start authenticated poll.'
+    Assert-Matches -Text $runtime -Pattern 'initial_enrollment_precondition_failed' -Message 'Initial enrollment must reject stale pointer state when no credential exists.'
     Assert-Matches -Text $smoke -Pattern 'active_policy_version=\\S\+' -Message 'TST-05: smoke coverage must reject a null active-policy version.'
     Assert-Matches -Text $smoke -Pattern 'active_policy_state=Active' -Message 'TST-05: smoke coverage must require Active policy state.'
     foreach ($aclMarker in @('SetAccessRuleProtection', 'FileSecurity', 'CreateNew', 'AreAccessRulesProtected', 'enrollment_token_acl_unexpected_principal')) {

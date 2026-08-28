@@ -350,7 +350,28 @@ function Reset-Client01EnrollmentCredential {
         }
         $taskName = 'DlpForceReenrollment-' + [Guid]::NewGuid().ToString('N')
         $resultPath = Join-Path $env:ProgramData ($taskName + '.txt')
-        $action = "cmd.exe /d /c del /q C:\dlp\agent\data\credentials\device.dpapi* & echo complete>$resultPath"
+        $scriptPath = Join-Path $env:ProgramData ($taskName + '.ps1')
+        $resetScript = @'
+param([string]$ResultPath)
+$ErrorActionPreference = 'Stop'
+$pattern = 'C:\dlp\agent\data\credentials\device.dpapi*'
+try {
+    $existing = @(Get-ChildItem -Path $pattern -Force -ErrorAction SilentlyContinue)
+    if ($existing.Count -gt 0) {
+        Remove-Item -Path $pattern -Force -ErrorAction Stop
+    }
+    if (@(Get-ChildItem -Path $pattern -Force -ErrorAction SilentlyContinue).Count -ne 0) {
+        throw 'credential_files_remain'
+    }
+    [System.IO.File]::WriteAllText($ResultPath, 'complete')
+    exit 0
+} catch {
+    [System.IO.File]::WriteAllText($ResultPath, 'failed')
+    exit 1
+}
+'@
+        [System.IO.File]::WriteAllText($scriptPath, $resetScript, (New-Object System.Text.UTF8Encoding($false)))
+        $action = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$scriptPath`" -ResultPath `"$resultPath`""
         $startTime = (Get-Date).AddMinutes(1).ToString('HH:mm')
         try {
             & schtasks.exe /Create /TN $taskName /SC ONCE /ST $startTime /TR $action /RU SYSTEM /F | Out-Null
@@ -362,10 +383,13 @@ function Reset-Client01EnrollmentCredential {
                 Start-Sleep -Milliseconds 200
             }
             if (-not (Test-Path -LiteralPath $resultPath)) { throw 'credential_reset_timed_out' }
+            $result = [System.IO.File]::ReadAllText($resultPath).Trim()
+            if ($result -cne 'complete') { throw 'credential_reset_delete_failed' }
         } finally {
             $cleanupCommand = "schtasks.exe /Delete /TN $taskName /F >nul 2>&1"
             & cmd.exe /d /c $cleanupCommand | Out-Null
             Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $scriptPath -Force -ErrorAction SilentlyContinue
         }
         if ($null -ne $service -and $null -eq (Get-Service -Name 'DlpWindowsService' -ErrorAction SilentlyContinue)) {
             throw 'service_removed_during_force_reenrollment'
@@ -376,6 +400,7 @@ function Reset-Client01EnrollmentCredential {
             }
         }
     }
+    Assert-Client01 (-not (Test-Client01CredentialPresent)) 'credential_reset_verification_failed'
     Remove-Client01EnrollmentToken
 }
 
@@ -1126,7 +1151,10 @@ function Invoke-Client01TrustedProvisioning {
             file_lengths = $diagnostics.file_lengths
             error_type = $_.Exception.GetType().Name
         }
-        Stop-Client01 'trusted_provisioning_failed: retry to mint a fresh token; use -Diagnostic for redacted metadata'
+        if ($RecoverCredential) {
+            Stop-Client01 'trusted_provisioning_failed: explicit credential recovery failed; retry -ForceReenrollment -Apply to mint a fresh token; use -Diagnostic for redacted metadata'
+        }
+        Stop-Client01 'trusted_provisioning_failed: server credential authority may already exist while local device.dpapi is unavailable; rerun explicitly with -ForceReenrollment -Apply; use -Diagnostic for redacted metadata'
     }
 
     $result = $resultJson | ConvertFrom-Json
@@ -1356,6 +1384,9 @@ function Install-Client01Service {
     # D-08: Install-Client01ServiceBinary creates missing directories and
     # replaces only binaries; it never removes data, credentials, or cache.
     Install-Client01ServiceBinary
+    # Install-Client01ServiceBinary has stopped the prior process. Capture the
+    # exact log boundary now so only this start's authenticated poll can pass.
+    $activationBaseline = Get-Client01ActivationBaseline
     Install-Client01RuntimeSecrets -EnrollmentToken $EnrollmentToken
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
@@ -1426,6 +1457,7 @@ function Install-Client01Service {
             }
         }
     } -ArgumentList @($StartAfterInstall)
+    return $activationBaseline
 }
 
 function Get-Client01ServiceStartDiagnostics {
@@ -1477,17 +1509,49 @@ function Test-Client01ServiceRunning {
     }
 }
 
+function Get-Client01ActivationBaseline {
+    return Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+        $logPath = 'C:\dlp\agent\logs\dlp-windows-service.log'
+        $pointerPath = 'C:\dlp\agent\cache\pointers'
+        return [pscustomobject]@{
+            log_length = if (Test-Path -LiteralPath $logPath) { (Get-Item -LiteralPath $logPath).Length } else { 0 }
+            pointer_exists = Test-Path -LiteralPath $pointerPath -PathType Leaf
+        }
+    }
+}
+
 function Wait-Client01ActivePolicy {
-    param([Parameter()][int]$TimeoutSeconds = 120)
+    param(
+        [Parameter()][int]$TimeoutSeconds = 120,
+        [Parameter(Mandatory)][long]$BaselineLogLength
+    )
     # TST-05: the durable pointer is written only after signed configuration
     # verification and atomic activation. Reading version/state proves more
     # than credential-file existence or a merely Running service.
     $state = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
-        param($Timeout)
+        param($Timeout, $LogOffset)
         $ErrorActionPreference = 'Stop'
         $pointerPath = 'C:\dlp\agent\cache\pointers'
+        $logPath = 'C:\dlp\agent\logs\dlp-windows-service.log'
         $deadline = [DateTime]::UtcNow.AddSeconds($Timeout)
+        $authenticatedPoll = $false
         while ([DateTime]::UtcNow -lt $deadline) {
+            if (-not $authenticatedPoll -and (Test-Path -LiteralPath $logPath)) {
+                $stream = [System.IO.File]::Open($logPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                try {
+                    if ($stream.Length -lt $LogOffset) { $LogOffset = 0 }
+                    [void]$stream.Seek($LogOffset, [System.IO.SeekOrigin]::Begin)
+                    $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true, 4096, $true)
+                    try {
+                        $newLogText = $reader.ReadToEnd()
+                    } finally {
+                        $reader.Dispose()
+                    }
+                } finally {
+                    $stream.Dispose()
+                }
+                $authenticatedPoll = $newLogText -match 'authenticated configuration poll succeeded: (?:activated|unchanged)'
+            }
             if (Test-Path -LiteralPath $pointerPath) {
                 $bytes = [System.IO.File]::ReadAllBytes($pointerPath)
                 if ($bytes.Length -ge 65 -and [System.Text.Encoding]::ASCII.GetString($bytes, 0, 8) -eq 'dlp-ptr1' -and $bytes[24] -eq 1) {
@@ -1495,7 +1559,7 @@ function Wait-Client01ActivePolicy {
                     for ($i = 0; $i -lt 8; $i++) {
                         $version = ($version -shl 8) -bor [UInt64]$bytes[57 + $i]
                     }
-                    if ($version -gt 0) {
+                    if ($version -gt 0 -and $authenticatedPoll) {
                         return [pscustomobject]@{ active_policy_version = $version.ToString(); active_policy_state = 'Active' }
                     }
                 }
@@ -1503,8 +1567,8 @@ function Wait-Client01ActivePolicy {
             Start-Sleep -Milliseconds 500
         }
         return [pscustomobject]@{ active_policy_version = $null; active_policy_state = 'Unconfigured' }
-    } -ArgumentList @($TimeoutSeconds)
-    Assert-Client01 (-not [string]::IsNullOrWhiteSpace($state.active_policy_version)) 'active_policy_version_missing: wait for a signed configuration assignment and retry'
+    } -ArgumentList @($TimeoutSeconds, $BaselineLogLength)
+    Assert-Client01 (-not [string]::IsNullOrWhiteSpace($state.active_policy_version)) 'active_policy_version_missing: no authenticated configuration poll completed after this service start'
     Assert-Client01 ($state.active_policy_state -eq 'Active') 'active_policy_not_active: inspect redacted service diagnostics with -Diagnostic'
     Write-Host "active_policy_version=$($state.active_policy_version)"
     Write-Host "active_policy_state=$($state.active_policy_state)"
@@ -1516,7 +1580,7 @@ function Invoke-Client01ServiceInstall {
 
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine $ExecutionMachine
     try {
-        Install-Client01Service -StartAfterInstall -EnrollmentToken $EnrollmentToken
+        $activationBaseline = Install-Client01Service -StartAfterInstall -EnrollmentToken $EnrollmentToken
     } catch {
         Write-Client01Diagnostic -Code 'service_install_failed' -Fields @{
             stage = 'install_or_start'
@@ -1555,6 +1619,7 @@ function Invoke-Client01ServiceInstall {
         -Actual $actual -TargetMachine $ExecutionMachine -Fingerprint $fingerprint | Out-Null
     Assert-Client01 $running 'service_failed_to_start'
     Write-Client01Status -Code 'service_install_complete' -Message 'DlpWindowsService is installed, Automatic, and Running.'
+    return $activationBaseline
 }
 
 function Invoke-Client01Tracer {
@@ -1569,20 +1634,33 @@ function Invoke-Client01Tracer {
         Reset-Client01EnrollmentCredential
     }
 
+    $credentialPresentBeforeStart = Test-Client01CredentialPresent
+    $preinstallState = Get-Client01ActivationBaseline
+    if ($EnrollmentTokenProvider -eq 'TrustedProvisioning' -and
+        -not $ForceReenrollment -and
+        -not $credentialPresentBeforeStart -and
+        $preinstallState.pointer_exists) {
+        Stop-Client01 'initial_enrollment_precondition_failed: local credential is unavailable while a cached policy pointer exists; rerun explicitly with -ForceReenrollment -Apply'
+    }
+
     if ($EnrollmentTokenProvider -eq 'TrustedProvisioning') {
         if ($env:DLP_DEVICE_ID -cne $targetComputer) {
             Write-Client01Diagnostic -Code 'device_id_canonicalized' -Fields @{ target = $targetComputer }
             $env:DLP_DEVICE_ID = $targetComputer
         }
-        if ((-not $ForceReenrollment) -and (Test-Client01CredentialPresent)) {
+        if ((-not $ForceReenrollment) -and $credentialPresentBeforeStart) {
             Write-Client01Status -Code 'existing_credential_reused' -Message 'A usable device.dpapi is present; trusted provisioning was skipped.'
         } else {
             $approvedDigest = Get-ApprovedPrivilegeManifestDigest
-            $enrollmentToken = Invoke-Client01TrustedProvisioning `
-                -PrivilegeManifestDigest $approvedDigest `
-                -TargetComputer $targetComputer `
-                -PreferredDriveLetter 'P' `
-                -RecoverCredential
+            $provisioningArguments = @{
+                PrivilegeManifestDigest = $approvedDigest
+                TargetComputer = $targetComputer
+                PreferredDriveLetter = 'P'
+            }
+            if ($ForceReenrollment) {
+                $provisioningArguments.RecoverCredential = $true
+            }
+            $enrollmentToken = Invoke-Client01TrustedProvisioning @provisioningArguments
         }
     } else {
         # Manual is an explicitly selected offline fallback only.
@@ -1593,8 +1671,8 @@ function Invoke-Client01Tracer {
 
     try {
         $tokenHandedOff = -not [string]::IsNullOrWhiteSpace($enrollmentToken)
-        Invoke-Client01ServiceInstall -EnrollmentToken $enrollmentToken
-        Wait-Client01ActivePolicy | Out-Null
+        $activationBaseline = Invoke-Client01ServiceInstall -EnrollmentToken $enrollmentToken
+        Wait-Client01ActivePolicy -BaselineLogLength $activationBaseline.log_length | Out-Null
     } catch {
         $safeFailure = $_.Exception.Message
         if ($tokenHandedOff) {
