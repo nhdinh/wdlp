@@ -1260,8 +1260,86 @@ function Install-Client01RuntimeSecrets {
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         param($EnvLines)
         $ErrorActionPreference = 'Stop'
+        $agentDirectory = 'C:\dlp\agent'
         $envPath = 'C:\dlp\agent\agent.env'
-        [System.IO.File]::WriteAllLines($envPath, $EnvLines, (New-Object System.Text.UTF8Encoding($false)))
+        $systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+        $administratorsSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
+        $allowedSids = @($systemSid.Value, $administratorsSid.Value)
+
+        # The service runs as LocalSystem. Protect the directory before a token
+        # is written so no inherited Users/Authenticated Users ACE can expose it.
+        $directorySecurity = New-Object System.Security.AccessControl.DirectorySecurity
+        $directorySecurity.SetAccessRuleProtection($true, $false)
+        $directorySecurity.SetOwner($administratorsSid)
+        foreach ($sid in @($systemSid, $administratorsSid)) {
+            $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+                $sid,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit),
+                [System.Security.AccessControl.PropagationFlags]::None,
+                [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            $directorySecurity.AddAccessRule($rule) | Out-Null
+        }
+        Set-Acl -LiteralPath $agentDirectory -AclObject $directorySecurity -ErrorAction Stop
+
+        # Create the temporary file with its final protected descriptor, write
+        # all lines, then atomically rename it within the same NTFS directory.
+        $fileSecurity = New-Object System.Security.AccessControl.FileSecurity
+        $fileSecurity.SetAccessRuleProtection($true, $false)
+        $fileSecurity.SetOwner($administratorsSid)
+        foreach ($sid in @($systemSid, $administratorsSid)) {
+            $fileSecurity.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+                $sid,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.AccessControlType]::Allow
+            )) | Out-Null
+        }
+        $temporaryPath = Join-Path $agentDirectory ('agent.env.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+        $stream = $null
+        $writer = $null
+        try {
+            $stream = [System.IO.FileStream]::new(
+                $temporaryPath,
+                [System.IO.FileMode]::CreateNew,
+                [System.Security.AccessControl.FileSystemRights]::Write,
+                [System.IO.FileShare]::None,
+                4096,
+                [System.IO.FileOptions]::WriteThrough,
+                $fileSecurity
+            )
+            $writer = [System.IO.StreamWriter]::new($stream, (New-Object System.Text.UTF8Encoding($false)))
+            foreach ($line in $EnvLines) { $writer.WriteLine($line) }
+            $writer.Flush()
+            $stream.Flush($true)
+            $writer.Dispose()
+            $writer = $null
+            $stream = $null
+            Move-Item -LiteralPath $temporaryPath -Destination $envPath -Force -ErrorAction Stop
+        } finally {
+            if ($null -ne $writer) { $writer.Dispose() }
+            elseif ($null -ne $stream) { $stream.Dispose() }
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        }
+
+        foreach ($path in @($agentDirectory, $envPath)) {
+            $acl = Get-Acl -LiteralPath $path -ErrorAction Stop
+            if (-not $acl.AreAccessRulesProtected) { throw 'enrollment_token_acl_inheritance_enabled' }
+            $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+            $unexpectedAllow = @($rules | Where-Object {
+                $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+                $_.IdentityReference.Value -notin $allowedSids
+            })
+            if ($unexpectedAllow.Count -ne 0) { throw 'enrollment_token_acl_unexpected_principal' }
+            foreach ($sid in $allowedSids) {
+                $matching = @($rules | Where-Object {
+                    $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+                    $_.IdentityReference.Value -eq $sid -and
+                    ($_.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl)
+                })
+                if ($matching.Count -eq 0) { throw 'enrollment_token_acl_required_principal_missing' }
+            }
+        }
     # Preserve the complete string array as one positional argument. Without
     # the unary comma, PowerShell enumerates the list and the remote script's
     # single parameter receives only DLP_DEVICE_ID.

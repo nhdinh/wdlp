@@ -152,6 +152,10 @@ function Invoke-CoreFlowCoverage {
     Assert-Matches -Text $runtime -Pattern 'Wait-Client01ActivePolicy' -Message 'TST-05: ServiceInstall must wait for first signed policy activation.'
     Assert-Matches -Text $smoke -Pattern 'active_policy_version=\\S\+' -Message 'TST-05: smoke coverage must reject a null active-policy version.'
     Assert-Matches -Text $smoke -Pattern 'active_policy_state=Active' -Message 'TST-05: smoke coverage must require Active policy state.'
+    foreach ($aclMarker in @('SetAccessRuleProtection', 'FileSecurity', 'CreateNew', 'AreAccessRulesProtected', 'enrollment_token_acl_unexpected_principal')) {
+        Assert-Matches -Text $runtime -Pattern ([regex]::Escape($aclMarker)) -Message "Enrollment-token ACL contract marker $aclMarker is missing."
+    }
+    Assert-Matches -Text $smoke -Pattern 'ordinary_user_can_read_agent_env' -Message 'Live smoke must reject an agent.env ACL readable by an ordinary principal.'
 
     # Authenticated evidence must preserve both CA and hostname validation in
     # every executable lab runner. A trust-all callback can never publish pass.

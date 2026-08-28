@@ -262,6 +262,24 @@ function Assert-EnrollmentTokenRemoved {
     Assert-AgentSmoke ($state.FileTokenCount -eq 0) 'enrollment_token_retained_in_env_file'
 }
 
+function Assert-EnrollmentTokenAclProtected {
+    $state = Invoke-AgentServiceCommand -ScriptBlock {
+        $acl = Get-Acl -LiteralPath 'C:\dlp\agent\agent.env' -ErrorAction Stop
+        $allowed = @('S-1-5-18', 'S-1-5-32-544')
+        $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+        $unexpectedAllow = @($rules | Where-Object {
+            $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+            $_.IdentityReference.Value -notin $allowed
+        })
+        return [pscustomobject]@{
+            Protected = $acl.AreAccessRulesProtected
+            UnexpectedAllowCount = $unexpectedAllow.Count
+        }
+    }
+    Assert-AgentSmoke $state.Protected 'enrollment_token_acl_inheritance_enabled'
+    Assert-AgentSmoke ($state.UnexpectedAllowCount -eq 0) 'ordinary_user_can_read_agent_env'
+}
+
 function Remove-AgentCredentialAsSystem {
     Invoke-AgentServiceCommand -ScriptBlock {
         $task = 'DlpSmokeRemoveCredential-' + [Guid]::NewGuid().ToString('N')
@@ -288,6 +306,7 @@ switch ($Scenario) {
         Assert-AgentSmoke $state.Installed 'dlp_agent_service_not_installed'
         Assert-AgentSmoke ($state.Status -eq 'Running') 'dlp_agent_service_not_running'
         Assert-AgentSmoke ($state.StartType -eq 'Auto') 'dlp_agent_service_not_automatic'
+        Assert-EnrollmentTokenAclProtected
         Assert-EnrollmentTokenRemoved
         Assert-NoHostArtifacts
     }
