@@ -76,11 +76,42 @@ function Assert-NoSecretBearingExamples {
 
     # D-09..D-12: examples may use visible placeholders and metadata, never
     # reusable secret contents or commands that print managed secret values.
-    Assert-NotMatches -Text $Text -Pattern '(?ms)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----\s*[A-Za-z0-9+/]{32,}={0,2}\s*-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----' -Message "$Name contains private-key contents."
-    Assert-NotMatches -Text $Text -Pattern '(?ms)-----BEGIN CERTIFICATE-----\s*[A-Za-z0-9+/]{64,}={0,2}\s*-----END CERTIFICATE-----' -Message "$Name contains full certificate contents."
+    $pemBlocks = [regex]::Matches(
+        $Text,
+        '(?ms)-----BEGIN (?<label>(?:RSA |EC |OPENSSH )?PRIVATE KEY|CERTIFICATE)-----(?<body>.*?)-----END \k<label>-----'
+    )
+    foreach ($block in $pemBlocks) {
+        $body = $block.Groups['body'].Value.Trim()
+        $placeholder = $body -match '^(?:\.\.\.|<[^>]+>|\*{3}|REDACTED|PLACEHOLDER)$'
+        if ($placeholder) { continue }
+
+        $normalized = [regex]::Replace($body, '\s+', '')
+        $decoded = $null
+        try { $decoded = [Convert]::FromBase64String($normalized) } catch { }
+        $kind = if ($block.Groups['label'].Value -eq 'CERTIFICATE') { 'certificate' } else { 'private-key' }
+        Assert-Condition -Condition ($null -eq $decoded -or $decoded.Length -eq 0) -Message "$Name contains $kind contents."
+        if ($null -eq $decoded -and -not [string]::IsNullOrWhiteSpace($normalized)) {
+            Assert-Condition -Condition $false -Message "$Name contains a non-placeholder $kind block."
+        }
+    }
     Assert-NotMatches -Text $Text -Pattern '(?im)^\s*\$env:DLP_AGENT_ENROLLMENT_TOKEN\s*=\s*[''\"](?!\*\*\*|<FROM-RUNTIME-PROVIDER>)[^''\"]+[''\"]' -Message "$Name contains a runnable enrollment-token value."
     Assert-NotMatches -Text $Text -Pattern '(?im)^\s*\$env:[A-Z0-9_]*PASSWORD\s*=\s*[''\"](?!\*\*\*|<FROM-RUNTIME-PROVIDER>)[^''\"]+[''\"]' -Message "$Name contains a runnable password value."
     Assert-NotMatches -Text $Text -Pattern '(?im)Get-Content[^\r\n]*(?:agent\.env|device\.dpapi)(?![^\r\n]*(?:-replace|-match|Select-String|\.Count))' -Message "$Name contains an unredacted managed-secret diagnostic path."
+}
+
+function Assert-WrappedPemFixtureRejected {
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    $before = $script:Failures.Count
+    Assert-NoSecretBearingExamples -Text $Text -Name $Name
+    $after = $script:Failures.Count
+    while ($script:Failures.Count -gt $before) {
+        $script:Failures.RemoveAt($script:Failures.Count - 1)
+    }
+    Assert-Condition -Condition ($after -gt $before) -Message "$Name wrapped PEM fixture was not rejected."
 }
 
 function Invoke-CoreFlowCoverage {
@@ -142,6 +173,10 @@ function Invoke-CoreFlowCoverage {
 }
 
 function Invoke-DocumentationAndDecisionCoverage {
+    $wrappedBody = ('QUFB' * 16) + "`n" + ('QkJC' * 16)
+    Assert-WrappedPemFixtureRejected -Name 'wrapped-certificate' -Text "-----BEGIN CERTIFICATE-----`n$wrappedBody`n-----END CERTIFICATE-----"
+    Assert-WrappedPemFixtureRejected -Name 'wrapped-private-key' -Text "-----BEGIN PRIVATE KEY-----`n$wrappedBody`n-----END PRIVATE KEY-----"
+
     foreach ($entry in $Docs.GetEnumerator()) {
         $name = $entry.Key
         $text = [System.IO.File]::ReadAllText($entry.Value)
