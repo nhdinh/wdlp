@@ -293,41 +293,21 @@ function Remove-Client01EnrollmentToken {
     # D-01/D-02/D-05/D-06/D-07: attempt both managed copies independently,
     # verify both, and make incomplete cleanup a stable hard failure.
     Write-Client01Status -Code 'enrollment_token_cleanup_started' -Message 'Removing the short-lived enrollment token from both endpoint locations.'
+    $cleanupCommandPath = Join-Path $RepoRoot 'scripts/lab/Remove-EnrollmentTokenState.ps1'
+    Assert-Client01 (Test-Path -LiteralPath $cleanupCommandPath -PathType Leaf) 'enrollment_token_cleanup_adapter_missing'
+    $cleanupCommandSource = [System.IO.File]::ReadAllText($cleanupCommandPath)
     try {
         $result = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
-        $ErrorActionPreference = 'Stop'
-        $serviceName = 'DlpWindowsService'
-        $serviceKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\' + $serviceName
-        $envPath = 'C:\dlp\agent\agent.env'
-        $status = [ordered]@{ AgentEnv = 'ok'; ScmEnvironment = 'ok' }
-
-        try {
-            $existing = Get-ItemProperty -Path $serviceKey -Name 'Environment' -ErrorAction SilentlyContinue
-            if ($null -ne $existing -and $null -ne $existing.Environment) {
-                $cleaned = @($existing.Environment | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
-                Set-ItemProperty -Path $serviceKey -Name 'Environment' -Value $cleaned -Type MultiString -Force
+            param($CleanupCommandSource)
+            $ErrorActionPreference = 'Stop'
+            $commandPath = Join-Path $env:ProgramData ('DlpEnrollmentCleanup-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+            try {
+                [System.IO.File]::WriteAllText($commandPath, $CleanupCommandSource, (New-Object System.Text.UTF8Encoding($false)))
+                return & $commandPath
+            } finally {
+                Remove-Item -LiteralPath $commandPath -Force -ErrorAction SilentlyContinue
             }
-            $remaining = @((Get-ItemProperty -Path $serviceKey -Name 'Environment' -ErrorAction SilentlyContinue).Environment |
-                Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
-            if ($remaining -ne 0) { throw 'token_entry_remains' }
-        } catch {
-            $status.ScmEnvironment = 'failed'
-        }
-
-        try {
-            if (Test-Path -LiteralPath $envPath) {
-                $lines = [System.IO.File]::ReadAllLines($envPath)
-                $cleaned = @($lines | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
-                [System.IO.File]::WriteAllLines($envPath, $cleaned, (New-Object System.Text.UTF8Encoding($false)))
-                $remaining = @([System.IO.File]::ReadAllLines($envPath) |
-                    Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
-                if ($remaining -ne 0) { throw 'token_entry_remains' }
-            }
-        } catch {
-            $status.AgentEnv = 'failed'
-        }
-        return [pscustomobject]$status
-        }
+        } -ArgumentList @($cleanupCommandSource)
     } catch {
         Stop-Client01 'enrollment_token_cleanup_failed: agent.env=unavailable; scm_environment=unavailable; remove DLP_AGENT_ENROLLMENT_TOKEN from C:\dlp\agent\agent.env and HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment before retrying'
     }

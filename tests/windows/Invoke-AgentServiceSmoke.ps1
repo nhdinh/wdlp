@@ -278,31 +278,46 @@ function Assert-SourceContract {
     Assert-AgentSmoke ((Get-RuntimeSource) -match $Pattern) $Code
 }
 
-function Invoke-TokenCleanupModel {
+function Invoke-TokenCleanupFixture {
     param(
         [Parameter()][switch]$FailAgentEnv,
         [Parameter()][switch]$FailScmEnvironment
     )
-    $state = [ordered]@{
-        AgentEnv = @('DLP_DEVICE_ID=device', 'DLP_AGENT_ENROLLMENT_TOKEN=secret', 'DLP_SERVER_URL=https://server')
-        ScmEnvironment = @('DLP_DEVICE_ID=device', 'DLP_AGENT_ENROLLMENT_TOKEN=secret', 'DLP_SERVER_URL=https://server')
-        ServicePresent = $true
-        BinaryPresent = $true
-        DataPresent = $true
-        CachePresent = $true
+    $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('dlp-cleanup-fixture-' + [Guid]::NewGuid().ToString('N'))
+    $agentEnvPath = Join-Path $fixtureRoot 'agent.env'
+    $scmEnvironmentPath = Join-Path $fixtureRoot 'scm-environment.txt'
+    $initial = @('DLP_DEVICE_ID=device', 'DLP_AGENT_ENROLLMENT_TOKEN=secret', 'DLP_SERVER_URL=https://server')
+    $cleanupCommand = Join-Path $repoRoot 'scripts/lab/Remove-EnrollmentTokenState.ps1'
+    New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+    try {
+        if ($FailAgentEnv) {
+            New-Item -ItemType Directory -Path $agentEnvPath -Force | Out-Null
+        } else {
+            [System.IO.File]::WriteAllLines($agentEnvPath, $initial)
+        }
+        [System.IO.File]::WriteAllLines($scmEnvironmentPath, $initial)
+        $readScm = { param($Path) [System.IO.File]::ReadAllLines($Path) }
+        $writeScm = if ($FailScmEnvironment) {
+            { param($Path, $Lines) throw 'injected_scm_write_failure' }
+        } else {
+            { param($Path, $Lines) [System.IO.File]::WriteAllLines($Path, [string[]]$Lines) }
+        }
+        $result = & $cleanupCommand -AgentEnvPath $agentEnvPath -ServiceKeyPath $scmEnvironmentPath `
+            -ReadScmEnvironment $readScm -WriteScmEnvironment $writeScm
+        $agentState = if ($FailAgentEnv) { $initial } else { [System.IO.File]::ReadAllLines($agentEnvPath) }
+        return [pscustomobject]@{
+            AgentEnv = $result.AgentEnv
+            ScmEnvironment = $result.ScmEnvironment
+            AgentEnvLines = @($agentState)
+            ScmEnvironmentLines = @([System.IO.File]::ReadAllLines($scmEnvironmentPath))
+            ServicePresent = $true
+            BinaryPresent = $true
+            DataPresent = $true
+            CachePresent = $true
+        }
+    } finally {
+        Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
-    $failures = [System.Collections.Generic.List[string]]::new()
-    if ($FailAgentEnv) {
-        $failures.Add('agent.env')
-    } else {
-        $state.AgentEnv = @($state.AgentEnv | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
-    }
-    if ($FailScmEnvironment) {
-        $failures.Add('scm_environment')
-    } else {
-        $state.ScmEnvironment = @($state.ScmEnvironment | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
-    }
-    return [pscustomobject]@{ State = [pscustomobject]$state; Failures = @($failures) }
 }
 
 function Assert-RedactedText {
@@ -487,17 +502,22 @@ switch ($Scenario) {
         Assert-NoHostArtifacts
     }
     'InstallStartFailureCleanup' {
-        $result = Invoke-TokenCleanupModel
-        Assert-AgentSmoke (@($result.State.AgentEnv | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count -eq 0) 'agent_env_cleanup_model_failed'
-        Assert-AgentSmoke (@($result.State.ScmEnvironment | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count -eq 0) 'scm_cleanup_model_failed'
-        Assert-AgentSmoke ($result.State.ServicePresent -and $result.State.BinaryPresent -and $result.State.DataPresent -and $result.State.CachePresent) 'partial_artifacts_not_preserved'
+        $result = Invoke-TokenCleanupFixture
+        Assert-AgentSmoke ($result.AgentEnv -eq 'ok' -and $result.ScmEnvironment -eq 'ok') 'cleanup_adapter_success_status_failed'
+        Assert-AgentSmoke (@($result.AgentEnvLines | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count -eq 0) 'agent_env_cleanup_adapter_failed'
+        Assert-AgentSmoke (@($result.ScmEnvironmentLines | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count -eq 0) 'scm_cleanup_adapter_failed'
+        Assert-AgentSmoke ($result.ServicePresent -and $result.BinaryPresent -and $result.DataPresent -and $result.CachePresent) 'partial_artifacts_not_preserved'
         Assert-SourceContract -Pattern 'partial service/binary artifacts were preserved' -Code 'failure_preservation_code_missing'
         Assert-SourceContract -Pattern 'Remove-Client01EnrollmentToken' -Code 'failure_cleanup_call_missing'
         Write-Output 'install_start_failure_cleanup=pass'
     }
     'CleanupFailure' {
-        $result = Invoke-TokenCleanupModel -FailAgentEnv
-        Assert-AgentSmoke ($result.Failures -contains 'agent.env') 'agent_env_failure_not_reported'
+        $agentFailure = Invoke-TokenCleanupFixture -FailAgentEnv
+        Assert-AgentSmoke ($agentFailure.AgentEnv -eq 'failed' -and $agentFailure.ScmEnvironment -eq 'ok') 'agent_env_failure_not_isolated'
+        Assert-AgentSmoke (@($agentFailure.ScmEnvironmentLines | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count -eq 0) 'scm_cleanup_skipped_after_agent_failure'
+        $scmFailure = Invoke-TokenCleanupFixture -FailScmEnvironment
+        Assert-AgentSmoke ($scmFailure.ScmEnvironment -eq 'failed' -and $scmFailure.AgentEnv -eq 'ok') 'scm_failure_not_isolated'
+        Assert-AgentSmoke (@($scmFailure.AgentEnvLines | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count -eq 0) 'agent_cleanup_skipped_after_scm_failure'
         Assert-SourceContract -Pattern 'enrollment_token_cleanup_failed: agent\.env=\$\(\$result\.AgentEnv\); scm_environment=\$\(\$result\.ScmEnvironment\)' -Code 'stable_cleanup_failure_missing'
         Assert-SourceContract -Pattern 'C:\\dlp\\agent\\agent\.env and HKLM:\\SYSTEM\\CurrentControlSet\\Services\\DlpWindowsService\\Environment' -Code 'cleanup_remediation_paths_missing'
         Write-Output 'cleanup_failure=pass'
