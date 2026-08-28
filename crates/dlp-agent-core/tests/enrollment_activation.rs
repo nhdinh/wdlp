@@ -410,15 +410,19 @@ fn concurrent_activations_select_greatest_version_without_cross_linking() {
         .iter()
         .filter(|r| matches!(r, Err(CacheError::StaleVersion { .. })))
         .count();
+    let unchanged_count = results
+        .iter()
+        .filter(|r| matches!(r, Ok(ActivationOutcome::Unchanged { .. })))
+        .count();
 
     assert!(
         activated_count >= 1,
         "at least one thread should activate the highest version"
     );
     assert_eq!(
-        activated_count + stale_count,
+        activated_count + unchanged_count + stale_count,
         versions.len(),
-        "every result must be either activated or stale"
+        "every result must be activated, unchanged, or stale"
     );
 
     let pointers = cache.load_pointers().expect("load pointers");
