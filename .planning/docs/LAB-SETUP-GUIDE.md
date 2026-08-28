@@ -106,32 +106,51 @@ Do not treat `-Apply` as a management-server dry-run gate: select the intended s
 
 ## 6. Trusted provisioning and endpoint deployment
 
-The normal endpoint path obtains a short-lived enrollment token through trusted provisioning, then removes it after successful enrollment. `-RetainEnrollmentToken` is troubleshooting-only. For manual/offline enrollment, set `DLP_AGENT_ENROLLMENT_TOKEN` from the runtime secret source and use `-EnrollmentTokenProvider Manual`.
+The ordinary endpoint path uses TrustedProvisioning by default: `-Scenario ServiceInstall` obtains a fresh short-lived enrollment token without a manual copy, installs the automatic service, removes token state, and waits for first signed policy activation. `-RetainEnrollmentToken` is troubleshooting-only on a successful run and never suppresses failure cleanup. For an explicit Manual offline fallback, set `DLP_AGENT_ENROLLMENT_TOKEN='<FROM-RUNTIME-PROVIDER>'` and select `-EnrollmentTokenProvider Manual`.
 
 ```powershell
 $cred = Get-Credential -Message 'LAB-CLIENT01 administrator credential'
 .\scripts\lab\Invoke-Client01Runtime.ps1 `
   -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ProbeMachine LAB-DC01 `
-  -SecretProvider Runtime -Scenario Tracer -EnrollmentTokenProvider TrustedProvisioning `
+  -SecretProvider Runtime -Scenario ServiceInstall `
   -Credential $cred -Apply
 ```
 
 For this endpoint runner, omitting `-Apply` is a dry run; `-Apply` performs the selected `Tracer`, `ServiceInstall`, or `All` scenario. The runner writes its root certificate content to `C:\dlp\secrets\phase1-root-ca.pem` before the service receives that deployed path.
 
+Administrator mTLS certificate/key material remains on LAB-DC01 throughout trusted provisioning and is never deployed to LAB-CLIENT01. A usable `C:\dlp\agent\data\credentials\device.dpapi` skips provisioning on ordinary reruns. Replacement is allowed only with `-ForceReenrollment -Apply`; `-ForceReenrollment` alone is a non-destructive preview. Replacement preserves the installed service, binaries, data directory, and cache directory.
+
+After success or a failure following token handoff, the runner removes `DLP_AGENT_ENROLLMENT_TOKEN` from both `C:\dlp\agent\agent.env` and `HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment`. Cleanup failure is a hard error that names both paths. Repair them and rerun so TrustedProvisioning mints a fresh token; never reuse the prior attempt's token.
+
+Normal output contains stable codes and high-level state only. Use `-Diagnostic` explicitly for redacted names, lengths, paths, fingerprints, counts, and bounded error metadata. Never collect enrollment tokens, administrator mTLS material, private keys, passwords, full certificates, or raw credential blobs.
+
 ## 7. Verify enrollment, service, and TLS
 
-Check service and credential state on LAB-CLIENT01:
+Check service, credential, and cleanup state on LAB-CLIENT01 without printing secret values:
 
 ```powershell
 Invoke-Command -VMName LAB-CLIENT01 -Credential $cred -ScriptBlock {
-  Get-Service DlpWindowsService
-  Test-Path C:\dlp\agent\data\credentials\device.dpapi
-  Get-Content C:\dlp\agent\agent.env -ErrorAction SilentlyContinue |
-    Select-String '^DLP_AGENT_ENROLLMENT_TOKEN='
+  $serviceKey='HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService'
+  $fileNames=@([IO.File]::ReadAllLines('C:\dlp\agent\agent.env') | ForEach-Object { ($_ -split '=',2)[0] })
+  $scmNames=@((Get-ItemProperty -Path $serviceKey -Name Environment -ErrorAction Stop).Environment | ForEach-Object { ($_ -split '=',2)[0] })
+  [pscustomobject]@{
+    ServiceStatus=(Get-Service DlpWindowsService).Status
+    CredentialPresent=Test-Path 'C:\dlp\agent\data\credentials\device.dpapi'
+    AgentEnvTokenCount=@($fileNames | Where-Object { $_ -eq 'DLP_AGENT_ENROLLMENT_TOKEN' }).Count
+    ScmTokenCount=@($scmNames | Where-Object { $_ -eq 'DLP_AGENT_ENROLLMENT_TOKEN' }).Count
+  }
 }
 ```
 
-The final command should not reveal a retained enrollment token after successful automatic enrollment. Verify server health with the hostname covered by the certificate and the deployed root CA; do not install a permissive certificate callback:
+Both token counts must be zero after successful automatic enrollment. Then run the live smoke contract, which fails unless the first signed policy is active:
+
+```powershell
+.\tests\windows\Invoke-AgentServiceSmoke.ps1 `
+  -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ServerMachine LAB-DC01 `
+  -SecretProvider Runtime -Scenario InitialEnrollmentCredential -Credential $cred
+```
+
+Expected evidence includes `active_policy_version=<non-empty>` and `active_policy_state=Active`. Verify server health with the hostname covered by the certificate and the deployed root CA; do not install a permissive certificate callback:
 
 ```powershell
 Invoke-Command -VMName LAB-CLIENT01 -Credential $cred -ScriptBlock {

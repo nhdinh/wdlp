@@ -219,7 +219,7 @@ Builds `dlp-windows-service.exe`, deploys it to `LAB-CLIENT01`, installs the ser
 
 **When to use:** Deploying or updating the endpoint agent.
 
-**Example with trusted provisioning:**
+**Ordinary ServiceInstall (TrustedProvisioning is the default):**
 
 ```powershell
 $cred = Get-Credential -Message "LAB admin credential"
@@ -229,15 +229,28 @@ $cred = Get-Credential -Message "LAB admin credential"
     -ExecutionMachine         LAB-CLIENT01 `
     -ProbeMachine             LAB-DC01 `
     -SecretProvider           Runtime `
-    -Scenario                 Tracer `
-    -EnrollmentTokenProvider  TrustedProvisioning `
+    -Scenario                 ServiceInstall `
     -Credential               $cred `
     -Apply
 ```
 
 Valid scenarios: `Tracer`, `ServiceInstall`, `All`.
 
-Use `-RetainEnrollmentToken` to keep the enrollment token after startup (troubleshooting only).
+The ordinary command requires no manual token copy. Administrator mTLS certificate/key material remains on LAB-DC01; LAB-CLIENT01 receives only a fresh short-lived token. A usable `C:\dlp\agent\data\credentials\device.dpapi` skips provisioning. The service is installed with Automatic startup, and success requires both a non-empty `active_policy_version` and `active_policy_state=Active` after the first signed policy is verified and activated.
+
+Manual is an explicit offline fallback only:
+
+```powershell
+$env:DLP_AGENT_ENROLLMENT_TOKEN = '<FROM-RUNTIME-PROVIDER>'
+.\scripts\lab\Invoke-Client01Runtime.ps1 `
+    -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ProbeMachine LAB-DC01 `
+    -SecretProvider Runtime -Scenario ServiceInstall -EnrollmentTokenProvider Manual `
+    -Credential $cred -Apply
+```
+
+Credential replacement is allowed only with `-ForceReenrollment -Apply`; without `-Apply`, force mode is preview-only. Replacement and failed startup preserve the service, binaries, data directory, and cache directory. Token cleanup covers both `C:\dlp\agent\agent.env` and `HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment`; cleanup failure is fatal. Repair both locations and retry so TrustedProvisioning obtains a fresh token rather than reusing prior material.
+
+Use `-RetainEnrollmentToken` after a successful startup only for explicit troubleshooting. Use `-Diagnostic` only for opt-in redacted output (names, lengths, paths, fingerprints, counts, status, and bounded error metadata). Never expose enrollment tokens, administrator mTLS material, private keys, passwords, full certificates, or raw credential blobs.
 
 ### Debug-Fingerprint.ps1
 
