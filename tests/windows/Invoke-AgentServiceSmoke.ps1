@@ -15,9 +15,12 @@ param(
         'FreshTokenRetry',
         'NormalOutput',
         'DiagnosticRedaction',
-        'AuthorityQueryAdapter'
+        'AuthorityQueryAdapter',
+        'AuthorityEvidenceContract'
     )][string]$Scenario,
-    [Parameter()][System.Management.Automation.PSCredential]$Credential
+    [Parameter()][System.Management.Automation.PSCredential]$Credential,
+    [Parameter()][string]$EvidencePath,
+    [Parameter()][ValidateSet('AfterReplacementMutation')][string]$FailureInjection
 )
 
 $ErrorActionPreference = 'Stop'
@@ -203,7 +206,8 @@ function Wait-AgentAuthenticatedPollAfter {
 function Invoke-LiveEnrollmentRecovery {
     param(
         [Parameter()][switch]$Force,
-        [Parameter()][switch]$ExpectFailure
+        [Parameter()][switch]$ExpectFailure,
+        [Parameter()][switch]$SuppressOutput
     )
     $arguments = @{
         CallerMachine = $CallerMachine
@@ -216,13 +220,64 @@ function Invoke-LiveEnrollmentRecovery {
     if ($null -ne $Credential) { $arguments.Credential = $Credential }
     if ($Force) { $arguments.ForceReenrollment = $true }
     # SRV-13/D-05..D-08/TST-05: no provider override and no manual token.
+    $runtimePath = Join-Path $repoRoot 'scripts/lab/Invoke-Client01Runtime.ps1'
     $failed = $false
-    try {
-        $output = & (Join-Path $repoRoot 'scripts/lab/Invoke-Client01Runtime.ps1') @arguments *>&1
-        if ($LASTEXITCODE -ne 0) { $failed = $true }
-    } catch {
-        $failed = $true
-        $output = @($_.Exception.Message)
+    if ($SuppressOutput) {
+        # Start-Process -NoNewWindow inside the runtime writes native cargo output
+        # directly to inherited OS handles, bypassing PowerShell stream merging.
+        # Give the runtime a child process with redirected OS handles so
+        # injection mode can inspect all output without publishing anything
+        # except the fixed recovery codes below. Credentials remain in the
+        # child environment and never cross the command-line boundary.
+        $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+        Assert-AgentSmoke ($null -ne $pwsh) 'recovery_powershell_missing'
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $pwsh.Source
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.CreateNoWindow = $true
+        foreach ($argument in @(
+            '-NoProfile',
+            '-File', $runtimePath,
+            '-CallerMachine', $CallerMachine,
+            '-ExecutionMachine', $ExecutionMachine,
+            '-ProbeMachine', $ServerMachine,
+            '-SecretProvider', 'Runtime',
+            '-Scenario', 'ServiceInstall',
+            '-Apply'
+        )) {
+            [void]$startInfo.ArgumentList.Add($argument)
+        }
+        if ($Force) { [void]$startInfo.ArgumentList.Add('-ForceReenrollment') }
+        if ($null -ne $Credential) {
+            $startInfo.Environment['DLP_VM_ADMIN_USER'] = $Credential.UserName
+            $startInfo.Environment['DLP_VM_ADMIN_PASSWORD'] = $Credential.GetNetworkCredential().Password
+        }
+
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        try {
+            Assert-AgentSmoke $process.Start() 'recovery_process_start_failed'
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            $process.WaitForExit()
+            $stdout = $stdoutTask.GetAwaiter().GetResult()
+            $stderr = $stderrTask.GetAwaiter().GetResult()
+            $failed = $process.ExitCode -ne 0
+            $output = @(($stdout + [Environment]::NewLine + $stderr) -split '\r?\n' |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        } finally {
+            $process.Dispose()
+        }
+    } else {
+        try {
+            $output = & $runtimePath @arguments *>&1
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+        } catch {
+            $failed = $true
+            $output = @($_.Exception.Message)
+        }
     }
     $joined = $output -join "`n"
     if ($ExpectFailure) {
@@ -233,7 +288,9 @@ function Invoke-LiveEnrollmentRecovery {
     if ($failed) { Stop-AgentSmoke 'client01_enrollment_tracer_failed' }
     Assert-AgentSmoke ($joined -match 'active_policy_version=\S+') 'active_policy_version_missing'
     Assert-AgentSmoke ($joined -match 'active_policy_state=Active') 'active_policy_state_not_active'
-    $output | ForEach-Object { Write-Output $_ }
+    if (-not $SuppressOutput) {
+        $output | ForEach-Object { Write-Output $_ }
+    }
     return $joined
 }
 
@@ -680,10 +737,306 @@ function Invoke-AuthorityQueryAdapterFixture {
     }
 }
 
+$script:OrdinaryAuthorityEvidenceProperties = @(
+    'schema',
+    'scenario',
+    'observed_at_utc',
+    'status',
+    'active_serial_before_fingerprint',
+    'active_serial_after_fingerprint',
+    'authority_snapshot_before_fingerprint',
+    'authority_snapshot_after_fingerprint',
+    'active_serial_unchanged',
+    'authority_snapshot_unchanged',
+    'predecessor_status_after_refusal',
+    'recovery_service_status',
+    'recovery_service_start_mode',
+    'recovery_active_policy_state',
+    'recovery_agent_env_token_count',
+    'recovery_scm_token_count'
+)
+
+$script:ReplacementAuthorityEvidenceProperties = @(
+    'schema',
+    'scenario',
+    'observed_at_utc',
+    'status',
+    'predecessor_serial_fingerprint',
+    'successor_serial_fingerprint',
+    'serial_changed',
+    'predecessor_status',
+    'successor_status',
+    'service_preserved',
+    'data_preserved',
+    'cache_preserved',
+    'service_status',
+    'service_start_mode',
+    'active_policy_state',
+    'agent_env_token_count',
+    'scm_token_count'
+)
+
+function Get-AuthorityEvidenceProperties {
+    param([Parameter(Mandatory)][ValidateSet('Ordinary', 'Replacement')][string]$ScenarioKind)
+
+    if ($ScenarioKind -ceq 'Ordinary') { return $script:OrdinaryAuthorityEvidenceProperties }
+    return $script:ReplacementAuthorityEvidenceProperties
+}
+
+function Get-AuthorityEvidenceEntries {
+    param([Parameter(Mandatory)][object]$Evidence)
+
+    if ($Evidence -is [System.Collections.IDictionary]) {
+        return @($Evidence.GetEnumerator() | ForEach-Object {
+            [pscustomobject]@{ Name = [string]$_.Key; Value = $_.Value }
+        })
+    }
+    if ($Evidence -is [System.Collections.IEnumerable] -and $Evidence -isnot [string]) {
+        return @($Evidence | ForEach-Object {
+            if ($_ -is [System.Collections.DictionaryEntry]) {
+                [pscustomobject]@{ Name = [string]$_.Key; Value = $_.Value }
+            } elseif ($null -ne $_.PSObject.Properties['Name'] -and $null -ne $_.PSObject.Properties['Value']) {
+                [pscustomobject]@{ Name = [string]$_.Name; Value = $_.Value }
+            } else {
+                Stop-AgentSmoke 'authority_evidence_property_invalid'
+            }
+        })
+    }
+    return @($Evidence.PSObject.Properties | ForEach-Object {
+        [pscustomobject]@{ Name = [string]$_.Name; Value = $_.Value }
+    })
+}
+
+function Get-Sha256Fingerprint {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+        return (($algorithm.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) -join '')
+    } finally {
+        $algorithm.Dispose()
+    }
+}
+
+function Write-AuthorityTransitionEvidence {
+    param(
+        [Parameter(Mandatory)][ValidateSet('Ordinary', 'Replacement')][string]$ScenarioKind,
+        [Parameter(Mandatory)][object]$Evidence,
+        [Parameter(Mandatory)][string]$DestinationPath,
+        [Parameter(Mandatory)][bool]$CompletedGate
+    )
+
+    Assert-AgentSmoke $CompletedGate 'authority_evidence_publication_gate_incomplete'
+    $expected = @(Get-AuthorityEvidenceProperties -ScenarioKind $ScenarioKind)
+    $entries = @(Get-AuthorityEvidenceEntries -Evidence $Evidence)
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($entry in $entries) {
+        Assert-AgentSmoke ($seen.Add($entry.Name)) 'authority_evidence_duplicate_property'
+        Assert-AgentSmoke ($entry.Name -cin $expected) 'authority_evidence_unknown_property'
+        $valueText = if ($null -eq $entry.Value) { '' } else { [string]$entry.Value }
+        Assert-AgentSmoke ($valueText -notmatch '(?i)(postgres(?:ql)?://|database[_-]?url|enrollment[_-]?token|private[_-]?key|password|certificate|dpapi[_-]?blob|raw[_-]?authority[_-]?row|stdout|stderr)') 'authority_evidence_protected_value'
+    }
+    Assert-AgentSmoke ($entries.Count -eq $expected.Count) 'authority_evidence_missing_property'
+    for ($index = 0; $index -lt $expected.Count; $index++) {
+        Assert-AgentSmoke ($entries[$index].Name -ceq $expected[$index]) 'authority_evidence_property_order_invalid'
+    }
+
+    $ordered = [ordered]@{}
+    foreach ($entry in $entries) { $ordered[$entry.Name] = $entry.Value }
+    Assert-AgentSmoke ($ordered.schema -ceq 'phase-01.2-authority-evidence/v1') 'authority_evidence_schema_invalid'
+    $expectedScenario = if ($ScenarioKind -ceq 'Ordinary') { 'OrdinaryMissingCredentialDoesNotRevoke' } else { 'ReplacementRevocation' }
+    Assert-AgentSmoke ($ordered.scenario -ceq $expectedScenario) 'authority_evidence_scenario_invalid'
+    Assert-AgentSmoke ($ordered.status -ceq 'pass') 'authority_evidence_status_invalid'
+    $observed = [string]$ordered.observed_at_utc
+    $parsedObserved = [DateTimeOffset]::MinValue
+    Assert-AgentSmoke ($observed.EndsWith('Z', [StringComparison]::Ordinal) -and [DateTimeOffset]::TryParseExact(
+        $observed,
+        'o',
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind,
+        [ref]$parsedObserved
+    )) 'authority_evidence_observed_at_invalid'
+    foreach ($name in @($expected | Where-Object { $_ -like '*_fingerprint' })) {
+        Assert-AgentSmoke ([string]$ordered[$name] -cmatch '^[0-9a-f]{64}$') 'authority_evidence_fingerprint_invalid'
+    }
+
+    $fullDestination = [IO.Path]::GetFullPath($DestinationPath)
+    $directory = [IO.Path]::GetDirectoryName($fullDestination)
+    Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($directory) -and (Test-Path -LiteralPath $directory -PathType Container)) 'authority_evidence_directory_missing'
+    $staging = Join-Path $directory ('.' + [IO.Path]::GetFileName($fullDestination) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $backup = $staging + '.bak'
+    try {
+        $json = $ordered | ConvertTo-Json -Depth 4
+        [IO.File]::WriteAllText($staging, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+        if (Test-Path -LiteralPath $fullDestination -PathType Leaf) {
+            [IO.File]::Replace($staging, $fullDestination, $backup)
+        } else {
+            [IO.File]::Move($staging, $fullDestination)
+        }
+    } catch {
+        Stop-AgentSmoke 'authority_evidence_publication_failed'
+    } finally {
+        Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Assert-AuthorityEvidenceFailure {
+    param(
+        [Parameter(Mandatory)][string]$ExpectedCode,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+
+    $failed = $false
+    try {
+        & $Action | Out-Null
+    } catch {
+        $failed = $true
+        Assert-AgentSmoke ($_.Exception.Message -ceq $ExpectedCode) 'authority_evidence_unexpected_failure_code'
+    }
+    Assert-AgentSmoke $failed 'authority_evidence_expected_failure_missing'
+}
+
+function Assert-AuthorityEvidenceObject {
+    param(
+        [Parameter(Mandatory)][object]$Object,
+        [Parameter(Mandatory)][string[]]$Expected,
+        [Parameter(Mandatory)][string]$Code
+    )
+
+    $actual = @($Object.PSObject.Properties.Name)
+    Assert-AgentSmoke ($actual.Count -eq $Expected.Count) $Code
+    for ($index = 0; $index -lt $Expected.Count; $index++) {
+        Assert-AgentSmoke ($actual[$index] -ceq $Expected[$index]) $Code
+    }
+}
+
+function Invoke-AuthorityEvidenceContractFixture {
+    Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($EvidencePath)) 'authority_evidence_path_missing'
+    $fingerprintA = ('a' * 64 -join '')
+    $fingerprintB = ('b' * 64 -join '')
+    $observed = [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+    $ordinary = [ordered]@{
+        schema = 'phase-01.2-authority-evidence/v1'
+        scenario = 'OrdinaryMissingCredentialDoesNotRevoke'
+        observed_at_utc = $observed
+        status = 'pass'
+        active_serial_before_fingerprint = $fingerprintA
+        active_serial_after_fingerprint = $fingerprintA
+        authority_snapshot_before_fingerprint = $fingerprintB
+        authority_snapshot_after_fingerprint = $fingerprintB
+        active_serial_unchanged = $true
+        authority_snapshot_unchanged = $true
+        predecessor_status_after_refusal = 'active'
+        recovery_service_status = 'Running'
+        recovery_service_start_mode = 'Auto'
+        recovery_active_policy_state = 'Active'
+        recovery_agent_env_token_count = 0
+        recovery_scm_token_count = 0
+    }
+    $replacement = [ordered]@{
+        schema = 'phase-01.2-authority-evidence/v1'
+        scenario = 'ReplacementRevocation'
+        observed_at_utc = $observed
+        status = 'pass'
+        predecessor_serial_fingerprint = $fingerprintA
+        successor_serial_fingerprint = $fingerprintB
+        serial_changed = $true
+        predecessor_status = 'revoked'
+        successor_status = 'active'
+        service_preserved = $true
+        data_preserved = $true
+        cache_preserved = $true
+        service_status = 'Running'
+        service_start_mode = 'Auto'
+        active_policy_state = 'Active'
+        agent_env_token_count = 0
+        scm_token_count = 0
+    }
+
+    $seed = '{"contract":"preserve"}'
+    [IO.File]::WriteAllText([IO.Path]::GetFullPath($EvidencePath), $seed, [Text.UTF8Encoding]::new($false))
+    $unknown = [ordered]@{}
+    foreach ($key in $ordinary.Keys) { $unknown[$key] = $ordinary[$key] }
+    $unknown['unexpected'] = 'rejected'
+    Assert-AuthorityEvidenceFailure -ExpectedCode 'authority_evidence_unknown_property' -Action {
+        Write-AuthorityTransitionEvidence -ScenarioKind Ordinary -Evidence $unknown -DestinationPath $EvidencePath -CompletedGate $true
+    }
+    Assert-AgentSmoke ([IO.File]::ReadAllText([IO.Path]::GetFullPath($EvidencePath)) -ceq $seed) 'authority_evidence_rejection_overwrote_destination'
+
+    $duplicate = @(
+        [Collections.DictionaryEntry]::new('schema', 'phase-01.2-authority-evidence/v1'),
+        [Collections.DictionaryEntry]::new('schema', 'phase-01.2-authority-evidence/v1')
+    )
+    Assert-AuthorityEvidenceFailure -ExpectedCode 'authority_evidence_duplicate_property' -Action {
+        Write-AuthorityTransitionEvidence -ScenarioKind Ordinary -Evidence $duplicate -DestinationPath $EvidencePath -CompletedGate $true
+    }
+    $missing = [ordered]@{}
+    foreach ($key in @($ordinary.Keys | Select-Object -Skip 1)) { $missing[$key] = $ordinary[$key] }
+    Assert-AuthorityEvidenceFailure -ExpectedCode 'authority_evidence_missing_property' -Action {
+        Write-AuthorityTransitionEvidence -ScenarioKind Ordinary -Evidence $missing -DestinationPath $EvidencePath -CompletedGate $true
+    }
+    $protected = [ordered]@{}
+    foreach ($key in $ordinary.Keys) { $protected[$key] = $ordinary[$key] }
+    $protected.status = 'postgresql://protected.invalid/dlp'
+    Assert-AuthorityEvidenceFailure -ExpectedCode 'authority_evidence_protected_value' -Action {
+        Write-AuthorityTransitionEvidence -ScenarioKind Ordinary -Evidence $protected -DestinationPath $EvidencePath -CompletedGate $true
+    }
+    Assert-AuthorityEvidenceFailure -ExpectedCode 'authority_evidence_publication_gate_incomplete' -Action {
+        Write-AuthorityTransitionEvidence -ScenarioKind Ordinary -Evidence $ordinary -DestinationPath $EvidencePath -CompletedGate $false
+    }
+    Assert-AgentSmoke ([IO.File]::ReadAllText([IO.Path]::GetFullPath($EvidencePath)) -ceq $seed) 'authority_evidence_gate_overwrote_destination'
+
+    Write-AuthorityTransitionEvidence -ScenarioKind Ordinary -Evidence $ordinary -DestinationPath $EvidencePath -CompletedGate $true
+    $ordinaryResult = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json
+    Assert-AuthorityEvidenceObject -Object $ordinaryResult -Expected $script:OrdinaryAuthorityEvidenceProperties -Code 'authority_evidence_ordinary_schema_invalid'
+    Write-AuthorityTransitionEvidence -ScenarioKind Replacement -Evidence $replacement -DestinationPath $EvidencePath -CompletedGate $true
+    $replacementResult = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json
+    Assert-AuthorityEvidenceObject -Object $replacementResult -Expected $script:ReplacementAuthorityEvidenceProperties -Code 'authority_evidence_replacement_schema_invalid'
+    $stagingPattern = '^\.' + [regex]::Escape([IO.Path]::GetFileName([IO.Path]::GetFullPath($EvidencePath))) + '\..*\.tmp$'
+    $residue = @(Get-ChildItem -LiteralPath ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($EvidencePath))) -File | Where-Object Name -Match $stagingPattern)
+    Assert-AgentSmoke ($residue.Count -eq 0) 'authority_evidence_staging_residue'
+}
+
+function Get-EnrollmentTokenEvidenceState {
+    return Invoke-AgentServiceCommand -ScriptBlock {
+        $serviceKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService'
+        $environment = (Get-ItemProperty -Path $serviceKey -Name Environment -ErrorAction SilentlyContinue).Environment
+        $registry = @($environment | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
+        $envPath = 'C:\dlp\agent\agent.env'
+        $file = if (Test-Path -LiteralPath $envPath) {
+            @([IO.File]::ReadAllLines($envPath) | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
+        } else { 0 }
+        return [pscustomobject]@{ RegistryTokenCount = $registry; FileTokenCount = $file }
+    }
+}
+
+function Get-RecoveredEndpointEvidenceState {
+    $service = Get-AgentServiceState
+    Assert-AgentSmoke $service.Installed 'recovery_service_not_installed'
+    Assert-AgentSmoke ($service.Status -eq 'Running') 'recovery_service_not_running'
+    Assert-AgentSmoke ($service.StartType -eq 'Auto') 'recovery_service_not_automatic'
+    $preservation = Get-AgentPreservationState
+    Assert-AgentSmoke ($preservation.ServicePresent -and $preservation.DataPresent -and $preservation.CachePresent) 'recovery_preserved_state_missing'
+    $tokens = Get-EnrollmentTokenEvidenceState
+    Assert-AgentSmoke ($tokens.FileTokenCount -eq 0) 'enrollment_token_retained_in_env_file'
+    Assert-AgentSmoke ($tokens.RegistryTokenCount -eq 0) 'enrollment_token_retained_in_registry'
+    return [pscustomobject]@{ Service = $service; Preservation = $preservation; Tokens = $tokens }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($FailureInjection)) {
+    Assert-AgentSmoke ($Scenario -ceq 'ReplacementRevocation') 'failure_injection_scenario_invalid'
+}
+
 switch ($Scenario) {
     'AuthorityQueryAdapter' {
         Invoke-AuthorityQueryAdapterFixture
         Write-Output 'authority_query_adapter=pass'
+    }
+    'AuthorityEvidenceContract' {
+        Invoke-AuthorityEvidenceContractFixture
+        Write-Output 'authority_evidence_contract=pass'
     }
     'InitialEnrollmentCredential' {
         Assert-LiveLabAvailable
@@ -699,22 +1052,78 @@ switch ($Scenario) {
     }
     'ReplacementRevocation' {
         Assert-LiveLabAvailable
-        $beforeSerial = Get-ActiveCredentialSerial
-        Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($beforeSerial)) 'replacement_predecessor_serial_missing'
-        $before = Get-AgentPreservationState
-        Assert-AgentSmoke ($before.ServicePresent -and $before.DataPresent -and $before.CachePresent) 'force_reenrollment_precondition_missing'
-        Invoke-LiveEnrollmentRecovery -Force
-        $state = Get-AgentServiceState
-        Assert-AgentSmoke $state.Installed 'dlp_agent_service_not_installed'
-        Assert-AgentSmoke ($state.Status -eq 'Running') 'replacement_enrollment_service_not_running'
-        $after = Get-AgentPreservationState
-        Assert-AgentSmoke ($after.ServicePresent -and $after.DataPresent -and $after.CachePresent) 'force_reenrollment_removed_preserved_state'
-        $afterSerial = Get-ActiveCredentialSerial
-        Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($afterSerial) -and $afterSerial -cne $beforeSerial) 'replacement_credential_serial_unchanged'
-        Assert-AgentSmoke ((Get-CredentialAuthorityStatus -Serial $beforeSerial) -eq 'revoked') 'replacement_predecessor_not_rejected'
-        Assert-AgentSmoke ((Get-CredentialAuthorityStatus -Serial $afterSerial) -eq 'active') 'replacement_successor_not_active'
-        Assert-EnrollmentTokenRemoved
-        Assert-NoHostArtifacts
+        $injectionMode = $FailureInjection -ceq 'AfterReplacementMutation'
+        $recoverySucceeded = $false
+        $cleanupSucceeded = $false
+        try {
+            $beforeSerial = Get-ActiveCredentialSerial
+            Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($beforeSerial)) 'replacement_predecessor_serial_missing'
+            $before = Get-AgentPreservationState
+            Assert-AgentSmoke ($before.ServicePresent -and $before.DataPresent -and $before.CachePresent) 'force_reenrollment_precondition_missing'
+            Invoke-LiveEnrollmentRecovery -Force -SuppressOutput:$injectionMode | Out-Null
+            if ($injectionMode) {
+                Write-Output 'replacement_post_mutation_failure_injected'
+                Stop-AgentSmoke 'replacement_injected_failure'
+            }
+
+            $recovered = Get-RecoveredEndpointEvidenceState
+            $after = $recovered.Preservation
+            Assert-AgentSmoke ($after.ServicePresent -and $after.DataPresent -and $after.CachePresent) 'force_reenrollment_removed_preserved_state'
+            $afterSerial = Get-ActiveCredentialSerial
+            Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($afterSerial) -and $afterSerial -cne $beforeSerial) 'replacement_credential_serial_unchanged'
+            $predecessorStatus = Get-CredentialAuthorityStatus -Serial $beforeSerial
+            $successorStatus = Get-CredentialAuthorityStatus -Serial $afterSerial
+            Assert-AgentSmoke ($predecessorStatus -eq 'revoked') 'replacement_predecessor_not_rejected'
+            Assert-AgentSmoke ($successorStatus -eq 'active') 'replacement_successor_not_active'
+            Assert-EnrollmentTokenRemoved
+            Assert-NoHostArtifacts
+
+            if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
+                $evidence = [ordered]@{
+                    schema = 'phase-01.2-authority-evidence/v1'
+                    scenario = 'ReplacementRevocation'
+                    observed_at_utc = [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+                    status = 'pass'
+                    predecessor_serial_fingerprint = Get-Sha256Fingerprint -Text $beforeSerial
+                    successor_serial_fingerprint = Get-Sha256Fingerprint -Text $afterSerial
+                    serial_changed = $true
+                    predecessor_status = $predecessorStatus
+                    successor_status = $successorStatus
+                    service_preserved = [bool]$after.ServicePresent
+                    data_preserved = [bool]$after.DataPresent
+                    cache_preserved = [bool]$after.CachePresent
+                    service_status = [string]$recovered.Service.Status
+                    service_start_mode = [string]$recovered.Service.StartType
+                    active_policy_state = 'Active'
+                    agent_env_token_count = [int]$recovered.Tokens.FileTokenCount
+                    scm_token_count = [int]$recovered.Tokens.RegistryTokenCount
+                }
+                Write-AuthorityTransitionEvidence -ScenarioKind Replacement -Evidence $evidence -DestinationPath $EvidencePath -CompletedGate $true
+            }
+        } catch {
+            if (-not $injectionMode) { throw }
+        } finally {
+            if ($injectionMode) {
+                Write-Output 'replacement_recovery_attempted'
+                try {
+                    Invoke-LiveEnrollmentRecovery -Force -SuppressOutput | Out-Null
+                    [void](Get-RecoveredEndpointEvidenceState)
+                    Assert-NoHostArtifacts
+                    $recoverySucceeded = $true
+                } catch {
+                    $recoverySucceeded = $false
+                }
+                try {
+                    $cleanupState = Get-EnrollmentTokenEvidenceState
+                    $cleanupSucceeded = $cleanupState.FileTokenCount -eq 0 -and $cleanupState.RegistryTokenCount -eq 0
+                } catch {
+                    $cleanupSucceeded = $false
+                }
+                if ($recoverySucceeded) { Write-Output 'replacement_recovery_succeeded' } else { Write-Output 'replacement_recovery_failed' }
+                if ($cleanupSucceeded) { Write-Output 'replacement_dual_cleanup_succeeded' } else { Write-Output 'replacement_dual_cleanup_failed' }
+            }
+        }
+        if ($injectionMode) { exit 1 }
     }
     'OrdinaryMissingCredentialDoesNotRevoke' {
         Assert-LiveLabAvailable
@@ -729,13 +1138,44 @@ switch ($Scenario) {
             Invoke-LiveEnrollmentRecovery -ExpectFailure | Out-Null
             $afterSerial = Get-ActiveCredentialSerial
             $afterAuthority = Get-EnrollmentAuthoritySnapshot
-            Assert-AgentSmoke ($afterSerial -ceq $beforeSerial) 'ordinary_recovery_changed_active_serial'
-            Assert-AgentSmoke ($afterAuthority -ceq $beforeAuthority) 'ordinary_recovery_changed_authority_fields'
-            Assert-AgentSmoke ((Get-CredentialAuthorityStatus -Serial $beforeSerial) -eq 'active') 'ordinary_recovery_revoked_predecessor'
+            $activeSerialUnchanged = $afterSerial -ceq $beforeSerial
+            $beforeFields = $beforeAuthority.Split([char]'|', [StringSplitOptions]::None)
+            $afterFields = $afterAuthority.Split([char]'|', [StringSplitOptions]::None)
+            $authoritySnapshotUnchanged = $beforeFields.Count -eq 4 -and $afterFields.Count -eq 4
+            for ($index = 0; $authoritySnapshotUnchanged -and $index -lt 4; $index++) {
+                $authoritySnapshotUnchanged = $beforeFields[$index] -ceq $afterFields[$index]
+            }
+            Assert-AgentSmoke $activeSerialUnchanged 'ordinary_recovery_changed_active_serial'
+            Assert-AgentSmoke $authoritySnapshotUnchanged 'ordinary_recovery_changed_authority_fields'
+            $predecessorStatus = Get-CredentialAuthorityStatus -Serial $beforeSerial
+            Assert-AgentSmoke ($predecessorStatus -eq 'active') 'ordinary_recovery_revoked_predecessor'
         } finally {
             Invoke-LiveEnrollmentRecovery -Force | Out-Null
         }
+        $recovered = Get-RecoveredEndpointEvidenceState
+        Assert-EnrollmentTokenRemoved
         Assert-NoHostArtifacts
+        if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
+            $evidence = [ordered]@{
+                schema = 'phase-01.2-authority-evidence/v1'
+                scenario = 'OrdinaryMissingCredentialDoesNotRevoke'
+                observed_at_utc = [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+                status = 'pass'
+                active_serial_before_fingerprint = Get-Sha256Fingerprint -Text $beforeSerial
+                active_serial_after_fingerprint = Get-Sha256Fingerprint -Text $afterSerial
+                authority_snapshot_before_fingerprint = Get-Sha256Fingerprint -Text $beforeAuthority
+                authority_snapshot_after_fingerprint = Get-Sha256Fingerprint -Text $afterAuthority
+                active_serial_unchanged = [bool]$activeSerialUnchanged
+                authority_snapshot_unchanged = [bool]$authoritySnapshotUnchanged
+                predecessor_status_after_refusal = $predecessorStatus
+                recovery_service_status = [string]$recovered.Service.Status
+                recovery_service_start_mode = [string]$recovered.Service.StartType
+                recovery_active_policy_state = 'Active'
+                recovery_agent_env_token_count = [int]$recovered.Tokens.FileTokenCount
+                recovery_scm_token_count = [int]$recovered.Tokens.RegistryTokenCount
+            }
+            Write-AuthorityTransitionEvidence -ScenarioKind Ordinary -Evidence $evidence -DestinationPath $EvidencePath -CompletedGate $true
+        }
     }
     'ConfigurationCache' {
         # Static contract plus wire-layout fixture. The live InitialEnrollment

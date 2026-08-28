@@ -1,0 +1,18 @@
+{
+  "schema": "phase-01.2-authority-evidence/v1",
+  "scenario": "OrdinaryMissingCredentialDoesNotRevoke",
+  "observed_at_utc": "2026-08-28T23:40:35.7852456Z",
+  "status": "pass",
+  "active_serial_before_fingerprint": "9b46a6c46cacb27af1b248c3d8842184b72c1f9655cecedfb159ec9a8c69aade",
+  "active_serial_after_fingerprint": "9b46a6c46cacb27af1b248c3d8842184b72c1f9655cecedfb159ec9a8c69aade",
+  "authority_snapshot_before_fingerprint": "16a62ef189e794844f0478fa98913db57c413b1a4dfe2ca8e71fc0a36dd5d642",
+  "authority_snapshot_after_fingerprint": "16a62ef189e794844f0478fa98913db57c413b1a4dfe2ca8e71fc0a36dd5d642",
+  "active_serial_unchanged": true,
+  "authority_snapshot_unchanged": true,
+  "predecessor_status_after_refusal": "active",
+  "recovery_service_status": "Running",
+  "recovery_service_start_mode": "Auto",
+  "recovery_active_policy_state": "Active",
+  "recovery_agent_env_token_count": 0,
+  "recovery_scm_token_count": 0
+}

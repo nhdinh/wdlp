@@ -1,0 +1,19 @@
+{
+  "schema": "phase-01.2-authority-evidence/v1",
+  "scenario": "ReplacementRevocation",
+  "observed_at_utc": "2026-08-28T23:41:39.2840104Z",
+  "status": "pass",
+  "predecessor_serial_fingerprint": "96eda05096ce6b1e9092cc854f7675c09579d96015f5aadca2eb086ec2e095e3",
+  "successor_serial_fingerprint": "f64cf462988cb5f6c2d73c8da53276a82b887ac1a12ce3df251be8f616d3776c",
+  "serial_changed": true,
+  "predecessor_status": "revoked",
+  "successor_status": "active",
+  "service_preserved": true,
+  "data_preserved": true,
+  "cache_preserved": true,
+  "service_status": "Running",
+  "service_start_mode": "Auto",
+  "active_policy_state": "Active",
+  "agent_env_token_count": 0,
+  "scm_token_count": 0
+}
