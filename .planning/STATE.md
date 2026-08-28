@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-current_phase: 01.1
-current_phase_name: add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp
+current_phase: 01.2
+current_phase_name: DLP_AGENT_ENROLLMENT_TOKEN should be obtained automatically when DlpWindowsService installed
 current_plan: Not started
-status: executing
-stopped_at: Completed 01.1-01-PLAN.md
-last_updated: "2026-08-28T01:21:35.931Z"
+status: planning
+stopped_at: Phase 01.1 complete, ready to plan Phase 01.2
+last_updated: "2026-08-28T01:29:30.282Z"
 last_activity: 2026-08-28
-last_activity_desc: Phase 01 complete, transitioned to Phase 01.1
-state_head: 2ca5c7e2f92f6bae79101a60867fc39ee3a92ae2
+last_activity_desc: Phase 01.1 complete, transitioned to Phase 01.2
+state_head: e197da8f0137ec1c5c589b5f9e6099b0fe55c20e
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 37
   completed_plans: 37
 milestone_name: milestone
@@ -26,7 +26,7 @@ milestone_name: milestone
 - **MVP boundary**: Enroll → signed config → mount → copy → encrypted store → read back → survive restart; policy blocking and toast follow.
 - **Constraints**: Rust for endpoint agent and core domain; PostgreSQL server persistence; Docker Compose server deployment; WinFsp user-mode virtual drive; no kernel-mode filtering or signed driver; safe Rust in portable domain crates.
 
-Last activity: 2026-08-28 — Phase 01 complete, transitioned to Phase 01.1
+Last activity: 2026-08-28 — Phase 01.1 complete, transitioned to Phase 01.2
 
 ## Quick Tasks Completed
 
@@ -50,10 +50,10 @@ Last activity: 2026-08-28 — Phase 01 complete, transitioned to Phase 01.1
 
 ## Current Position
 
-- **Phase:** 01.1 (add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp) — READY TO EXECUTE
+- **Phase:** 01.2 — DLP_AGENT_ENROLLMENT_TOKEN should be obtained automatically when DlpWindowsService installed
 - **Plan:** 3 of 32
 - **Task:** 2 of 2
-- **Status:** Ready to execute
+- **Status:** Ready to plan
 - **Progress:** [██████████] 100% of Phase 01
 - **Current plan:** Not started
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 secure session-host lifecycle, application/operation/size matrix, and D-19 failure/recovery matrix verified. Security closure manifest signed off with 19/19 blocking threats closed.
@@ -140,7 +140,7 @@ Last activity: 2026-08-28 — Phase 01 complete, transitioned to Phase 01.1
 **Resume file:** None
 
 **Last session:** 2026-08-28T01:21:35.641Z
-**Stopped at:** Completed 01.1-01-PLAN.md
+**Stopped at:** Phase 01.1 complete, ready to plan Phase 01.2
 
 **Current session:** 2026-08-26T05:00:00.000Z
 **Resumed at:** /gsd-resume-work — restored the 01-37 implementation and closed its missing summary.

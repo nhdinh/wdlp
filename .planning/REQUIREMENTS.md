@@ -7,16 +7,16 @@
 
 ### Workspace and Domain (WRK)
 
-- [ ] **WRK-01**: Establish a Cargo workspace with `dlp-domain`, `dlp-policy`, `dlp-protocol`, `dlp-crypto`, `dlp-storage`, `dlp-server`, `dlp-agent-core`, `dlp-windows-service`, `dlp-windows-drive`, and `dlpctl` crates.
-- [ ] **WRK-02**: Define shared identifiers, policy types, enforcement decisions, and structured errors in `dlp-domain`.
-- [ ] **WRK-03**: Define versioned protocol DTOs and wire-format schemas in `dlp-protocol`.
-- [ ] **WRK-04**: Deny unsafe code in portable domain crates; isolate and document unavoidable unsafe Windows FFI.
+- [x] **WRK-01**: Establish a Cargo workspace with `dlp-domain`, `dlp-policy`, `dlp-protocol`, `dlp-crypto`, `dlp-storage`, `dlp-server`, `dlp-agent-core`, `dlp-windows-service`, `dlp-windows-drive`, and `dlpctl` crates.
+- [x] **WRK-02**: Define shared identifiers, policy types, enforcement decisions, and structured errors in `dlp-domain`.
+- [x] **WRK-03**: Define versioned protocol DTOs and wire-format schemas in `dlp-protocol`.
+- [x] **WRK-04**: Deny unsafe code in portable domain crates; isolate and document unavoidable unsafe Windows FFI.
 
 ### Server (SRV)
 
-- [ ] **SRV-01**: Provide authenticated HTTP JSON APIs for administrators and endpoint agents.
+- [x] **SRV-01**: Provide authenticated HTTP JSON APIs for administrators and endpoint agents.
 - [ ] **SRV-02**: Support administrator authentication with basic admin and auditor roles; auditors cannot change policies or configuration.
-- [ ] **SRV-03**: Enroll Windows devices using single-use or short-lived enrollment tokens.
+- [x] **SRV-03**: Enroll Windows devices using single-use or short-lived enrollment tokens.
 - [ ] **SRV-04**: Maintain device lifecycle states: pending, active, locked, revoked, and retired.
 - [ ] **SRV-05**: Support creation, validation, versioning, signing, and assignment of policies.
 - [ ] **SRV-06**: Produce immutable, signed configuration bundles containing policy versions, schema version, agent settings, effective time, and offline allowance.
@@ -24,8 +24,8 @@
 - [ ] **SRV-08**: Accept idempotent, batched event uploads from agents.
 - [ ] **SRV-09**: Record all administrative mutations with actor, timestamp, old value, and new value.
 - [ ] **SRV-10**: Provide audit search and export by time, device, user, action, rule, and severity.
-- [ ] **SRV-11**: Persist data in PostgreSQL with versioned migrations.
-- [ ] **SRV-12**: Provide health and readiness endpoints.
+- [x] **SRV-11**: Persist data in PostgreSQL with versioned migrations.
+- [x] **SRV-12**: Provide health and readiness endpoints.
 
 ### Policy Engine (POL)
 
@@ -42,21 +42,21 @@
 
 ### Cryptography (CRY)
 
-- [ ] **CRY-01**: Use authenticated encryption for file contents and sensitive metadata at rest.
-- [ ] **CRY-02**: Sign configuration bundles with Ed25519; agents verify signature and schema version before activation.
+- [x] **CRY-01**: Use authenticated encryption for file contents and sensitive metadata at rest.
+- [x] **CRY-02**: Sign configuration bundles with Ed25519; agents verify signature and schema version before activation.
 - [ ] **CRY-03**: Implement per-user encryption key hierarchy with a DEK wrapped by a DPAPI-NG-protected KEK and server-escrowed recovery key.
 - [x] **CRY-04**: Store no long-lived secret in plaintext on the endpoint.
 - [ ] **CRY-05**: Support server key rotation with a key identifier in each bundle.
 
 ### Endpoint Agent (AGT)
 
-- [ ] **AGT-01**: Run as a Windows service with automatic startup and no interactive user session requirement.
-- [ ] **AGT-02**: Enroll the device and protect credentials using Windows-protected storage.
-- [ ] **AGT-03**: Periodically contact the server over TLS; verify server identity.
-- [ ] **AGT-04**: Download, verify, cache, and atomically activate signed configuration bundles.
-- [ ] **AGT-05**: Retain the current and last-known-good configurations.
-- [ ] **AGT-06**: Reject invalid, unsigned, corrupted, or partially downloaded bundles without replacing the active policy.
-- [ ] **AGT-07**: Report version, health, drive state, active policy version, and errors.
+- [x] **AGT-01**: Run as a Windows service with automatic startup and no interactive user session requirement.
+- [x] **AGT-02**: Enroll the device and protect credentials using Windows-protected storage.
+- [x] **AGT-03**: Periodically contact the server over TLS; verify server identity.
+- [x] **AGT-04**: Download, verify, cache, and atomically activate signed configuration bundles.
+- [x] **AGT-05**: Retain the current and last-known-good configurations.
+- [x] **AGT-06**: Reject invalid, unsigned, corrupted, or partially downloaded bundles without replacing the active policy.
+- [x] **AGT-07**: Report version, health, drive state, active policy version, and errors.
 - [ ] **AGT-08**: Queue audit events locally when offline; upload in order on reconnection.
 - [ ] **AGT-09**: Bound event queue, retries, CPU, memory, and disk usage with configurable limits.
 - [ ] **AGT-10**: Recover cleanly from service, process, and machine restarts.
@@ -64,15 +64,15 @@
 
 ### Protected Drive (DRV)
 
-- [ ] **DRV-01**: Provide one isolated store per authenticated Windows user.
-- [ ] **DRV-02**: Mount the drive through WinFsp with a configurable drive letter or mount path.
-- [ ] **DRV-03**: Map every request to the correct Windows user identity.
-- [ ] **DRV-04**: Encrypt file contents and sensitive metadata at rest.
+- [x] **DRV-01**: Provide one isolated store per authenticated Windows user.
+- [x] **DRV-02**: Mount the drive through WinFsp with a configurable drive letter or mount path.
+- [x] **DRV-03**: Map every request to the correct Windows user identity.
+- [x] **DRV-04**: Encrypt file contents and sensitive metadata at rest.
 - [ ] **DRV-05**: Prevent one user from mounting or accessing another user's store through supported interfaces.
-- [ ] **DRV-06**: Use crash-consistent metadata and file updates.
-- [ ] **DRV-07**: Detect corrupted encrypted data and fail without returning unauthenticated plaintext.
+- [x] **DRV-06**: Use crash-consistent metadata and file updates.
+- [x] **DRV-07**: Detect corrupted encrypted data and fail without returning unauthenticated plaintext.
 - [ ] **DRV-08**: Return appropriate access-denied errors and clear messages for policy-denied operations.
-- [ ] **DRV-09**: Survive service and machine restarts without corrupting committed data.
+- [x] **DRV-09**: Survive service and machine restarts without corrupting committed data.
 
 ### User Interaction (UI)
 
@@ -89,11 +89,11 @@
 
 ### Testing (TST)
 
-- [ ] **TST-01**: Write unit tests for policy matching, priority, conflict resolution, and default actions.
-- [ ] **TST-02**: Write unit tests for bundle validation and signature verification.
-- [ ] **TST-03**: Write unit tests for storage encryption, integrity failures, and key handling.
+- [x] **TST-01**: Write unit tests for policy matching, priority, conflict resolution, and default actions.
+- [x] **TST-02**: Write unit tests for bundle validation and signature verification.
+- [x] **TST-03**: Write unit tests for storage encryption, integrity failures, and key handling.
 - [ ] **TST-04**: Write unit tests for event queue limits, retry logic, and idempotency.
-- [ ] **TST-05**: Write integration tests for server enrollment through first policy activation.
+- [x] **TST-05**: Write integration tests for server enrollment through first policy activation.
 - [ ] **TST-06**: Write integration tests for offline enforcement followed by event synchronization.
 - [ ] **TST-07**: Write integration tests for per-user drive isolation and device revocation.
 - [x] **TST-08**: Validate WinFsp with representative Windows applications in an early spike.
@@ -142,13 +142,13 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WRK-01 | Phase 1 | Gaps Found |
-| WRK-02 | Phase 1 | Gaps Found |
-| WRK-03 | Phase 1 | Gaps Found |
-| WRK-04 | Phase 1 | Gaps Found |
-| SRV-01 | Phase 1 | Gaps Found |
+| WRK-01 | Phase 1 | Complete |
+| WRK-02 | Phase 1 | Complete |
+| WRK-03 | Phase 1 | Complete |
+| WRK-04 | Phase 1 | Complete |
+| SRV-01 | Phase 1 | Complete |
 | SRV-02 | Phase 2 | Pending |
-| SRV-03 | Phase 1 | Gaps Found |
+| SRV-03 | Phase 1 | Complete |
 | SRV-04 | Phase 3 | Pending |
 | SRV-05 | Phase 2 | Pending |
 | SRV-06 | Phase 2 | Pending |
@@ -156,8 +156,8 @@
 | SRV-08 | Phase 3 | Pending |
 | SRV-09 | Phase 3 | Pending |
 | SRV-10 | Phase 3 | Pending |
-| SRV-11 | Phase 1 | Gaps Found |
-| SRV-12 | Phase 1 | Gaps Found |
+| SRV-11 | Phase 1 | Complete |
+| SRV-12 | Phase 1 | Complete |
 | POL-01 | Phase 2 | Pending |
 | POL-02 | Phase 2 | Pending |
 | POL-03 | Phase 2 | Pending |
@@ -168,31 +168,31 @@
 | POL-08 | Phase 2 | Pending |
 | POL-09 | Phase 2 | Pending |
 | POL-10 | Phase 2 | Pending |
-| CRY-01 | Phase 1 | Gaps Found |
-| CRY-02 | Phase 1 | Gaps Found |
+| CRY-01 | Phase 1 | Complete |
+| CRY-02 | Phase 1 | Complete |
 | CRY-03 | Phase 3 | Pending |
 | CRY-04 | Phase 1 | Complete |
 | CRY-05 | Phase 2 | Pending |
-| AGT-01 | Phase 1 | Gaps Found |
-| AGT-02 | Phase 1 | Gaps Found |
-| AGT-03 | Phase 1 | Gaps Found |
-| AGT-04 | Phase 1 | Gaps Found |
-| AGT-05 | Phase 1 | Gaps Found |
-| AGT-06 | Phase 1 | Gaps Found |
-| AGT-07 | Phase 1 | Gaps Found |
+| AGT-01 | Phase 1 | Complete |
+| AGT-02 | Phase 1 | Complete |
+| AGT-03 | Phase 1 | Complete |
+| AGT-04 | Phase 1 | Complete |
+| AGT-05 | Phase 1 | Complete |
+| AGT-06 | Phase 1 | Complete |
+| AGT-07 | Phase 1 | Complete |
 | AGT-08 | Phase 3 | Pending |
 | AGT-09 | Phase 3 | Pending |
 | AGT-10 | Phase 1/4 | Pending |
 | AGT-11 | Phase 3 | Pending |
-| DRV-01 | Phase 1 | Gaps Found |
-| DRV-02 | Phase 1 | Gaps Found |
-| DRV-03 | Phase 1 | Gaps Found |
-| DRV-04 | Phase 1 | Gaps Found |
+| DRV-01 | Phase 1 | Complete |
+| DRV-02 | Phase 1 | Complete |
+| DRV-03 | Phase 1 | Complete |
+| DRV-04 | Phase 1 | Complete |
 | DRV-05 | Phase 2/4 | Pending |
-| DRV-06 | Phase 1 | Gaps Found |
-| DRV-07 | Phase 1 | Gaps Found |
+| DRV-06 | Phase 1 | Complete |
+| DRV-07 | Phase 1 | Complete |
 | DRV-08 | Phase 2 | Pending |
-| DRV-09 | Phase 1 | Gaps Found |
+| DRV-09 | Phase 1 | Complete |
 | UI-01 | Phase 2 | Pending |
 | UI-02 | Phase 2 | Pending |
 | UI-03 | Phase 2 | Pending |
@@ -200,11 +200,11 @@
 | ADM-02 | Phase 3 | Pending |
 | ADM-03 | Phase 3 | Pending |
 | ADM-04 | Phase 3 | Pending |
-| TST-01 | Phase 2 | Gaps Found |
-| TST-02 | Phase 1 | Gaps Found |
-| TST-03 | Phase 1 | Gaps Found |
+| TST-01 | Phase 2 | Complete |
+| TST-02 | Phase 1 | Complete |
+| TST-03 | Phase 1 | Complete |
 | TST-04 | Phase 3 | Pending |
-| TST-05 | Phase 1 | Gaps Found |
+| TST-05 | Phase 1 | Complete |
 | TST-06 | Phase 3 | Pending |
 | TST-07 | Phase 2 | Pending |
 | TST-08 | Phase 1 | Complete |

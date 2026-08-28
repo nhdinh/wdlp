@@ -153,7 +153,7 @@ Plans:
 **Goal:** Document every runtime environment variable consumed by the DLP Windows endpoint agent service and provide operator instructions for collecting or creating the four required variables.
 **Requirements**: TBD
 **Depends on:** Phase 01
-**Plans:** 1/1 plans executed
+**Plans:** 1/1 plans complete
 
 Plans:
 
@@ -221,7 +221,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. First Encrypted-Drive Vertical Slice | 41/32 | Complete    | 2026-08-28 |
-| 1.1. Add env-var docs | 1/1 | In Progress|  |
+| 1.1. Add env-var docs | 1/1 | Complete    | 2026-08-28 |
 | 1.2. Automatic enrollment token acquisition | 1/1 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
