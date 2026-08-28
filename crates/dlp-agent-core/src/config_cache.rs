@@ -143,6 +143,17 @@ impl ConfigurationCache {
         let pointers = self.read_pointers()?;
         if let Some(current_version) = pointers.current_version {
             if version == current_version && pointers.current_digest == Some(digest) {
+                match self.read_staged_bundle(&digest) {
+                    Ok(cached_bytes) if cached_bytes == bytes => {}
+                    Ok(_) => return Err(CacheError::CorruptPointer),
+                    Err(CacheError::MissingBundle) if !self.staging_path(&digest).exists() => {
+                        self.write_staged_bundle(&digest, bytes)?;
+                        if self.read_staged_bundle(&digest)? != bytes {
+                            return Err(CacheError::CorruptPointer);
+                        }
+                    }
+                    Err(error) => return Err(error),
+                }
                 return Ok(ActivationOutcome::Unchanged);
             }
             if version <= current_version {
@@ -677,6 +688,80 @@ mod tests {
         ));
         let current = cache.current_bundle().expect("current").expect("present");
         assert_eq!(current.envelope().payload(), "allow");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn restart_repairs_missing_selected_bundle_before_reporting_unchanged() {
+        let tmp = std::env::temp_dir().join(format!(
+            "dlp-cache-restart-repair-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        let signer = test_signer();
+        let verifier = ConfigurationVerifier::from_public_key_bytes(
+            signer.key_id(),
+            signer.public_key_bytes(),
+        )
+        .expect("valid verifier");
+        let (signed, selected) = signed_bundle(&test_device(), 1, "allow", &signer);
+        let digest = *signed.content_digest();
+
+        let cache = ConfigurationCache::open(&tmp, test_device()).expect("open cache");
+        cache
+            .stage_verify_activate(&selected, &verifier)
+            .expect("activate selected bundle");
+        drop(cache);
+        fs::remove_file(tmp.join("staging").join(hex::encode(&digest)))
+            .expect("delete selected staged bundle while retaining pointers");
+
+        let restarted = ConfigurationCache::open(&tmp, test_device()).expect("reopen cache");
+        assert_eq!(
+            restarted
+                .stage_verify_activate(&selected, &verifier)
+                .expect("equal authenticated poll repairs selected bundle"),
+            ActivationOutcome::Unchanged
+        );
+        let current = restarted
+            .current_bundle()
+            .expect("load repaired current bundle")
+            .expect("current bundle present");
+        assert_eq!(current.envelope().payload(), "allow");
+        assert_eq!(
+            fs::read(tmp.join("staging").join(hex::encode(&digest)))
+                .expect("read durable repaired bytes"),
+            selected
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn equal_selected_bundle_fails_closed_when_cached_bytes_are_corrupt() {
+        let tmp = std::env::temp_dir().join(format!(
+            "dlp-cache-corrupt-selected-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        let cache = ConfigurationCache::open(&tmp, test_device()).expect("open cache");
+        let signer = test_signer();
+        let verifier = ConfigurationVerifier::from_public_key_bytes(
+            signer.key_id(),
+            signer.public_key_bytes(),
+        )
+        .expect("valid verifier");
+        let (signed, selected) = signed_bundle(&test_device(), 1, "allow", &signer);
+        let digest = *signed.content_digest();
+        cache
+            .stage_verify_activate(&selected, &verifier)
+            .expect("activate selected bundle");
+        fs::write(cache.staging_path(&digest), b"corrupt").expect("corrupt selected bundle");
+
+        assert_eq!(
+            cache.stage_verify_activate(&selected, &verifier),
+            Err(CacheError::CorruptPointer)
+        );
 
         let _ = fs::remove_dir_all(&tmp);
     }
