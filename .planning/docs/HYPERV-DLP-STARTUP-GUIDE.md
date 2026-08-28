@@ -28,7 +28,9 @@ Get-VM | Select-Object -First 5
 
 Set the environment variables the lab scripts expect. Values come from your runtime secret provider; they are never committed.
 
-For authoritative collection and creation instructions for each DLP Windows agent runtime variable, see [.planning/docs/ENV-VARS.md](ENV-VARS.md). For detailed instructions on generating or obtaining the PEM and KEY files used by the server and provisioning flows, see [.planning/docs/PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md). The lines below are a quick-reference reminder only.
+> **Endpoint environment authority:** Use [ENV-VARS.md](ENV-VARS.md) for the complete collect, validate, persist, deploy, verify, and troubleshooting contract. This startup guide intentionally does not duplicate endpoint acquisition or persistence instructions.
+
+For server and provisioning PEM/key acquisition, use [PEM-KEY-GUIDE.md](PEM-KEY-GUIDE.md). The remaining lines below are server/orchestration startup reminders only.
 
 ```powershell
 $env:DLP_VM_ADMIN_USER     = 'labadmin'
@@ -54,13 +56,8 @@ $env:DLP_PROVISIONING_ADMIN_KEY_PEM  = '-----BEGIN PRIVATE KEY-----...'
 # Those scenarios also need all six DLP_AD_* LDAPS values from ENV-VARS.md.
 # Never set DLP_ADMIN_PROVISIONING_KEY; it is an obsolete bearer credential.
 
-# Endpoint runtime secrets for LAB-CLIENT01 (required by Invoke-Client01Runtime.ps1).
-# See ENV-VARS.md for how to collect or create each value.
-$env:DLP_DEVICE_ID                     = 'device-id-from-runtime-provider'
-$env:DLP_SERVER_URL                    = 'https://LAB-DC01:8443'
-$env:DLP_ROOT_CA_PEM                   = '-----BEGIN CERTIFICATE-----...'
-$env:DLP_CONFIGURATION_PUBLIC_KEY_HEX  = '0123...abcdef'   # 64 hex chars
-$env:DLP_CONFIGURATION_KEY_ID          = 'phase1-config-signer'   # optional
+# Load endpoint values by following ENV-VARS.md before the endpoint deployment step.
+.\scripts\lab\Initialize-DlpEnvironment.ps1 -EnvFile .\config\lab.env.local -NonInteractive
 ```
 
 ---
