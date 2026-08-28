@@ -250,6 +250,10 @@ function Get-ActiveCredentialSerial {
     return Invoke-AuthorityQuery -Sql "SELECT COALESCE(encode(active_serial, 'hex'), '') FROM enrollment_authority WHERE device_id = 'LAB-CLIENT01.lab.local'"
 }
 
+function Get-EnrollmentAuthoritySnapshot {
+    return Invoke-AuthorityQuery -Sql "SELECT concat_ws('|', COALESCE(encode(active_serial, 'hex'), ''), encode(token_digest, 'hex'), COALESCE(token_consumed_at::text, ''), token_expires_at::text) FROM enrollment_authority WHERE device_id = 'LAB-CLIENT01.lab.local'"
+}
+
 function Get-CredentialAuthorityStatus {
     param([Parameter(Mandatory)][string]$Serial)
     Assert-AgentSmoke ($Serial -match '^[0-9a-f]+$') 'credential_serial_invalid'
@@ -455,13 +459,17 @@ switch ($Scenario) {
         Assert-LiveLabAvailable
         $beforeSerial = Get-ActiveCredentialSerial
         Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($beforeSerial)) 'ordinary_recovery_predecessor_missing'
+        $beforeAuthority = Get-EnrollmentAuthoritySnapshot
+        Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($beforeAuthority)) 'ordinary_recovery_authority_snapshot_missing'
         try {
             $service = Get-AgentServiceState
             if ($service.Installed -and $service.Status -eq 'Running') { Stop-AgentService | Out-Null }
             Remove-AgentCredentialAsSystem
             Invoke-LiveEnrollmentRecovery -ExpectFailure | Out-Null
             $afterSerial = Get-ActiveCredentialSerial
+            $afterAuthority = Get-EnrollmentAuthoritySnapshot
             Assert-AgentSmoke ($afterSerial -ceq $beforeSerial) 'ordinary_recovery_changed_active_serial'
+            Assert-AgentSmoke ($afterAuthority -ceq $beforeAuthority) 'ordinary_recovery_changed_authority_fields'
             Assert-AgentSmoke ((Get-CredentialAuthorityStatus -Serial $beforeSerial) -eq 'active') 'ordinary_recovery_revoked_predecessor'
         } finally {
             Invoke-LiveEnrollmentRecovery -Force | Out-Null

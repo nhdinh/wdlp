@@ -34,8 +34,6 @@ impl PgAuthorityRepository {
         &self,
         request: &ProvisionDeviceRequestV1,
     ) -> Result<String, RepositoryError> {
-        let token = Uuid::new_v4().simple().to_string();
-        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         let mut transaction = self
             .pool
             .begin()
@@ -60,11 +58,19 @@ impl PgAuthorityRepository {
         .fetch_optional(&mut *transaction)
         .await
         .map_err(|_| RepositoryError::Unavailable)?;
+        let active_serial = existing
+            .as_ref()
+            .and_then(|row| row.try_get::<Option<Vec<u8>>, _>("active_serial").ok())
+            .flatten();
+        if !request.recovery() && active_serial.is_some() {
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| RepositoryError::Unavailable)?;
+            return Err(RepositoryError::Denied);
+        }
         if request.recovery()
-            && let Some(active_serial) = existing
-                .as_ref()
-                .and_then(|row| row.try_get::<Option<Vec<u8>>, _>("active_serial").ok())
-                .flatten()
+            && let Some(active_serial) = active_serial
         {
             sqlx::query(
                 "UPDATE device_route_credentials SET credential_status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE device_id = $1 AND credential_serial = $2 AND credential_status = 'active'",
@@ -91,6 +97,8 @@ impl PgAuthorityRepository {
             .await
             .map_err(|_| RepositoryError::Unavailable)?;
         }
+        let token = Uuid::new_v4().simple().to_string();
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         let result = sqlx::query(
             "INSERT INTO enrollment_authority (device_id, fingerprint_version, fingerprint_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, preferred_drive_letter, token_digest, token_expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP + INTERVAL '10 minutes') ON CONFLICT (device_id) DO UPDATE SET fingerprint_version = EXCLUDED.fingerprint_version, fingerprint_digest = EXCLUDED.fingerprint_digest, ad_object_guid = EXCLUDED.ad_object_guid, ad_object_sid = EXCLUDED.ad_object_sid, ad_dns_name = EXCLUDED.ad_dns_name, ad_domain = EXCLUDED.ad_domain, preferred_drive_letter = EXCLUDED.preferred_drive_letter, token_digest = EXCLUDED.token_digest, token_expires_at = EXCLUDED.token_expires_at, token_consumed_at = NULL",
         )
