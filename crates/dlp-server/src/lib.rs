@@ -146,6 +146,8 @@ impl ProductionProviders {
         let seed = decode_signing_seed(&required_environment(
             "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX",
         )?)?;
+        let configuration_key_id = std::env::var("DLP_CONFIGURATION_KEY_ID")
+            .unwrap_or_else(|_| "phase1-config-signing-key-v1".to_owned());
         // Validate TLS paths before a migration can mutate the authority ledger.
         tls::TlsPaths::from_environment().map_err(|_| ServerError::MissingProvider {
             provider: "tls_paths",
@@ -164,7 +166,7 @@ impl ProductionProviders {
             directory_verifier: Some(directory),
             certificate_issuer: Some(Arc::new(RuntimeIssuer(issuer))),
             configuration_signer: Some(Arc::new(RuntimeSigner(Arc::new(
-                dlp_crypto::ConfigurationSigner::from_seed("phase1-runtime", seed),
+                dlp_crypto::ConfigurationSigner::from_seed(configuration_key_id, seed),
             )))),
             repository: Some(Arc::new(RuntimeRepository {
                 route_repository: Arc::new(route_repository),

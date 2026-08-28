@@ -43,6 +43,14 @@ pub struct PeerIdentity {
     serial: Vec<u8>,
 }
 
+pub(crate) fn canonical_serial_bytes(serial: &[u8]) -> Vec<u8> {
+    let first_nonzero = serial
+        .iter()
+        .position(|byte| *byte != 0)
+        .unwrap_or_else(|| serial.len().saturating_sub(1));
+    serial.get(first_nonzero..).unwrap_or_default().to_vec()
+}
+
 impl PeerIdentity {
     /// Converts a certificate accepted by the rustls verifier into the only
     /// application identity representation. Device leaves must carry the fixed
@@ -108,7 +116,7 @@ impl PeerIdentity {
         Ok(Self {
             role: PeerRole::Device,
             subject: device_id.to_owned(),
-            serial: certificate.raw_serial().to_vec(),
+            serial: canonical_serial_bytes(certificate.raw_serial()),
         })
     }
     #[cfg(any(test, debug_assertions))]
@@ -351,6 +359,19 @@ pub struct TlsPaths {
     pub administrator_ca: PathBuf,
     pub phase1_root_ca: PathBuf,
     pub device_issuing_ca: PathBuf,
+}
+
+#[cfg(test)]
+mod serial_tests {
+    use super::canonical_serial_bytes;
+
+    #[test]
+    fn canonical_serial_removes_der_sign_padding_and_leading_zeroes() {
+        assert_eq!(canonical_serial_bytes(&[0, 0x80, 1]), vec![0x80, 1]);
+        assert_eq!(canonical_serial_bytes(&[0, 0, 1]), vec![1]);
+        assert_eq!(canonical_serial_bytes(&[0]), vec![0]);
+        assert!(canonical_serial_bytes(&[]).is_empty());
+    }
 }
 
 impl TlsPaths {

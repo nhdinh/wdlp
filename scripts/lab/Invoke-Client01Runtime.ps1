@@ -5,8 +5,10 @@ param(
     [Parameter()][ValidateSet('LAB-DC01')][string]$ProbeMachine = 'LAB-DC01',
     [Parameter()][ValidateSet('Runtime')][string]$SecretProvider = 'Runtime',
     [Parameter(Mandatory)][ValidateSet('Tracer', 'ServiceInstall', 'All')][string]$Scenario,
-    [Parameter()][ValidateSet('Manual', 'TrustedProvisioning')][string]$EnrollmentTokenProvider = 'Manual',
+    [Parameter()][ValidateSet('Manual', 'TrustedProvisioning')][string]$EnrollmentTokenProvider = 'TrustedProvisioning',
     [Parameter()][switch]$RetainEnrollmentToken,
+    [Parameter()][switch]$ForceReenrollment,
+    [Parameter()][switch]$Diagnostic,
     [Parameter()][switch]$Apply,
     [Parameter()][System.Management.Automation.PSCredential]$Credential
 )
@@ -73,6 +75,27 @@ $script:ServerPort = 8443
 function Stop-Client01([string]$Code) { throw $Code }
 function Assert-Client01([bool]$Condition, [string]$Code) {
     if (-not $Condition) { Stop-Client01 $Code }
+}
+
+function Write-Client01Status {
+    param(
+        [Parameter(Mandatory)][string]$Code,
+        [Parameter(Mandatory)][string]$Message
+    )
+    Write-Host "[$Code] $Message"
+}
+
+function Write-Client01Diagnostic {
+    param(
+        [Parameter(Mandatory)][string]$Code,
+        [Parameter(Mandatory)][hashtable]$Fields
+    )
+    if (-not $Diagnostic) { return }
+    $safe = [ordered]@{ code = $Code }
+    foreach ($name in @($Fields.Keys | Sort-Object)) {
+        $safe[$name] = $Fields[$name]
+    }
+    Write-Host ($safe | ConvertTo-Json -Compress -Depth 5)
 }
 
 Import-Module (Join-Path $RepoRoot 'scripts/evidence/Phase1.Evidence.psm1') -Force
@@ -194,19 +217,20 @@ function Copy-VMFileOrStream {
     )
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     Assert-Client01 ($vm -and $vm.State -eq 'Running') 'execution_vm_not_running'
-    try {
-        Copy-VMFile -Name $VMName -SourcePath $SourcePath -DestinationPath $DestinationPath -CreateFullPath -Force -FileSource Host
-    } catch {
-        # Fallback: stream via PowerShell Direct.
-        $bytes = [System.IO.File]::ReadAllBytes($SourcePath)
-        $b64 = [Convert]::ToBase64String($bytes)
-        Invoke-LabCommand -VMName $VMName -ScriptBlock {
-            param($Base64, $Path)
-            $ErrorActionPreference = 'Stop'
-            New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
-            [System.IO.File]::WriteAllBytes($Path, [Convert]::FromBase64String($Base64))
-        } -ArgumentList @($b64, $DestinationPath)
-    }
+    # Hyper-V Guest Service Interface copies can remain blocked indefinitely
+    # without throwing. PowerShell Direct is already required for this workflow,
+    # so use its bounded remoting channel as the deterministic transfer path.
+    $bytes = [System.IO.File]::ReadAllBytes($SourcePath)
+    $base64 = [Convert]::ToBase64String($bytes)
+    $expectedHash = (Get-FileHash -LiteralPath $SourcePath -Algorithm SHA256).Hash
+    $actualHash = Invoke-LabCommand -VMName $VMName -ScriptBlock {
+        param($Base64, $Path)
+        $ErrorActionPreference = 'Stop'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+        [System.IO.File]::WriteAllBytes($Path, [Convert]::FromBase64String($Base64))
+        return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    } -ArgumentList @($base64, $DestinationPath)
+    Assert-Client01 ($actualHash -eq $expectedHash) 'vm_file_transfer_hash_mismatch'
 }
 
 function Assert-RuntimeSecretsPresent {
@@ -226,9 +250,11 @@ function Assert-RuntimeSecretsPresent {
 function Test-Client01CredentialPresent {
     return Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         $ErrorActionPreference = 'Stop'
-        $taskName = 'DlpCredentialProbe-' + [Guid]::NewGuid().ToString('N')
+        $taskName = 'DlpCred-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
         $resultPath = Join-Path $env:ProgramData ($taskName + '.txt')
-        $command = "if exist C:\dlp\agent\data\credentials\device.dpapi (echo 1>$resultPath) else (echo 0>$resultPath)"
+        # D-05: only a non-empty protected credential is usable enough to skip
+        # the one-time trusted-provisioning flow.
+        $command = ">$resultPath echo 0 & for %I in (C:\dlp\agent\data\credentials\device.dpapi) do @if %~zI GTR 0 >$resultPath echo 1"
         $action = "cmd.exe /d /c $command"
         $startTime = (Get-Date).AddMinutes(1).ToString('HH:mm')
         try {
@@ -243,7 +269,8 @@ function Test-Client01CredentialPresent {
             if (-not (Test-Path -LiteralPath $resultPath)) { throw 'credential probe timed out' }
             return ([System.IO.File]::ReadAllText($resultPath).Trim() -eq '1')
         } finally {
-            & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+            $cleanupCommand = "schtasks.exe /Delete /TN $taskName /F >nul 2>&1"
+            & cmd.exe /d /c $cleanupCommand | Out-Null
             Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
         }
     }
@@ -263,25 +290,93 @@ function Assert-EnrollmentTokenValid {
 }
 
 function Remove-Client01EnrollmentToken {
-    Write-Host 'Install-Client01Service: removing enrollment token from service environment...'
-    Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+    # D-01/D-02/D-05/D-06/D-07: attempt both managed copies independently,
+    # verify both, and make incomplete cleanup a stable hard failure.
+    Write-Client01Status -Code 'enrollment_token_cleanup_started' -Message 'Removing the short-lived enrollment token from both endpoint locations.'
+    try {
+        $result = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
         $ErrorActionPreference = 'Stop'
         $serviceName = 'DlpWindowsService'
         $serviceKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\' + $serviceName
         $envPath = 'C:\dlp\agent\agent.env'
+        $status = [ordered]@{ AgentEnv = 'ok'; ScmEnvironment = 'ok' }
 
-        $existing = Get-ItemProperty -Path $serviceKey -Name 'Environment' -ErrorAction SilentlyContinue
-        if ($null -ne $existing -and $null -ne $existing.Environment) {
-            $cleaned = @($existing.Environment | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
-            Set-ItemProperty -Path $serviceKey -Name 'Environment' -Value $cleaned -Type MultiString -Force
+        try {
+            $existing = Get-ItemProperty -Path $serviceKey -Name 'Environment' -ErrorAction SilentlyContinue
+            if ($null -ne $existing -and $null -ne $existing.Environment) {
+                $cleaned = @($existing.Environment | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
+                Set-ItemProperty -Path $serviceKey -Name 'Environment' -Value $cleaned -Type MultiString -Force
+            }
+            $remaining = @((Get-ItemProperty -Path $serviceKey -Name 'Environment' -ErrorAction SilentlyContinue).Environment |
+                Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
+            if ($remaining -ne 0) { throw 'token_entry_remains' }
+        } catch {
+            $status.ScmEnvironment = 'failed'
         }
 
-        if (Test-Path -LiteralPath $envPath) {
-            $lines = [System.IO.File]::ReadAllLines($envPath)
-            $cleaned = @($lines | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
-            [System.IO.File]::WriteAllLines($envPath, $cleaned, (New-Object System.Text.UTF8Encoding($false)))
+        try {
+            if (Test-Path -LiteralPath $envPath) {
+                $lines = [System.IO.File]::ReadAllLines($envPath)
+                $cleaned = @($lines | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
+                [System.IO.File]::WriteAllLines($envPath, $cleaned, (New-Object System.Text.UTF8Encoding($false)))
+                $remaining = @([System.IO.File]::ReadAllLines($envPath) |
+                    Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
+                if ($remaining -ne 0) { throw 'token_entry_remains' }
+            }
+        } catch {
+            $status.AgentEnv = 'failed'
+        }
+        return [pscustomobject]$status
+        }
+    } catch {
+        Stop-Client01 'enrollment_token_cleanup_failed: agent.env=unavailable; scm_environment=unavailable; remove DLP_AGENT_ENROLLMENT_TOKEN from C:\dlp\agent\agent.env and HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment before retrying'
+    }
+
+    if ($result.AgentEnv -ne 'ok' -or $result.ScmEnvironment -ne 'ok') {
+        Stop-Client01 "enrollment_token_cleanup_failed: agent.env=$($result.AgentEnv); scm_environment=$($result.ScmEnvironment); remove DLP_AGENT_ENROLLMENT_TOKEN from C:\dlp\agent\agent.env and HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment before retrying"
+    }
+    Write-Client01Status -Code 'enrollment_token_cleanup_complete' -Message 'Enrollment token state is absent from agent.env and SCM Environment.'
+}
+
+function Reset-Client01EnrollmentCredential {
+    # D-06/D-07/D-08: this helper is called only from the explicit Apply-gated
+    # force path. It preserves the service, binaries, data root, and cache root.
+    Write-Client01Status -Code 'force_reenrollment_started' -Message 'Replacing the protected enrollment credential while preserving service, data, and cache.'
+    Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+        $ErrorActionPreference = 'Stop'
+        $service = Get-Service -Name 'DlpWindowsService' -ErrorAction SilentlyContinue
+        if ($null -ne $service -and $service.Status -ne 'Stopped') {
+            Stop-Service -Name 'DlpWindowsService' -Force -ErrorAction Stop
+        }
+        $taskName = 'DlpForceReenrollment-' + [Guid]::NewGuid().ToString('N')
+        $resultPath = Join-Path $env:ProgramData ($taskName + '.txt')
+        $action = "cmd.exe /d /c del /q C:\dlp\agent\data\credentials\device.dpapi* & echo complete>$resultPath"
+        $startTime = (Get-Date).AddMinutes(1).ToString('HH:mm')
+        try {
+            & schtasks.exe /Create /TN $taskName /SC ONCE /ST $startTime /TR $action /RU SYSTEM /F | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'credential_reset_task_create_failed' }
+            & schtasks.exe /Run /TN $taskName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'credential_reset_task_start_failed' }
+            $deadline = [DateTime]::UtcNow.AddSeconds(20)
+            while (-not (Test-Path -LiteralPath $resultPath) -and [DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 200
+            }
+            if (-not (Test-Path -LiteralPath $resultPath)) { throw 'credential_reset_timed_out' }
+        } finally {
+            $cleanupCommand = "schtasks.exe /Delete /TN $taskName /F >nul 2>&1"
+            & cmd.exe /d /c $cleanupCommand | Out-Null
+            Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+        }
+        if ($null -ne $service -and $null -eq (Get-Service -Name 'DlpWindowsService' -ErrorAction SilentlyContinue)) {
+            throw 'service_removed_during_force_reenrollment'
+        }
+        foreach ($path in @('C:\dlp\agent\data', 'C:\dlp\agent\cache')) {
+            if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+                throw 'preserved_directory_missing'
+            }
         }
     }
+    Remove-Client01EnrollmentToken
 }
 
 function Wait-Client01AdwsReady {
@@ -549,6 +644,9 @@ function Start-Client01Server {
     $envLines.Add('DLP_DEVICE_ISSUING_CA_CERT_PEM=C:\dlp\secrets\device-issuing-ca.pem')
     $envLines.Add('DLP_DEVICE_ISSUING_CA_KEY_PEM=C:\dlp\secrets\device-issuing-ca-key.pem')
     $envLines.Add("DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX=$($env:DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX)")
+    if (-not [string]::IsNullOrWhiteSpace($env:DLP_CONFIGURATION_KEY_ID)) {
+        $envLines.Add("DLP_CONFIGURATION_KEY_ID=$($env:DLP_CONFIGURATION_KEY_ID)")
+    }
 
     Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
         param($EnvLines, $Port)
@@ -577,7 +675,7 @@ function Start-Client01Server {
         $diagnosticPath = 'C:\dlp\server\startup-diagnostic.log'
         @(
             "DLP_LISTEN_ADDRESS=$([Environment]::GetEnvironmentVariable('DLP_LISTEN_ADDRESS', 'Process'))"
-            "DATABASE_URL=$([Environment]::GetEnvironmentVariable('DATABASE_URL', 'Process'))"
+            "DATABASE_URL_LENGTH=$(([Environment]::GetEnvironmentVariable('DATABASE_URL', 'Process')).Length)"
             "DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX_LENGTH=$(([Environment]::GetEnvironmentVariable('DLP_CONFIGURATION_SIGNING_KEY_SEED_HEX', 'Process')).Length)"
             "DLP_AD_DOMAIN=$([Environment]::GetEnvironmentVariable('DLP_AD_DOMAIN', 'Process'))"
             "DLP_SERVER_CERT_PEM=$([Environment]::GetEnvironmentVariable('DLP_SERVER_CERT_PEM', 'Process'))"
@@ -600,7 +698,7 @@ function Start-Client01Server {
     if ($WaitForReady) {
         $deadline = (Get-Date).AddSeconds(60)
         $ready = $false
-        $lastErr = ''
+        $lastErrorType = 'none'
         while ((Get-Date) -lt $deadline) {
             try {
                 Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
@@ -613,31 +711,35 @@ function Start-Client01Server {
                 $ready = $true
                 break
             } catch {
-                $lastErr = $_.Exception.Message
+                $lastErrorType = $_.Exception.GetType().Name
                 Start-Sleep -Seconds 1
             }
         }
         if (-not $ready) {
-            Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
-                Write-Host '--- startup-diagnostic.log ---'
-                Get-Content -LiteralPath 'C:\dlp\server\startup-diagnostic.log' -ErrorAction SilentlyContinue
-                Write-Host '--- dlp-server.err ---'
-                Get-Content -LiteralPath 'C:\dlp\server\dlp-server.err' -ErrorAction SilentlyContinue
-                Write-Host '--- dlp-server.log ---'
-                Get-Content -LiteralPath 'C:\dlp\server\dlp-server.log' -ErrorAction SilentlyContinue
-                Write-Host '--- secret files ---'
-                Get-ChildItem -LiteralPath 'C:\dlp\secrets' -ErrorAction SilentlyContinue | ForEach-Object {
-                    $firstLine = Get-Content -LiteralPath $_.FullName -TotalCount 1 -ErrorAction SilentlyContinue
-                    "$($_.Name): length=$($_.Length) first_line=$firstLine"
+            $diagnostics = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+                $secretLengths = [ordered]@{}
+                Get-ChildItem -LiteralPath 'C:\dlp\secrets' -File -ErrorAction SilentlyContinue | ForEach-Object {
+                    $secretLengths[$_.Name] = $_.Length
                 }
-                Write-Host '--- listening ports ---'
-                Get-NetTCPConnection -LocalPort 8443 -ErrorAction SilentlyContinue | Select-Object LocalAddress, LocalPort, State, OwningProcess
-                Write-Host '--- excluded port ranges ---'
-                netsh int ipv4 show excludedportrange protocol=tcp 2>&1
-                Write-Host '--- dlp-server processes ---'
-                Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue | Select-Object Id, Path
-            } | Write-Host
-            Stop-Client01 "server_failed_to_bind: $lastErr"
+                [pscustomobject]@{
+                    startup_diagnostic_length = if (Test-Path -LiteralPath 'C:\dlp\server\startup-diagnostic.log') { (Get-Item 'C:\dlp\server\startup-diagnostic.log').Length } else { -1 }
+                    stderr_length = if (Test-Path -LiteralPath 'C:\dlp\server\dlp-server.err') { (Get-Item 'C:\dlp\server\dlp-server.err').Length } else { -1 }
+                    stdout_length = if (Test-Path -LiteralPath 'C:\dlp\server\dlp-server.log') { (Get-Item 'C:\dlp\server\dlp-server.log').Length } else { -1 }
+                    secret_file_lengths = $secretLengths
+                    listener_count = @(Get-NetTCPConnection -LocalPort 8443 -ErrorAction SilentlyContinue).Count
+                    process_count = @(Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue).Count
+                }
+            }
+            Write-Client01Diagnostic -Code 'server_failed_to_bind' -Fields @{
+                error_type = $lastErrorType
+                startup_diagnostic_length = $diagnostics.startup_diagnostic_length
+                stderr_length = $diagnostics.stderr_length
+                stdout_length = $diagnostics.stdout_length
+                secret_file_lengths = $diagnostics.secret_file_lengths
+                listener_count = $diagnostics.listener_count
+                process_count = $diagnostics.process_count
+            }
+            Stop-Client01 'server_failed_to_bind: verify LAB-DC01 service configuration; use -Diagnostic for redacted metadata'
         }
     }
 }
@@ -651,14 +753,19 @@ function Assert-Client01CertificatesValid {
 
     $expectedHostname = "$ProbeMachine.lab.local"
     Write-Host "Assert-Client01CertificatesValid: verifying certificates against $expectedHostname..."
-    $command = "& '$verifyScript' -ServerHostname '$expectedHostname'"
-    $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+    $verifyArguments = @(
         '-NoProfile',
         '-NonInteractive',
         '-ExecutionPolicy', 'Bypass',
-        '-Command', $command
-    ) -WorkingDirectory $RepoRoot -NoNewWindow -Wait -PassThru
-    if ($proc.ExitCode -ne 0) {
+        '-File', $verifyScript,
+        '-ServerHostname', $expectedHostname
+    )
+    if ($Diagnostic) {
+        & powershell.exe @verifyArguments
+    } else {
+        & powershell.exe @verifyArguments *> $null
+    }
+    if ($LASTEXITCODE -ne 0) {
         Stop-Client01 'certificate_validation_failed'
     }
 }
@@ -709,8 +816,6 @@ function Assert-Client01ServerReady {
             hash_matches = $false
             secret_hash_matches = $true
             secret_hash_details = @{}
-            dlp_server_err = $null
-            dlp_server_log = $null
         }
 
         $proc = Get-Process -Name 'dlp-server' -ErrorAction SilentlyContinue
@@ -772,17 +877,16 @@ function Assert-Client01ServerReady {
             $result.tcp_connect_error = $_.Exception.Message
         }
 
-        $result.dlp_server_err = if (Test-Path -LiteralPath 'C:\dlp\server\dlp-server.err') {
-            Get-Content -LiteralPath 'C:\dlp\server\dlp-server.err' -Raw
-        } else { '<missing>' }
-        $result.dlp_server_log = if (Test-Path -LiteralPath 'C:\dlp\server\dlp-server.log') {
-            Get-Content -LiteralPath 'C:\dlp\server\dlp-server.log' -Raw
-        } else { '<missing>' }
-
         return $result
     } -ArgumentList @($script:ServerPort, $localHash, $expectedSecretHashes)
 
-    Write-Host "Server readiness diagnostics: $($diagnostics | ConvertTo-Json -Compress -Depth 10)"
+    Write-Client01Diagnostic -Code 'server_readiness' -Fields @{
+        process_running = $diagnostics.process_running
+        port_listening = $diagnostics.port_listening
+        tcp_connect_succeeded = $diagnostics.tcp_connect_succeeded
+        binary_hash_matches = $diagnostics.hash_matches
+        secret_hashes_match = $diagnostics.secret_hash_matches
+    }
 
     $ready = $diagnostics.process_running -and $diagnostics.port_listening -and $diagnostics.tcp_connect_succeeded -and $diagnostics.hash_matches -and $diagnostics.secret_hash_matches
     if (-not $ready) {
@@ -808,11 +912,10 @@ function Assert-Client01ServerReady {
 
 function Install-Client01ProvisioningBinary {
     # Ensure the dlpctl binary used by the trusted provisioning station is present
-    # on LAB-DC01. The orchestrator host may already have a local path in
-    # $env:DLP_PROVISIONING_DLPCTL_PATH; otherwise default to the workspace release
-    # build. The binary is copied to a deterministic location inside the DC so the
-    # remote Invoke-TrustedProvisioning.ps1 can invoke it by path.
-    $localBinary = if ($env:DLP_PROVISIONING_DLPCTL_PATH) { $env:DLP_PROVISIONING_DLPCTL_PATH } else { Join-Path $RepoRoot 'target/release/dlpctl.exe' }
+    # on LAB-DC01. Always deploy the release artifact produced from this checkout;
+    # a process-level path override may refer to another checkout and must not
+    # cause a successful local build to be mistaken for a missing binary.
+    $localBinary = Join-Path $RepoRoot 'target/release/dlpctl.exe'
 
     # Always rebuild dlpctl from source so crypto-provider fixes and other
     # changes are deployed. Cargo is fast when incremental; rebuilding prevents
@@ -935,9 +1038,13 @@ function Invoke-Client01TrustedProvisioning {
     )
     Wait-Client01AdwsReady -ServerName @('LAB-DC01.lab.local', 'LAB-DC02.lab.local')
     Assert-Client01ServerReady
-    Write-Host 'TrustedProvisioning: staging dlpctl binary on LAB-DC01...'
+    Write-Client01Status -Code 'trusted_provisioning_started' -Message 'Requesting a fresh short-lived enrollment token on LAB-DC01.'
+    Write-Client01Diagnostic -Code 'trusted_provisioning_stage' -Fields @{
+        target = $TargetComputer
+        provider = 'TrustedProvisioning'
+        admin_material_location = 'LAB-DC01'
+    }
     $remoteDlpctlPath = Install-Client01ProvisioningBinary
-    Write-Host 'TrustedProvisioning: invoking trusted provisioning on LAB-DC01...'
 
     # Invoke-TrustedProvisioning.ps1 guards require both the approved digest and
     # the administrator provisioning mTLS material to be present in the LAB-DC01
@@ -992,33 +1099,34 @@ function Invoke-Client01TrustedProvisioning {
             & scripts/lab/Invoke-TrustedProvisioning.ps1 @arguments
         } -ArgumentList @($PrivilegeManifestDigest, $TargetComputer, $PreferredDriveLetter, $provisioningRootCa, $provisioningAdminCert, $provisioningAdminKey, $provisioningAdminCa, $remoteDlpctlPath, $env:DLP_LAB_ALLOW_VIRTUAL_DISK_UNIQUE_ID, [bool]$RecoverCredential)
     } catch {
-        Write-Host '--- dlpctl diagnostics from LAB-DC01 ---'
-        $diagnostics = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
+        # D-09..D-12: never echo protected files or exception text. Optional
+        # diagnostics contain only bounded metadata and file lengths.
+        $diagnostics = $null
+        try {
+            $diagnostics = Invoke-LabCommand -VMName 'LAB-DC01' -ScriptBlock {
             $provDir = 'C:\dlp\provisioning'
-            $logPath = Join-Path $provDir 'dlpctl.log'
-            $errPath = Join-Path $provDir 'dlpctl.err'
-            $rustErrPath = Join-Path $provDir 'dlpctl-rust.err'
-            $tlsLogPath = 'C:\dlp\server\tls-events.log'
-            $result = [ordered]@{
-                log = if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath -Raw } else { '<missing>' }
-                err = if (Test-Path -LiteralPath $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '<missing>' }
-                rustErr = if (Test-Path -LiteralPath $rustErrPath) { Get-Content -LiteralPath $rustErrPath -Raw } else { '<missing>' }
-                tlsEvents = if (Test-Path -LiteralPath $tlsLogPath) { Get-Content -LiteralPath $tlsLogPath -Raw } else { '<missing>' }
-                files = @()
+            $known = @('dlpctl.log', 'dlpctl.err', 'dlpctl-rust.err')
+            $lengths = [ordered]@{}
+            foreach ($name in $known) {
+                $path = Join-Path $provDir $name
+                $lengths[$name] = if (Test-Path -LiteralPath $path) { (Get-Item -LiteralPath $path).Length } else { -1 }
             }
-            Get-ChildItem -LiteralPath $provDir -ErrorAction SilentlyContinue | ForEach-Object {
-                $firstLine = Get-Content -LiteralPath $_.FullName -TotalCount 1 -ErrorAction SilentlyContinue
-                $result.files += "$($_.Name): length=$($_.Length) first_line=$firstLine"
+            return [pscustomobject]@{
+                stage = 'dlpctl'
+                directory = $provDir
+                file_lengths = $lengths
             }
-            return $result
+            }
+        } catch {
+            $diagnostics = [pscustomobject]@{ stage = 'diagnostic_collection'; directory = 'C:\dlp\provisioning'; file_lengths = @{} }
         }
-        Write-Host "dlpctl.log:`n$($diagnostics.log)"
-        Write-Host "dlpctl.err:`n$($diagnostics.err)"
-        Write-Host "dlpctl-rust.err:`n$($diagnostics.rustErr)"
-        Write-Host "tls-events.log:`n$($diagnostics.tlsEvents)"
-        Write-Host 'provisioning files:'
-        $diagnostics.files | ForEach-Object { Write-Host $_ }
-        throw
+        Write-Client01Diagnostic -Code 'trusted_provisioning_failed' -Fields @{
+            stage = $diagnostics.stage
+            protected_directory = $diagnostics.directory
+            file_lengths = $diagnostics.file_lengths
+            error_type = $_.Exception.GetType().Name
+        }
+        Stop-Client01 'trusted_provisioning_failed: retry to mint a fresh token; use -Diagnostic for redacted metadata'
     }
 
     $result = $resultJson | ConvertFrom-Json
@@ -1026,7 +1134,7 @@ function Invoke-Client01TrustedProvisioning {
         Stop-Client01 'trusted_provisioning_returned_empty_token'
     }
     Assert-EnrollmentTokenValid -Token $result.enrollment_token
-    Write-Host "TrustedProvisioning: obtained enrollment token for $($result.target)"
+    Write-Client01Status -Code 'trusted_provisioning_complete' -Message "Fresh enrollment material is ready for $($result.target)."
     return $result.enrollment_token
 }
 
@@ -1166,9 +1274,10 @@ function Install-Client01Service {
         [Parameter()][string]$EnrollmentToken
     )
 
-    Write-Host 'Install-Client01Service: installing binary...'
+    Write-Client01Status -Code 'service_install_started' -Message 'Installing the endpoint service while preserving data and cache.'
+    # D-08: Install-Client01ServiceBinary creates missing directories and
+    # replaces only binaries; it never removes data, credentials, or cache.
     Install-Client01ServiceBinary
-    Write-Host 'Install-Client01Service: installing secrets...'
     Install-Client01RuntimeSecrets -EnrollmentToken $EnrollmentToken
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
@@ -1205,15 +1314,16 @@ function Install-Client01Service {
             try {
                 Start-Service -Name $serviceName -ErrorAction Stop
             } catch {
-                # Collect diagnostics before re-throwing so the orchestrator can see
-                # why the service failed without a second remote round-trip.
+                # D-09..D-12: return redacted metadata only. Environment values,
+                # event messages, certificates, and credentials are excluded.
                 $diag = [ordered]@{
                     service_status = '<missing>'
                     service_exit_code = $null
-                    event_log_errors = @()
+                    event_log_error_count = 0
                     binary_exists = $false
                     binary_version = $null
-                    env_file = '<missing>'
+                    env_file_exists = $false
+                    env_line_count = 0
                 }
                 $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
                 if ($null -ne $svc) {
@@ -1228,13 +1338,13 @@ function Install-Client01Service {
                     try { $diag.binary_version = (Get-ItemProperty -LiteralPath $binaryPath).VersionInfo.FileVersion } catch { }
                 }
                 if (Test-Path -LiteralPath $envPath) {
-                    $diag.env_file = Get-Content -LiteralPath $envPath -Raw
+                    $diag.env_file_exists = $true
+                    $diag.env_line_count = @([System.IO.File]::ReadAllLines($envPath)).Count
                 }
-                $diag.event_log_errors = @(Get-WinEvent -FilterHashtable @{LogName='System'; Level=1,2; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+                $diag.event_log_error_count = @(Get-WinEvent -FilterHashtable @{LogName='System'; Level=1,2; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
                     Where-Object { $_.Message -like "*$serviceName*" -or $_.ProviderName -eq 'Service Control Manager' } |
-                    Select-Object -First 10 |
-                    ForEach-Object { "[$($_.TimeCreated.ToString('o'))] $($_.ProviderName): $($_.LevelDisplayName) - $($_.Message)" })
-                throw "Start-Service failed: $_`nDiagnostics: $($diag | ConvertTo-Json -Compress -Depth 10)"
+                    Select-Object -First 10).Count
+                throw ([System.InvalidOperationException]::new(('service_start_failed|' + ($diag | ConvertTo-Json -Compress -Depth 5))))
             }
         }
     } -ArgumentList @($StartAfterInstall)
@@ -1247,10 +1357,11 @@ function Get-Client01ServiceStartDiagnostics {
         $result = [ordered]@{
             service_status = '<missing>'
             service_exit_code = $null
-            event_log_errors = @()
+            event_log_error_count = 0
             binary_exists = $false
             binary_version = $null
-            env_file = '<missing>'
+            env_file_exists = $false
+            env_line_count = 0
         }
         $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if ($null -ne $svc) {
@@ -1271,13 +1382,12 @@ function Get-Client01ServiceStartDiagnostics {
         }
         $envPath = 'C:\dlp\agent\agent.env'
         if (Test-Path -LiteralPath $envPath) {
-            $result.env_file = Get-Content -LiteralPath $envPath -Raw
+            $result.env_file_exists = $true
+            $result.env_line_count = @([System.IO.File]::ReadAllLines($envPath)).Count
         }
-        # Collect the most recent 10 service-related errors from the System log.
-        $result.event_log_errors = @(Get-WinEvent -FilterHashtable @{LogName='System'; Level=1,2; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+        $result.event_log_error_count = @(Get-WinEvent -FilterHashtable @{LogName='System'; Level=1,2; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
             Where-Object { $_.Message -like "*$serviceName*" -or $_.ProviderName -eq 'Service Control Manager' } |
-            Select-Object -First 10 |
-            ForEach-Object { "[$($_.TimeCreated.ToString('o'))] $($_.ProviderName): $($_.LevelDisplayName) - $($_.Message)" })
+            Select-Object -First 10).Count
         return $result
     }
 }
@@ -1289,22 +1399,75 @@ function Test-Client01ServiceRunning {
     }
 }
 
+function Wait-Client01ActivePolicy {
+    param([Parameter()][int]$TimeoutSeconds = 120)
+    # TST-05: the durable pointer is written only after signed configuration
+    # verification and atomic activation. Reading version/state proves more
+    # than credential-file existence or a merely Running service.
+    $state = Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
+        param($Timeout)
+        $ErrorActionPreference = 'Stop'
+        $pointerPath = 'C:\dlp\agent\cache\pointers'
+        $deadline = [DateTime]::UtcNow.AddSeconds($Timeout)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if (Test-Path -LiteralPath $pointerPath) {
+                $bytes = [System.IO.File]::ReadAllBytes($pointerPath)
+                if ($bytes.Length -ge 65 -and [System.Text.Encoding]::ASCII.GetString($bytes, 0, 8) -eq 'dlp-ptr1' -and $bytes[24] -eq 1) {
+                    [UInt64]$version = 0
+                    for ($i = 0; $i -lt 8; $i++) {
+                        $version = ($version -shl 8) -bor [UInt64]$bytes[57 + $i]
+                    }
+                    if ($version -gt 0) {
+                        return [pscustomobject]@{ active_policy_version = $version.ToString(); active_policy_state = 'Active' }
+                    }
+                }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+        return [pscustomobject]@{ active_policy_version = $null; active_policy_state = 'Unconfigured' }
+    } -ArgumentList @($TimeoutSeconds)
+    Assert-Client01 (-not [string]::IsNullOrWhiteSpace($state.active_policy_version)) 'active_policy_version_missing: wait for a signed configuration assignment and retry'
+    Assert-Client01 ($state.active_policy_state -eq 'Active') 'active_policy_not_active: inspect redacted service diagnostics with -Diagnostic'
+    Write-Host "active_policy_version=$($state.active_policy_version)"
+    Write-Host "active_policy_state=$($state.active_policy_state)"
+    return $state
+}
+
 function Invoke-Client01ServiceInstall {
     param([Parameter()][string]$EnrollmentToken)
 
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine $ExecutionMachine
-    Install-Client01Service -StartAfterInstall -EnrollmentToken $EnrollmentToken
+    try {
+        Install-Client01Service -StartAfterInstall -EnrollmentToken $EnrollmentToken
+    } catch {
+        Write-Client01Diagnostic -Code 'service_install_failed' -Fields @{
+            stage = 'install_or_start'
+            error_type = $_.Exception.GetType().Name
+            endpoint = $ExecutionMachine
+        }
+        Stop-Client01 'service_install_failed: partial service/binary artifacts were preserved; token cleanup will run before a fresh retry'
+    }
 
     $running = Test-Client01ServiceRunning
     if (-not $running) {
-        Write-Host '--- service start diagnostics ---'
         $diag = Get-Client01ServiceStartDiagnostics
-        Write-Host ($diag | ConvertTo-Json -Compress -Depth 10)
+        Write-Client01Diagnostic -Code 'service_not_running' -Fields @{
+            service_status = $diag.service_status
+            service_exit_code = $diag.service_exit_code
+            binary_exists = $diag.binary_exists
+            binary_version = $diag.binary_version
+            env_file_exists = $diag.env_file_exists
+            env_line_count = $diag.env_line_count
+            event_log_error_count = $diag.event_log_error_count
+        }
     }
-    if ($running -and -not [string]::IsNullOrWhiteSpace($EnrollmentToken) -and -not $RetainEnrollmentToken) {
-        # Reaching Running after a fresh token was supplied means startup loaded
-        # or persisted a usable credential. The token is one-time material and
-        # must be removed even when its hardened directory denies administrator probes.
+    $credentialPresent = if ($running) { Test-Client01CredentialPresent } else { $false }
+    if ($running -and -not [string]::IsNullOrWhiteSpace($EnrollmentToken) -and -not $credentialPresent) {
+        Stop-Client01 'credential_not_established: service started without a usable device.dpapi; token cleanup will run before retry'
+    }
+    if ($running -and $credentialPresent -and -not [string]::IsNullOrWhiteSpace($EnrollmentToken) -and -not $RetainEnrollmentToken) {
+        # D-05/D-06/D-07: cleanup follows durable credential establishment for
+        # both initial and explicitly forced enrollment.
         Remove-Client01EnrollmentToken
     }
     $status = if ($running) { 'pass' } else { 'fail' }
@@ -1313,19 +1476,28 @@ function Invoke-Client01ServiceInstall {
         -Expected 'dlp-windows-service is installed, configured, and starts as an automatic service on LAB-CLIENT01' `
         -Actual $actual -TargetMachine $ExecutionMachine -Fingerprint $fingerprint | Out-Null
     Assert-Client01 $running 'service_failed_to_start'
-    Write-Host 'Invoke-Client01ServiceInstall: complete.'
+    Write-Client01Status -Code 'service_install_complete' -Message 'DlpWindowsService is installed, Automatic, and Running.'
 }
 
 function Invoke-Client01Tracer {
     $targetComputer = 'LAB-CLIENT01.lab.local'
     $enrollmentToken = $null
+    $tokenHandedOff = $false
+    if ($ForceReenrollment -and -not $Apply) {
+        Write-Client01Status -Code 'force_reenrollment_preview' -Message 'Preview only: credential/token state would be replaced; service, data, and cache would be preserved. Add -Apply to mutate.'
+        return
+    }
+    if ($ForceReenrollment) {
+        Reset-Client01EnrollmentCredential
+    }
+
     if ($EnrollmentTokenProvider -eq 'TrustedProvisioning') {
         if ($env:DLP_DEVICE_ID -cne $targetComputer) {
-            Write-Host "Tracer: canonicalizing DLP_DEVICE_ID from '$($env:DLP_DEVICE_ID)' to '$targetComputer' to match trusted provisioning."
+            Write-Client01Diagnostic -Code 'device_id_canonicalized' -Fields @{ target = $targetComputer }
             $env:DLP_DEVICE_ID = $targetComputer
         }
-        if ((Test-Client01ServiceRunning) -or (Test-Client01CredentialPresent)) {
-            Write-Host 'Tracer: existing DPAPI credential found on LAB-CLIENT01; skipping trusted provisioning.'
+        if ((-not $ForceReenrollment) -and (Test-Client01CredentialPresent)) {
+            Write-Client01Status -Code 'existing_credential_reused' -Message 'A usable device.dpapi is present; trusted provisioning was skipped.'
         } else {
             $approvedDigest = Get-ApprovedPrivilegeManifestDigest
             $enrollmentToken = Invoke-Client01TrustedProvisioning `
@@ -1334,63 +1506,79 @@ function Invoke-Client01Tracer {
                 -PreferredDriveLetter 'P' `
                 -RecoverCredential
         }
+    } else {
+        # Manual is an explicitly selected offline fallback only.
+        $enrollmentToken = $env:DLP_AGENT_ENROLLMENT_TOKEN
+        Assert-EnrollmentTokenValid -Token $enrollmentToken
+        Write-Client01Status -Code 'manual_token_selected' -Message 'Using the explicitly selected offline enrollment-token provider.'
     }
 
-    Write-Host 'Tracer: installing service...'
-    Invoke-Client01ServiceInstall -EnrollmentToken $enrollmentToken
+    try {
+        $tokenHandedOff = -not [string]::IsNullOrWhiteSpace($enrollmentToken)
+        Invoke-Client01ServiceInstall -EnrollmentToken $enrollmentToken
+        Wait-Client01ActivePolicy | Out-Null
+    } catch {
+        $safeFailure = $_.Exception.Message
+        if ($tokenHandedOff) {
+            # D-01..D-04: cleanup is mandatory even when retention was requested;
+            # partial services/binaries remain and retry must provision afresh.
+            Remove-Client01EnrollmentToken
+        }
+        Stop-Client01 $safeFailure
+    } finally {
+        $enrollmentToken = $null
+    }
 
-    Write-Host 'Tracer: ensuring management server is ready on LAB-DC01...'
+    Write-Client01Status -Code 'server_readiness_probe' -Message 'Checking LAB-DC01 readiness over the trusted TLS path.'
     Assert-Client01ServerReady
 
-    $serverHost = $script:Dc01Ip
-    Write-Host "Tracer: probing management server from $ExecutionMachine via $serverHost..."
+    $serverHost = "$ProbeMachine.lab.local"
+    Write-Client01Diagnostic -Code 'server_probe' -Fields @{ endpoint = $ExecutionMachine; server = $serverHost; port = $script:ServerPort }
     $probeFingerprint = Get-EnvironmentFingerprint -TargetMachine $ExecutionMachine
 
     Invoke-LabCommand -VMName $ExecutionMachine -ScriptBlock {
-        param($ServerHost, $Port)
+        param($ServerHost, $Port, $RootCaPath)
         $ErrorActionPreference = 'Stop'
-        Add-Type -TypeDefinition @'
-        using System.Net;
-        using System.Security.Cryptography.X509Certificates;
-        public class TrustAllCertsPolicy : ICertificatePolicy {
-            public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) { return true; }
+        if (-not (Test-Path -LiteralPath $RootCaPath)) {
+            throw 'server_probe_root_ca_missing'
         }
-'@ -ErrorAction SilentlyContinue
-        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
         $uris = @("https://${ServerHost}:$Port/health/live", "https://${ServerHost}:$Port/health/ready")
         foreach ($uri in $uris) {
-            $response = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 60
-            $content = $response.Content | ConvertFrom-Json
+            $response = & curl.exe --silent --fail --ssl-no-revoke --cacert $RootCaPath --max-time 60 $uri 2>$null
+            if ($LASTEXITCODE -ne 0) { throw 'server_probe_tls_failed' }
+            $content = ($response -join "`n") | ConvertFrom-Json
             if ($content.status -ne 'ok') { throw "probe status not ok: $uri" }
         }
-    } -ArgumentList @($serverHost, $script:ServerPort)
+    } -ArgumentList @($serverHost, $script:ServerPort, 'C:\dlp\secrets\phase1-root-ca.pem')
 
     New-Client01Evidence -RequirementId 'SRV-14' -CheckId 'client01-tracer-readiness' -Status 'pass' `
         -Expected 'LAB-CLIENT01 service reaches the management server on LAB-DC01 over validated TLS' `
         -Actual "live/ready ok from $ExecutionMachine to $serverHost" -TargetMachine $ExecutionMachine -Fingerprint $probeFingerprint | Out-Null
-    Write-Host 'Tracer: complete.'
+    Write-Client01Status -Code 'tracer_complete' -Message 'Enrollment, automatic startup, and first signed policy activation are complete.'
 }
 
 Assert-DlpMachineRole -ExpectedRole 'developer_orchestrator'
 $approvedDigest = Get-ApprovedPrivilegeManifestDigest
-Write-Host "Approved 01-19 manifest digest: $approvedDigest"
+Write-Client01Diagnostic -Code 'privilege_manifest_approved' -Fields @{ fingerprint = $approvedDigest; plan = '01-19' }
 
-$cred = Get-VmCredential
-if ($null -eq $cred) {
-    Stop-Client01 'vm_credentials_required: Invoke-Client01Runtime.ps1 requires a VM admin credential via -Credential or DLP_VM_ADMIN_USER/PASSWORD'
+if ($Apply) {
+    $cred = Get-VmCredential
+    if ($null -eq $cred) {
+        Stop-Client01 'vm_credentials_required: provide -Credential or DLP_VM_ADMIN_USER/PASSWORD and retry'
+    }
+    Assert-RuntimeSecretsPresent
 }
 
-Assert-RuntimeSecretsPresent
-
 if (-not $Apply) {
-    Write-Host 'Running in dry-run mode; no changes will be applied to LAB-CLIENT01. Use -Apply to execute.'
+    Write-Client01Status -Code 'preview_only' -Message 'No endpoint changes will be applied. Add -Apply to execute.'
 }
 
 switch ($Scenario) {
-    'Tracer' { if ($Apply) { Invoke-Client01Tracer } else { Write-Host 'Dry-run: would execute Tracer scenario' } }
-    'ServiceInstall' { if ($Apply) { Invoke-Client01ServiceInstall } else { Write-Host 'Dry-run: would execute ServiceInstall scenario' } }
-    'All' { if ($Apply) { Invoke-Client01ServiceInstall; Invoke-Client01Tracer } else { Write-Host 'Dry-run: would execute All scenarios' } }
+    'Tracer' { if ($Apply) { Invoke-Client01Tracer } elseif ($ForceReenrollment) { Invoke-Client01Tracer } else { Write-Host 'Dry-run: would execute Tracer scenario' } }
+    # SRV-13/TST-05: ServiceInstall is the documented normal path and therefore
+    # includes automatic token acquisition and first signed-policy activation.
+    'ServiceInstall' { if ($Apply) { Invoke-Client01Tracer } elseif ($ForceReenrollment) { Invoke-Client01Tracer } else { Write-Host 'Dry-run: would execute ServiceInstall with TrustedProvisioning by default' } }
+    'All' { if ($Apply) { Invoke-Client01Tracer } elseif ($ForceReenrollment) { Invoke-Client01Tracer } else { Write-Host 'Dry-run: would execute the full enrollment tracer' } }
 }
 
-Write-Host "Scenario $Scenario completed."
+Write-Client01Status -Code 'scenario_complete' -Message "Scenario $Scenario completed."

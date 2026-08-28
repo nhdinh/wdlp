@@ -68,6 +68,7 @@ fn migrations_are_ordered_and_forward_only() {
             "202608070001_walking_skeleton.sql",
             "202608070002_enrollment_authority.sql",
             "202608070003_authenticated_routes.sql",
+            "202608280004_backfill_device_allowlist.sql",
         ],
         "migrations must be ordered forward-only"
     );

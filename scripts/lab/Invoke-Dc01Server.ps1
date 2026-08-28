@@ -515,18 +515,18 @@ function Invoke-Dc01PostgresProof {
             Reset-DlpDatabase
             Invoke-SqlxMigrate
             $count = Get-AppliedMigrationCount
-            Assert-Dc01 ($count -eq 3) "expected 3 migrations, got $count"
+            Assert-Dc01 ($count -eq 4) "expected 4 migrations, got $count"
             New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'postgres-fresh' -Status 'pass' `
                 -Expected 'empty LAB-SERVER01 PostgreSQL applies each migration once' `
-                -Actual "3 migrations applied" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
+                -Actual "4 migrations applied" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
         }
         'PostgresRepeat' {
             Invoke-SqlxMigrate
             $count = Get-AppliedMigrationCount
-            Assert-Dc01 ($count -eq 3) "repeat migration idempotency failed: $count"
+            Assert-Dc01 ($count -eq 4) "repeat migration idempotency failed: $count"
             New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'postgres-repeat' -Status 'pass' `
                 -Expected 'repeated SQLx run is ledger-idempotent' `
-                -Actual "3 migrations remain" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
+                -Actual "4 migrations remain" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
         }
         'MigrationFailure' {
             # checksum drift against an already-applied ledger must fail closed without
@@ -574,10 +574,10 @@ if (`$LASTEXITCODE -ne 0) { throw "sqlx migrate failed: `$output" }
                 Remove-Item -LiteralPath $starterScript -Force -ErrorAction SilentlyContinue
             }
             $count = Get-AppliedMigrationCount
-            Assert-Dc01 ($count -eq 3) "concurrent start converged incorrectly: $count"
+            Assert-Dc01 ($count -eq 4) "concurrent start converged incorrectly: $count"
             New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'postgres-concurrent' -Status 'pass' `
                 -Expected 'concurrent starters converge on one complete ledger' `
-                -Actual "3 migrations after concurrent run" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
+                -Actual "4 migrations after concurrent run" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
         }
         'ReadinessConcurrency' {
             Start-Dc01Server -WaitForReady
@@ -621,10 +621,10 @@ function Invoke-Dc01Tracer {
     $fingerprint = Get-EnvironmentFingerprint -TargetMachine 'LAB-SERVER01'
     Invoke-SqlxMigrate
     $count = Get-AppliedMigrationCount
-    Assert-Dc01 ($count -eq 3) "expected 3 migrations, got $count"
+    Assert-Dc01 ($count -eq 4) "expected 4 migrations, got $count"
     New-Dc01Evidence -RequirementId 'SRV-11' -CheckId 'dc01-tracer-migrations' -Status 'pass' `
-        -Expected 'LAB-SERVER01 PostgreSQL has all three versioned migrations before server binds' `
-        -Actual "3 migrations present" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
+        -Expected 'LAB-SERVER01 PostgreSQL has all four versioned migrations before server binds' `
+        -Actual "4 migrations present" -TargetMachine 'LAB-SERVER01' -Fingerprint $fingerprint | Out-Null
 
     Write-Host 'Tracer: starting server...'
     Start-Dc01Server -WaitForReady
