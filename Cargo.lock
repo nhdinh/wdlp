@@ -786,6 +786,7 @@ dependencies = [
  "dlp-protocol",
  "dlp-server",
  "dlp-storage",
+ "rcgen",
  "reqwest",
  "rustls 0.23.43",
  "serde",

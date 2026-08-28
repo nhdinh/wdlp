@@ -141,16 +141,17 @@ impl ProvisioningClient {
         let key = fs::read_to_string(provisioning_admin_key_pem_path)
             .map_err(|_| ProvisioningError::InvalidRequest)?;
 
-        // The server requests client certs issued by admin-ca. rustls needs the
-        // full chain (leaf + issuing CA) in the Identity so it can match the
-        // server's CertificateRequest authority_names and present a valid chain.
-        let chain = if let Some(ca_path) = provisioning_admin_ca_pem_path {
+        // The administrator CA is a self-signed trust anchor. Validate the
+        // configured file when present, but do not transmit that root in the
+        // client identity. rustls always presents this single identity when the
+        // server requests client authentication, and the server already owns
+        // the trust anchor needed to validate the administrator leaf.
+        if let Some(ca_path) = provisioning_admin_ca_pem_path {
             let ca = fs::read_to_string(ca_path).map_err(|_| ProvisioningError::InvalidRequest)?;
-            cert + &ca + &key
-        } else {
-            cert + &key
-        };
-        let identity = reqwest::Identity::from_pem(chain.as_bytes())
+            reqwest::Certificate::from_pem(ca.as_bytes())
+                .map_err(|_| ProvisioningError::InvalidRequest)?;
+        }
+        let identity = reqwest::Identity::from_pem((cert + &key).as_bytes())
             .map_err(|_| ProvisioningError::InvalidRequest)?;
 
         let client = reqwest::Client::builder()
@@ -247,6 +248,20 @@ pub const MIGRATION_VERSION: i64 = 202608070001;
 #[cfg(test)]
 mod provisioning_tests {
     use super::*;
+    use rcgen::{
+        BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose,
+        IsCa, Issuer, KeyPair, KeyUsagePurpose,
+    };
+    use rustls::{
+        RootCertStore, ServerConfig, ServerConnection, StreamOwned,
+        pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer},
+        server::WebPkiClientVerifier,
+    };
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{Arc, mpsc},
+    };
 
     struct Sink(Option<String>);
     impl RuntimeSecretProvider for Sink {
@@ -341,6 +356,162 @@ mod provisioning_tests {
             )
             .is_err()
         );
+    }
+
+    fn test_ca(common_name: &str) -> (rcgen::Certificate, KeyPair) {
+        let key = KeyPair::generate().expect("generate test CA key");
+        let mut params = CertificateParams::default();
+        params.distinguished_name = DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(DnType::CommonName, common_name);
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        params.key_usages = vec![
+            KeyUsagePurpose::DigitalSignature,
+            KeyUsagePurpose::KeyCertSign,
+            KeyUsagePurpose::CrlSign,
+        ];
+        let certificate = params.self_signed(&key).expect("self-sign test CA");
+        (certificate, key)
+    }
+
+    fn test_leaf(
+        common_name: &str,
+        dns_names: Vec<String>,
+        usage: ExtendedKeyUsagePurpose,
+        issuer_certificate: &rcgen::Certificate,
+        issuer_key: KeyPair,
+    ) -> (rcgen::Certificate, KeyPair) {
+        let issuer = Issuer::from_ca_cert_pem(&issuer_certificate.pem(), issuer_key)
+            .expect("build test issuer");
+        let key = KeyPair::generate().expect("generate test leaf key");
+        let mut params = CertificateParams::new(dns_names).expect("build test leaf parameters");
+        params.distinguished_name = DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(DnType::CommonName, common_name);
+        params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+        params.extended_key_usages = vec![usage];
+        let certificate = params.signed_by(&key, &issuer).expect("sign test leaf");
+        (certificate, key)
+    }
+
+    #[tokio::test]
+    async fn provisioning_client_presents_leaf_only_to_required_mtls_server() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
+        let (server_ca, server_ca_key) = test_ca("test server root");
+        let (server_certificate, server_key) = test_leaf(
+            "localhost",
+            vec!["localhost".into()],
+            ExtendedKeyUsagePurpose::ServerAuth,
+            &server_ca,
+            server_ca_key,
+        );
+        let (admin_ca, admin_ca_key) = test_ca("test administrator root");
+        let (admin_certificate, admin_key) = test_leaf(
+            "test provisioning administrator",
+            Vec::new(),
+            ExtendedKeyUsagePurpose::ClientAuth,
+            &admin_ca,
+            admin_ca_key,
+        );
+
+        let mut client_roots = RootCertStore::empty();
+        client_roots
+            .add(admin_ca.der().clone())
+            .expect("trust test administrator root");
+        let verifier = WebPkiClientVerifier::builder(Arc::new(client_roots))
+            .build()
+            .expect("require test client authentication");
+        let server_config = ServerConfig::builder()
+            .with_client_cert_verifier(verifier)
+            .with_single_cert(
+                vec![server_certificate.der().clone()],
+                PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(server_key.serialize_der())),
+            )
+            .expect("build test mTLS server");
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test mTLS server");
+        let address = listener.local_addr().expect("read test server address");
+        let (peer_sender, peer_receiver) = mpsc::channel();
+        let server_thread = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().expect("accept test client");
+            socket
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .expect("bound test server read timeout");
+            let connection = ServerConnection::new(Arc::new(server_config))
+                .expect("create test server connection");
+            let mut stream = StreamOwned::new(connection, socket);
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request).expect("read test HTTP request");
+            let peer_chain_length = stream
+                .conn
+                .peer_certificates()
+                .map_or(0, |chain| chain.len());
+            peer_sender
+                .send(peer_chain_length)
+                .expect("report presented client chain");
+            let body = r#"{"version":1,"device_id":"LAB-CLIENT01.lab.local","enrollment_token":"opaquetoken"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("write test HTTP response");
+            stream.flush().expect("flush test HTTP response");
+        });
+
+        let fixture_dir =
+            std::env::temp_dir().join(format!("dlpctl-mtls-{}", uuid::Uuid::new_v4().simple()));
+        fs::create_dir_all(&fixture_dir).expect("create test mTLS fixture directory");
+        let server_ca_path = fixture_dir.join("server-ca.pem");
+        let admin_ca_path = fixture_dir.join("admin-ca.pem");
+        let admin_certificate_path = fixture_dir.join("admin-cert.pem");
+        let admin_key_path = fixture_dir.join("admin-key.pem");
+        fs::write(&server_ca_path, server_ca.pem()).expect("write test server CA");
+        fs::write(&admin_ca_path, admin_ca.pem()).expect("write test administrator CA");
+        fs::write(&admin_certificate_path, admin_certificate.pem())
+            .expect("write test administrator certificate");
+        fs::write(&admin_key_path, admin_key.serialize_pem())
+            .expect("write test administrator key");
+
+        let client = ProvisioningClient::new(
+            format!(
+                "https://localhost.:{}/api/v1/admin/provisioning",
+                address.port()
+            ),
+            &server_ca_path,
+            &admin_certificate_path,
+            &admin_key_path,
+            Some(&admin_ca_path),
+        )
+        .expect("build provisioning client");
+        let request = ProvisioningRequest::new(
+            "LAB-CLIENT01.lab.local",
+            [7; 32],
+            vec![1; 16],
+            vec![2; 16],
+            'P',
+        )
+        .expect("build provisioning request");
+        let mut sink = Sink(None);
+        client
+            .provision(&request, &mut sink)
+            .await
+            .expect("complete required-mTLS provisioning request");
+
+        assert_eq!(sink.0.as_deref(), Some("opaquetoken"));
+        assert_eq!(
+            peer_receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive presented client chain length"),
+            1,
+            "the provisioning client must present its leaf and omit the self-signed trust anchor"
+        );
+        server_thread.join().expect("join test mTLS server");
+        fs::remove_dir_all(&fixture_dir).expect("remove test mTLS fixtures");
     }
 }
 const SQLITE_MIGRATION: &str =

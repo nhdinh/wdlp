@@ -25,6 +25,9 @@ tokio = { version = "=1.53.1", features = ["macros", "net", "rt-multi-thread"] }
 tracing-subscriber = { version = "=0.3.23", features = ["env-filter", "fmt", "tracing-log"] }
 uuid = { version = "=1.24.0", features = ["v4"] }
 
+[dev-dependencies]
+rcgen = { version = "=0.14.8", features = ["pem", "x509-parser"] }
+
 [[test]]
 name = "walking_skeleton"
 path = "../../tests/e2e/walking_skeleton.rs"

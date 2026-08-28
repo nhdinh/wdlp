@@ -382,9 +382,9 @@ async fn main() -> Result<(), CliError> {
                 .map_err(|_| CliError::TrustedStationRequired)?;
             let provisioning_admin_key = env::var("DLP_PROVISIONING_ADMIN_KEY_PATH")
                 .map_err(|_| CliError::TrustedStationRequired)?;
-            // Optional issuing CA for the provisioning admin cert. When present,
-            // the CA certificate is appended to the identity chain so rustls can
-            // build the full path requested by the server's CertificateRequest.
+            // Optional trust anchor for validating the configured provisioning
+            // administrator material. ProvisioningClient deliberately omits a
+            // self-signed administrator root from the transmitted identity.
             let provisioning_admin_ca: Option<String> =
                 env::var("DLP_PROVISIONING_ADMIN_CA_CERT_PATH").ok();
             let handoff_path = env::var("DLP_PROVISIONING_TOKEN_HANDOFF_PATH")

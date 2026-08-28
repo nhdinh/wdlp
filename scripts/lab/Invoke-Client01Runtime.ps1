@@ -1071,9 +1071,9 @@ function Invoke-Client01TrustedProvisioning {
     }
     $provisioningAdminCert = Get-LatestProvisioningAdminMaterial -PemVariable 'DLP_PROVISIONING_ADMIN_CERT_PEM' -PathVariable 'DLP_PROVISIONING_ADMIN_CERT_PATH' -DefaultPath 'C:\dlp\secrets\provisioning-admin-cert.pem'
     $provisioningAdminKey = Get-LatestProvisioningAdminMaterial -PemVariable 'DLP_PROVISIONING_ADMIN_KEY_PEM' -PathVariable 'DLP_PROVISIONING_ADMIN_KEY_PATH' -DefaultPath 'C:\dlp\secrets\provisioning-admin-key.pem'
-    # The admin CA certificate is required so dlpctl can present the full
-    # client certificate chain (leaf + issuing CA) to the server's
-    # CertificateRequest. Without it, rustls may be unable to select a cert.
+    # The admin CA certificate is required so dlpctl can validate the configured
+    # administrator trust anchor. dlpctl presents only the administrator leaf;
+    # the self-signed root remains on the server side of the trust boundary.
     $provisioningAdminCa = Get-Client01SecretValue -Name 'DLP_ADMIN_CA_CERT_PEM' -Value ([Environment]::GetEnvironmentVariable('DLP_ADMIN_CA_CERT_PEM'))
     if (-not ($provisioningAdminCa -match '^-----BEGIN CERTIFICATE-----')) {
         Stop-Client01 'provisioning_admin_ca_invalid: expected -----BEGIN CERTIFICATE-----'
