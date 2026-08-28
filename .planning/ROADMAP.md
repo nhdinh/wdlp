@@ -6,7 +6,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: First Encrypted-Drive Vertical Slice** - One server, one Windows endpoint, one user: enroll, signed config, WinFsp mount, copy, encrypted backing store, read back, survive restart
+- [x] **Phase 1: First Encrypted-Drive Vertical Slice** - One server, one Windows endpoint, one user: enroll, signed config, WinFsp mount, copy, encrypted backing store, read back, survive restart (completed 2026-08-28)
 - [ ] **Phase 2: Policy Enforcement and User Feedback** - Metadata policy engine, block/warn/audit actions, companion toast notifications, enforcement event creation
 - [ ] **Phase 3: Audit, Offline Operation, and Fleet Control** - Local event queue and upload, offline grace/lock, fleet status, device lock/revoke/retire, audit search/export
 - [ ] **Phase 4: Hardening and MVP Release** - Per-user isolation tests, crash-consistent storage, key rotation, signed installer, Office/Explorer compatibility, fuzz/load tests, operations docs
@@ -220,8 +220,8 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. First Encrypted-Drive Vertical Slice | 32/32 | In Progress|  |
-| 1.1. Add env-var docs | 1/1 | Complete | 2026-08-15 |
+| 1. First Encrypted-Drive Vertical Slice | 41/32 | Complete    | 2026-08-28 |
+| 1.1. Add env-var docs | 1/1 | In Progress|  |
 | 1.2. Automatic enrollment token acquisition | 1/1 | In Progress|  |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |

@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-current_phase: 01
-current_phase_name: First Encrypted-Drive Vertical Slice
-current_plan: 1
+current_phase: 01.1
+current_phase_name: add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp
+current_plan: Not started
 status: executing
-stopped_at: Completed 01-44-PLAN.md
-last_updated: "2026-08-27T18:24:52.874Z"
+stopped_at: Completed 01.1-01-PLAN.md
+last_updated: "2026-08-28T01:21:35.931Z"
 last_activity: 2026-08-28
-state_head: 02d66f428a6a33d421503e2c66d0547d09168398
+last_activity_desc: Phase 01 complete, transitioned to Phase 01.1
+state_head: 2ca5c7e2f92f6bae79101a60867fc39ee3a92ae2
 progress:
   total_phases: 7
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 37
   completed_plans: 37
 milestone_name: milestone
-last_activity_desc: Completed Plan 01-21 Task 2; FinalGate verifier passes (30/30 requirements, 7/7 success criteria, 50/50 decisions, 9/9 privilege manifests, valid independent review by lab/administrator, matrix digest 5ab3ae9d9baab7412fe951b1490ea2df36bd76dd90eebfe890f09064ec50b414).
 ---
 
 # Project State: Windows Data Leakage Prevention (DLP) Solution
@@ -26,7 +26,7 @@ last_activity_desc: Completed Plan 01-21 Task 2; FinalGate verifier passes (30/3
 - **MVP boundary**: Enroll → signed config → mount → copy → encrypted store → read back → survive restart; policy blocking and toast follow.
 - **Constraints**: Rust for endpoint agent and core domain; PostgreSQL server persistence; Docker Compose server deployment; WinFsp user-mode virtual drive; no kernel-mode filtering or signed driver; safe Rust in portable domain crates.
 
-Last activity: 2026-08-28
+Last activity: 2026-08-28 — Phase 01 complete, transitioned to Phase 01.1
 
 ## Quick Tasks Completed
 
@@ -50,12 +50,12 @@ Last activity: 2026-08-28
 
 ## Current Position
 
-- **Phase:** 01 (First Encrypted-Drive Vertical Slice) — EXECUTING
-- **Plan:** 2 of 32
+- **Phase:** 01.1 (add-docs-for-those-env-var-dlp-device-id-dlp-server-url-dlp) — READY TO EXECUTE
+- **Plan:** 3 of 32
 - **Task:** 2 of 2
 - **Status:** Ready to execute
 - **Progress:** [██████████] 100% of Phase 01
-- **Current plan:** 1
+- **Current plan:** Not started
 - **Topology update:** PostgreSQL database runs natively on LAB-SERVER01 (192.168.50.12); LAB-DC01 hosts the management server and trusted provisioning. LAB-CLIENT01 secure session-host lifecycle, application/operation/size matrix, and D-19 failure/recovery matrix verified. Security closure manifest signed off with 19/19 blocking threats closed.
 
 ## Performance Metrics
@@ -107,6 +107,7 @@ Last activity: 2026-08-28
 | Phase 01 P42 | 1d | 4 tasks | 8 files |
 | Phase 01 P43 | 36min | 2 tasks | 1 files |
 | Phase 01 P44 | 75min | 2 tasks | 4 files |
+| Phase 01.1 P01 | 18m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -138,8 +139,8 @@ Last activity: 2026-08-28
 
 **Resume file:** None
 
-**Last session:** 2026-08-27T18:24:52.762Z
-**Stopped at:** Completed 01-44-PLAN.md
+**Last session:** 2026-08-28T01:21:35.641Z
+**Stopped at:** Completed 01.1-01-PLAN.md
 
 **Current session:** 2026-08-26T05:00:00.000Z
 **Resumed at:** /gsd-resume-work — restored the 01-37 implementation and closed its missing summary.
@@ -231,6 +232,9 @@ Last activity: 2026-08-28
 - [Phase 01]: Every historical and envelope CMS signer uses the complete external trust contract.
 - [Phase 01]: Use archival reviewer trust separately from D-48 independent reviewer policy/root handles for final generation validation.
 - [Phase 01]: Preserve D-48 generation 000003 as immutable history and append generation 000004 for the frozen Plan 01-44 implementation.
+- [Phase 01.1]: ENV-VARS.md is the canonical endpoint environment contract; startup guidance links to it.
+- [Phase 01.1]: The runner persists ten endpoint values; five omitted overrides use service defaults under SCM.
+- [Phase 01.1]: Generated agent.env and registry Environment copies must be regenerated together.
 
 ### Blockers
 
