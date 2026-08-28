@@ -20,6 +20,7 @@ use dlp_domain::DeviceId;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
+use zeroize::Zeroize;
 
 const SERVICE_LOG_PATH: &str = r"C:\dlp\agent\logs\dlp-windows-service.log";
 
@@ -129,7 +130,7 @@ pub struct ServiceContext {
 impl ServiceContext {
     /// Loads the DPAPI credential and cache, enrolling only when no usable credential
     /// exists and a runtime enrollment token is available.
-    pub fn startup(config: ServiceConfig) -> Result<(Self, EnrollmentMode), ServiceStartError> {
+    pub fn startup(mut config: ServiceConfig) -> Result<(Self, EnrollmentMode), ServiceStartError> {
         let credential_store = DpapiCredentialStore::new(config.credential_store_path())
             .map_err(|_| ServiceStartError::CredentialLoadFailed)?;
         let cache = ConfigurationCache::open(config.cache_root(), config.device_id.clone())
@@ -142,7 +143,16 @@ impl ServiceContext {
             AgentHttpClient::bootstrap(&config.server_url, &config.phase1_root_ca_pem)
                 .map_err(|_| ServiceStartError::ConfigInvalid)?;
 
-        let mode = match Self::ensure_credential(&config, &bootstrap_client, &credential_store) {
+        // Remove the plaintext token from the long-lived service configuration
+        // before any enrollment branch is selected. The owned short-lived value
+        // is either zeroized here (credential reuse) or by the coordinator.
+        let enrollment_token = config.enrollment_token.take();
+        let mode = match Self::ensure_credential(
+            &config,
+            enrollment_token,
+            &bootstrap_client,
+            &credential_store,
+        ) {
             Ok(mode) => mode,
             Err(error) => {
                 service_log(
@@ -169,13 +179,17 @@ impl ServiceContext {
 
     fn ensure_credential(
         config: &ServiceConfig,
+        mut enrollment_token: Option<String>,
         bootstrap_client: &AgentHttpClient,
         store: &DpapiCredentialStore,
     ) -> Result<EnrollmentMode, dlp_agent_core::EnrollmentError> {
         if store.validate_protection().unwrap_or(false) {
+            if let Some(token) = enrollment_token.as_mut() {
+                token.zeroize();
+            }
             return Ok(EnrollmentMode::Existing);
         }
-        let Some(token) = config.enrollment_token.clone() else {
+        let Some(token) = enrollment_token.take() else {
             return Err(dlp_agent_core::EnrollmentError::CredentialUnavailable);
         };
         // A damaged credential can still retain the serial that authorizes its
@@ -665,6 +679,18 @@ fn load_service_config() -> Result<ServiceConfig, ServiceStartError> {
     let configuration_public_key = std::env::var("DLP_CONFIGURATION_PUBLIC_KEY_HEX")
         .map_err(|_| ServiceStartError::ConfigMissing)
         .and_then(|hex| hex::decode_to_array(&hex).ok_or(ServiceStartError::ConfigInvalid))?;
+    let enrollment_token = std::env::var("DLP_AGENT_ENROLLMENT_TOKEN").ok();
+    if enrollment_token.is_some() {
+        // Windows synchronizes access to its process environment block. Delete
+        // the inherited plaintext value after the single startup read; the
+        // owned String is zeroized by ServiceContext::startup.
+        let _ = unsafe {
+            windows::Win32::System::Environment::SetEnvironmentVariableW(
+                windows::core::w!("DLP_AGENT_ENROLLMENT_TOKEN"),
+                windows::core::PCWSTR::null(),
+            )
+        };
+    }
 
     let parse_duration = |key: &str, default_secs: u64| {
         std::env::var(key)
@@ -680,7 +706,7 @@ fn load_service_config() -> Result<ServiceConfig, ServiceStartError> {
         phase1_root_ca_pem,
         data_directory,
         cache_directory,
-        enrollment_token: std::env::var("DLP_AGENT_ENROLLMENT_TOKEN").ok(),
+        enrollment_token,
         configuration_key_id,
         configuration_public_key,
         poll_interval: parse_duration("DLP_POLL_INTERVAL_SECONDS", 300),
