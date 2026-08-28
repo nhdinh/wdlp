@@ -20,7 +20,7 @@ use dlp_domain::DeviceId;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 const SERVICE_LOG_PATH: &str = r"C:\dlp\agent\logs\dlp-windows-service.log";
 
@@ -131,6 +131,7 @@ impl ServiceContext {
     /// Loads the DPAPI credential and cache, enrolling only when no usable credential
     /// exists and a runtime enrollment token is available.
     pub fn startup(mut config: ServiceConfig) -> Result<(Self, EnrollmentMode), ServiceStartError> {
+        let mut enrollment_token = Zeroizing::new(config.enrollment_token.take());
         let credential_store = DpapiCredentialStore::new(config.credential_store_path())
             .map_err(|_| ServiceStartError::CredentialLoadFailed)?;
         let cache = ConfigurationCache::open(config.cache_root(), config.device_id.clone())
@@ -143,13 +144,9 @@ impl ServiceContext {
             AgentHttpClient::bootstrap(&config.server_url, &config.phase1_root_ca_pem)
                 .map_err(|_| ServiceStartError::ConfigInvalid)?;
 
-        // Remove the plaintext token from the long-lived service configuration
-        // before any enrollment branch is selected. The owned short-lived value
-        // is either zeroized here (credential reuse) or by the coordinator.
-        let enrollment_token = config.enrollment_token.take();
         let mode = match Self::ensure_credential(
             &config,
-            enrollment_token,
+            enrollment_token.take(),
             &bootstrap_client,
             &credential_store,
         ) {
@@ -735,6 +732,23 @@ mod hex {
 mod tests {
     use super::*;
 
+    fn startup_test_config(data_directory: PathBuf, cache_directory: PathBuf) -> ServiceConfig {
+        ServiceConfig {
+            device_id: DeviceId::parse("device-01").expect("valid device"),
+            server_url: "not a server URL".into(),
+            phase1_root_ca_pem: "not a certificate".into(),
+            data_directory,
+            cache_directory,
+            enrollment_token: Some("sensitive-enrollment-token".into()),
+            configuration_key_id: "key-01".into(),
+            configuration_public_key: [7; 32],
+            poll_interval: Duration::from_secs(1),
+            health_interval: Duration::from_secs(1),
+            start_timeout: Duration::from_secs(1),
+            stop_timeout: Duration::from_secs(1),
+        }
+    }
+
     #[test]
     fn startup_state_reflects_credential_availability() {
         assert_eq!(startup_state(true), ServiceState::Running);
@@ -750,5 +764,60 @@ mod tests {
             ServiceStartError::CredentialLoadFailed.to_string(),
             "credential_load_failed"
         );
+    }
+
+    #[test]
+    fn startup_guards_token_when_credential_store_creation_fails() {
+        let root = std::env::temp_dir().join(format!(
+            "dlp-startup-credential-failure-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create test root");
+        let data_file = root.join("data-file");
+        std::fs::write(&data_file, b"not a directory").expect("create blocking file");
+        let config = startup_test_config(data_file, root.join("cache"));
+
+        assert!(matches!(
+            ServiceContext::startup(config),
+            Err(ServiceStartError::CredentialLoadFailed)
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn startup_guards_token_when_cache_creation_fails() {
+        let root =
+            std::env::temp_dir().join(format!("dlp-startup-cache-failure-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create test root");
+        let cache_file = root.join("cache-file");
+        std::fs::write(&cache_file, b"not a directory").expect("create blocking file");
+        let config = startup_test_config(root.join("data"), cache_file);
+
+        assert!(matches!(
+            ServiceContext::startup(config),
+            Err(ServiceStartError::CacheLoadFailed)
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn startup_guards_token_when_bootstrap_client_creation_fails() {
+        let root = std::env::temp_dir().join(format!(
+            "dlp-startup-bootstrap-failure-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let config = startup_test_config(root.join("data"), root.join("cache"));
+
+        assert!(matches!(
+            ServiceContext::startup(config),
+            Err(ServiceStartError::ConfigInvalid)
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
