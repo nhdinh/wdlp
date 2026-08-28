@@ -90,17 +90,38 @@ Expected result: the env file and registry expose the same persisted names witho
 
 ### 4. Deploy
 
-Trusted provisioning is the normal token path. Manual/offline enrollment is the alternative and uses `DLP_AGENT_ENROLLMENT_TOKEN='<FROM-RUNTIME-PROVIDER>'` with provider `Manual`.
+TrustedProvisioning is the default token path. The ordinary ServiceInstall command has no provider override and requires no manual token copy. Manual/offline enrollment is an explicit fallback and uses `DLP_AGENT_ENROLLMENT_TOKEN='<FROM-RUNTIME-PROVIDER>'` together with `-EnrollmentTokenProvider Manual`.
 
 ```powershell
 $cred=Get-Credential -Message 'LAB-CLIENT01 administrator credential'
 .\scripts\lab\Invoke-Client01Runtime.ps1 `
   -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ProbeMachine LAB-DC01 `
-  -SecretProvider Runtime -Scenario Tracer -EnrollmentTokenProvider TrustedProvisioning `
+  -SecretProvider Runtime -Scenario ServiceInstall `
   -Credential $cred -Apply
 ```
 
-Expected result: binaries, public root, `agent.env`, registry `Environment`, and `DlpWindowsService` are deployed.
+Expected result: binaries, public root, `agent.env`, registry `Environment`, and `DlpWindowsService` are deployed; the service starts automatically and the first signed policy becomes active.
+
+### Automatic enrollment and recovery contract
+
+- Trusted provisioning and all administrator mTLS certificate/key use remain on LAB-DC01. LAB-CLIENT01 receives only the short-lived enrollment token needed for startup; administrator material is never copied to the endpoint.
+- If `C:\dlp\agent\data\credentials\device.dpapi` is usable, the token is optional: an ordinary rerun reuses that credential and skips provisioning.
+- Replacement is explicit. `-ForceReenrollment` without `-Apply` is preview-only; only `-ForceReenrollment -Apply` replaces the credential/token state.
+- Replacement and failed installation preserve the installed service, binaries, `C:\dlp\agent\data`, and `C:\dlp\agent\cache` for diagnosis.
+- Success and post-handoff failure remove `DLP_AGENT_ENROLLMENT_TOKEN` from `C:\dlp\agent\agent.env` and the managed SCM Environment location `HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment`.
+- Cleanup failure is fatal and names both remediation locations. After remediation, rerun TrustedProvisioning so it obtains a fresh token; never reuse a token from an earlier attempt.
+- Normal output is sparse and coded. `-Diagnostic` is explicit and redacted: only names, lengths, paths, fingerprints, counts, status, and bounded error metadata are permitted. Tokens, administrator mTLS material, private keys, passwords, full certificates, and raw credential blobs are forbidden.
+- Enrollment success includes first signed policy activation: `active_policy_version` is non-empty and `active_policy_state=Active`.
+
+Explicit Manual offline fallback:
+
+```powershell
+$env:DLP_AGENT_ENROLLMENT_TOKEN = '<FROM-RUNTIME-PROVIDER>'
+.\scripts\lab\Invoke-Client01Runtime.ps1 `
+  -CallerMachine hungdinh-lt -ExecutionMachine LAB-CLIENT01 -ProbeMachine LAB-DC01 `
+  -SecretProvider Runtime -Scenario ServiceInstall -EnrollmentTokenProvider Manual `
+  -Credential $cred -Apply
+```
 
 ### 5. Verify
 
@@ -114,7 +135,7 @@ Invoke-Command -VMName LAB-CLIENT01 -Credential $cred -ScriptBlock {
 }
 ```
 
-Use only redacted status/error diagnostics; never dump values. Acceptance covers generated configuration, registry visibility, service startup, and redacted diagnostics. Successful enrollment and first configuration polling are not required.
+Use only redacted status/error diagnostics; never dump values. Acceptance covers generated configuration, registry visibility, automatic service startup, token cleanup, and first signed configuration activation. A run is incomplete unless `active_policy_version` is non-empty and `active_policy_state=Active`.
 
 Expected result: name sets match, the root path is readable with the approved fingerprint, and the service is `Running` or returns a stable redacted failure code.
 
@@ -194,10 +215,10 @@ The service consumes exactly 15 names: six required, one conditional, and eight 
 - Source/Create: Normal path is `TrustedProvisioning`; manual/offline mode obtains `<FROM-RUNTIME-PROVIDER>` from an authorized issuer.
 - Representation/Parsing: Runner accepts at most 512 characters in `[A-Za-z0-9_.~/-]`; never print the token.
 - Safe validation: `$v=$env:DLP_AGENT_ENROLLMENT_TOKEN;[pscustomobject]@{Present=!!$v;Length=if($v){$v.Length}else{0};Shape=(!$v -or ($v.Length-le512 -and $v -cmatch '^[A-Za-z0-9_.~/-]+$'))}`
-- Persistence: runner-persisted only when needed; normally removed after successful enrollment unless explicitly retained for troubleshooting.
-- Default/Requiredness: Conditional; omit when an existing credential is usable or TrustedProvisioning supplies it.
+- Persistence: runner-persisted only when needed; normally removed from `C:\dlp\agent\agent.env` and `HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService\Environment` after successful enrollment or failed handoff unless explicitly retained on a successful troubleshooting run.
+- Default/Requiredness: Conditional; omit when an existing credential is usable or TrustedProvisioning supplies it. Manual is an explicit offline fallback, not the default.
 - Likely error: `runtime_secrets_missing` in Manual mode or enrollment rejection/expiry.
-- Fix: Prefer a fresh TrustedProvisioning token; otherwise rotate/reissue manually and redeploy without logging it.
+- Fix: Prefer a fresh TrustedProvisioning token on every retry; otherwise rotate/reissue manually and redeploy without logging it.
 
 <!-- env-var: DLP_CONFIGURATION_KEY_ID -->
 - Classification: defaulted
@@ -310,6 +331,17 @@ Thus the service consumes 15 names but the runner persists 10: the six required 
 ## Exposure response
 
 If troubleshooting exposes material: **stop copying**; safely remove exposed files, transcripts, screenshots, clipboard contents, and attachments; rotate affected tokens, passwords, private keys, or identifiers through the canonical issuer; resume only with redacted diagnostics.
+
+## Adjacent server/orchestration values
+
+These values are not consumed by `dlp-windows-service.exe`, but operators see them in the same lab session and must not confuse them with endpoint configuration:
+
+- `DATABASE_URL` is the direct PostgreSQL connection variable consumed by the management server and SQLx.
+- `DLP_DATABASE_URL` is the lab-orchestrator alias; `Invoke-Dc01Server.ps1` maps it to `DATABASE_URL` for the server process.
+- `DLP_ADMIN_PROVISIONING_KEY` is obsolete and forbidden. Trusted provisioning uses administrator mTLS on LAB-DC01 instead of a bearer key.
+- The binary listener default is `0.0.0.0:8080`; the Phase 1 lab runner deliberately configures `0.0.0.0:8443`.
+- The legacy endpoint verification key identifier is `phase1-config-signer`; current server and service composition use `phase1-config-signing-key-v1`. The deployed pair must match the signed bundle.
+- The service timing defaults are summarized as `300/60/60/10` seconds for poll, health, start, and stop respectively. The runner persists poll/health overrides only; start/stop use service defaults in this workflow.
 
 ## Related documentation
 
