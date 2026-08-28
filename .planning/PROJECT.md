@@ -48,12 +48,14 @@ An authorized Windows user can mount a private protected drive, store files in i
 ## Context
 
 The project originates from a detailed product brief that emphasized:
+
 - Safe, maintainable Rust for security-sensitive components.
 - A user-space virtual drive as the enforcement boundary.
 - Atomic policy activation and last-known-good rollback.
 - Tamper-evident audit logs and bounded scanners on untrusted content.
 
 The user clarified five authoritative decisions:
+
 1. **Virtual drive framework**: WinFsp with safe Rust bindings; Dokany is a fallback if compatibility issues appear.
 2. **User interaction**: Small per-user companion process with Windows toast notifications; no tray UI required for MVP.
 3. **Scale**: 1,000 endpoints, 500 concurrent, 5 admins, one organization per server.
@@ -72,20 +74,21 @@ The first vertical slice is: **enroll → receive signed config → mount drive 
 
 ## Key Decisions
 
-| Decision | Rationale | Outcome |
-|----------|-----------|---------|
-| WinFsp for virtual drive | Mature, open-source, NTFS-like semantics, safe Rust bindings, runs in a Windows service. Dokany remains fallback. | — Pending (validate with early spike) |
-| User-space enforcement boundary only | Cannot afford signed kernel driver; WinFsp keeps enforcement at the drive boundary. | — Pending |
-| Docker Compose on single Linux host | Matches one-org deployment; horizontal scale possible later. | — Pending |
-| 7-day offline allowance then lock | Balances availability and security; readable export is still leakage. | — Pending |
-| Companion process for toast notifications | Minimal user interaction for MVP; service stays authoritative. | — Pending |
-| `require_justification` deferred post-MVP | Complete workflow not implemented; server must reject activating policies with this action. | — Pending |
+| Decision                                  | Rationale                                                                                                         | Outcome                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| WinFsp for virtual drive                  | Mature, open-source, NTFS-like semantics, safe Rust bindings, runs in a Windows service. Dokany remains fallback. | — Pending (validate with early spike) |
+| User-space enforcement boundary only      | Cannot afford signed kernel driver; WinFsp keeps enforcement at the drive boundary.                               | — Pending                             |
+| Docker Compose on single Linux host       | Matches one-org deployment; horizontal scale possible later.                                                      | — Pending                             |
+| 7-day offline allowance then lock         | Balances availability and security; readable export is still leakage.                                             | — Pending                             |
+| Companion process for toast notifications | Minimal user interaction for MVP; service stays authoritative.                                                    | — Pending                             |
+| `require_justification` deferred post-MVP | Complete workflow not implemented; server must reject activating policies with this action.                       | — Pending                             |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
 **After each phase transition** (via `/gsd-transition`):
+
 1. Requirements invalidated? → Move to Out of Scope with reason
 2. Requirements validated? → Move to Validated with phase reference
 3. New requirements emerged? → Add to Active
@@ -93,10 +96,12 @@ This document evolves at phase transitions and milestone boundaries.
 5. "What This Is" still accurate? → Update if drifted
 
 **After each milestone** (via `/gsd-complete-milestone`):
+
 1. Full review of all sections
 2. Core Value check — still the right priority?
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-07 after project initialization*
+
+_Last updated: 2026-08-07 after project initialization_
