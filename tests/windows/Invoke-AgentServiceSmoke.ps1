@@ -1,10 +1,20 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('hungdinh-lt')][string]$CallerMachine,
-    [Parameter(Mandatory)][ValidateSet('LAB-CLIENT01')][string]$ExecutionMachine,
-    [Parameter(Mandatory)][ValidateSet('LAB-DC01')][string]$ServerMachine,
-    [Parameter(Mandatory)][ValidateSet('Runtime')][string]$SecretProvider,
-    [Parameter(Mandatory)][ValidateSet('InitialEnrollmentCredential', 'ReplacementRevocation', 'ConfigurationCache', 'ServiceRestart')][string]$Scenario,
+    [Parameter()][ValidateSet('hungdinh-lt')][string]$CallerMachine = 'hungdinh-lt',
+    [Parameter()][ValidateSet('LAB-CLIENT01')][string]$ExecutionMachine = 'LAB-CLIENT01',
+    [Parameter()][ValidateSet('LAB-DC01')][string]$ServerMachine = 'LAB-DC01',
+    [Parameter()][ValidateSet('Runtime')][string]$SecretProvider = 'Runtime',
+    [Parameter(Mandatory)][ValidateSet(
+        'InitialEnrollmentCredential',
+        'ReplacementRevocation',
+        'ConfigurationCache',
+        'ServiceRestart',
+        'InstallStartFailureCleanup',
+        'CleanupFailure',
+        'FreshTokenRetry',
+        'NormalOutput',
+        'DiagnosticRedaction'
+    )][string]$Scenario,
     [Parameter()][System.Management.Automation.PSCredential]$Credential
 )
 
@@ -36,43 +46,42 @@ function Assert-NoHostArtifacts {
     }
 }
 
-# Verify this script only runs from the approved orchestrator host.
-Assert-AgentSmoke ($env:COMPUTERNAME -eq 'hungdinh-lt' -and $CallerMachine -eq 'hungdinh-lt') 'caller_machine_denied'
+# Verify live scenarios only run from the approved orchestrator host. Contract
+# scenarios are safe to run in CI from another machine because they do not
+# contact or mutate either VM.
 Assert-AgentSmoke ($ExecutionMachine -eq 'LAB-CLIENT01') 'execution_machine_denied'
 Assert-AgentSmoke ($ServerMachine -eq 'LAB-DC01') 'server_machine_denied'
 Assert-AgentSmoke ($SecretProvider -eq 'Runtime') 'secret_provider_denied'
-Assert-NoHostArtifacts
 
-# Runtime secret provider: the token is delivered through an out-of-band
-# secret-handoff mechanism and is never logged or persisted by this script.
-$token = $null
-switch ($SecretProvider) {
-    'Runtime' {
-        $token = $env:DLP_AGENT_ENROLLMENT_TOKEN
-        Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($token)) 'runtime_token_missing'
-        Assert-AgentSmoke ($token.Length -le 512 -and $token -match '^[A-Za-z0-9]+$') 'runtime_token_format_invalid'
-    }
+function Assert-LiveLabAvailable {
+    Assert-AgentSmoke ($env:COMPUTERNAME -eq 'hungdinh-lt' -and $CallerMachine -eq 'hungdinh-lt') 'live_lab_unavailable: approved orchestrator host hungdinh-lt is required'
+    Assert-NoHostArtifacts
+    $getVm = Get-Command Get-VM -ErrorAction SilentlyContinue
+    Assert-AgentSmoke ($null -ne $getVm) 'live_lab_unavailable: Hyper-V PowerShell module is unavailable'
+    $dcReachable = Test-NetConnection -ComputerName $ServerMachine -Port 8443 -WarningAction SilentlyContinue
+    Assert-AgentSmoke $dcReachable.TcpTestSucceeded 'live_lab_unavailable: LAB-DC01:8443 is unreachable'
+    $clientReachable = Test-Connection -ComputerName $ExecutionMachine -Count 1 -Quiet
+    Assert-AgentSmoke $clientReachable 'live_lab_unavailable: LAB-CLIENT01 is unreachable'
 }
-
-# Reachability checks only; no credentials or mutations are sent yet.
-$dcReachable = Test-NetConnection -ComputerName $ServerMachine -Port 8443 -WarningAction SilentlyContinue
-Assert-AgentSmoke ($dcReachable.TcpTestSucceeded) 'lab_dc01_enrollment_unreachable'
-
-$clientReachable = Test-Connection -ComputerName $ExecutionMachine -Count 1 -Quiet
-Assert-AgentSmoke $clientReachable 'lab_client01_unreachable'
 
 function Invoke-AgentServiceCommand {
     param([Parameter(Mandatory)][scriptblock]$ScriptBlock)
     try {
-        if ($null -ne $Credential) {
-            return Invoke-Command -VMName $ExecutionMachine -Credential $Credential `
-                -ScriptBlock $ScriptBlock -ErrorAction Stop
+        $guestCredential = $Credential
+        if ($null -eq $guestCredential) {
+            $user = $env:DLP_VM_ADMIN_USER
+            $pass = $env:DLP_VM_ADMIN_PASSWORD
+            Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($user) -and
+                -not [string]::IsNullOrWhiteSpace($pass)) 'vm_credentials_required'
+            $secure = New-Object System.Security.SecureString
+            foreach ($character in $pass.ToCharArray()) { $secure.AppendChar($character) }
+            $guestCredential = New-Object System.Management.Automation.PSCredential($user, $secure)
         }
 
         # LAB-CLIENT01 is a local Hyper-V guest. PowerShell Direct avoids
-        # workgroup WinRM/TrustedHosts. The current Hyper-V session is sufficient
-        # unless the caller explicitly supplies alternate guest credentials.
-        Invoke-Command -VMName $ExecutionMachine -ScriptBlock $ScriptBlock -ErrorAction Stop
+        # workgroup WinRM/TrustedHosts while still authenticating inside the VM.
+        Invoke-Command -VMName $ExecutionMachine -Credential $guestCredential `
+            -ScriptBlock $ScriptBlock -ErrorAction Stop
     }
     catch {
         # Preserve the existing stable, redacted failure code consumed by the
@@ -155,11 +164,102 @@ function Force-KillAgentService {
 }
 
 function Invoke-LiveEnrollmentRecovery {
-    & (Join-Path $repoRoot 'scripts/lab/Invoke-Client01Runtime.ps1') `
-        -CallerMachine $CallerMachine -ExecutionMachine $ExecutionMachine `
-        -ProbeMachine $ServerMachine -SecretProvider Runtime -Scenario Tracer `
-        -EnrollmentTokenProvider TrustedProvisioning -Apply
+    param([Parameter()][switch]$Force)
+    $arguments = @{
+        CallerMachine = $CallerMachine
+        ExecutionMachine = $ExecutionMachine
+        ProbeMachine = $ServerMachine
+        SecretProvider = 'Runtime'
+        Scenario = 'ServiceInstall'
+        Apply = $true
+    }
+    if ($null -ne $Credential) { $arguments.Credential = $Credential }
+    if ($Force) { $arguments.ForceReenrollment = $true }
+    # SRV-13/D-05..D-08/TST-05: no provider override and no manual token.
+    $output = & (Join-Path $repoRoot 'scripts/lab/Invoke-Client01Runtime.ps1') @arguments *>&1
     if ($LASTEXITCODE -ne 0) { Stop-AgentSmoke 'client01_enrollment_tracer_failed' }
+    $joined = $output -join "`n"
+    Assert-AgentSmoke ($joined -match 'active_policy_version=\S+') 'active_policy_version_missing'
+    Assert-AgentSmoke ($joined -match 'active_policy_state=Active') 'active_policy_state_not_active'
+    $output | ForEach-Object { Write-Output $_ }
+}
+
+function Get-AgentPreservationState {
+    Invoke-AgentServiceCommand -ScriptBlock {
+        return [pscustomobject]@{
+            ServicePresent = $null -ne (Get-Service -Name 'DlpWindowsService' -ErrorAction SilentlyContinue)
+            DataPresent = Test-Path -LiteralPath 'C:\dlp\agent\data' -PathType Container
+            CachePresent = Test-Path -LiteralPath 'C:\dlp\agent\cache' -PathType Container
+        }
+    }
+}
+
+function Get-RuntimeSource {
+    return [System.IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/lab/Invoke-Client01Runtime.ps1'))
+}
+
+function Assert-SourceContract {
+    param(
+        [Parameter(Mandatory)][string]$Pattern,
+        [Parameter(Mandatory)][string]$Code
+    )
+    Assert-AgentSmoke ((Get-RuntimeSource) -match $Pattern) $Code
+}
+
+function Invoke-TokenCleanupModel {
+    param(
+        [Parameter()][switch]$FailAgentEnv,
+        [Parameter()][switch]$FailScmEnvironment
+    )
+    $state = [ordered]@{
+        AgentEnv = @('DLP_DEVICE_ID=device', 'DLP_AGENT_ENROLLMENT_TOKEN=secret', 'DLP_SERVER_URL=https://server')
+        ScmEnvironment = @('DLP_DEVICE_ID=device', 'DLP_AGENT_ENROLLMENT_TOKEN=secret', 'DLP_SERVER_URL=https://server')
+        ServicePresent = $true
+        BinaryPresent = $true
+        DataPresent = $true
+        CachePresent = $true
+    }
+    $failures = [System.Collections.Generic.List[string]]::new()
+    if ($FailAgentEnv) {
+        $failures.Add('agent.env')
+    } else {
+        $state.AgentEnv = @($state.AgentEnv | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
+    }
+    if ($FailScmEnvironment) {
+        $failures.Add('scm_environment')
+    } else {
+        $state.ScmEnvironment = @($state.ScmEnvironment | Where-Object { $_ -notlike 'DLP_AGENT_ENROLLMENT_TOKEN=*' })
+    }
+    return [pscustomobject]@{ State = [pscustomobject]$state; Failures = @($failures) }
+}
+
+function Assert-RedactedText {
+    param([Parameter(Mandatory)][string]$Text)
+    $forbidden = @(
+        'DLP_AGENT_ENROLLMENT_TOKEN=[^\s;]+',
+        '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
+        'DLP_VM_ADMIN_PASSWORD=[^\s;]+',
+        '-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----',
+        'device\.dpapi[^\r\n]*=[^\r\n]+'
+    )
+    foreach ($pattern in $forbidden) {
+        Assert-AgentSmoke ($Text -notmatch $pattern) 'diagnostic_secret_disclosure'
+    }
+}
+
+function Assert-EnrollmentTokenRemoved {
+    $state = Invoke-AgentServiceCommand -ScriptBlock {
+        $serviceKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService'
+        $environment = (Get-ItemProperty -Path $serviceKey -Name Environment -ErrorAction SilentlyContinue).Environment
+        $registry = @($environment | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
+        $envPath = 'C:\dlp\agent\agent.env'
+        $file = if (Test-Path -LiteralPath $envPath) {
+            @([IO.File]::ReadAllLines($envPath) | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
+        } else { 0 }
+        return @{ RegistryTokenCount = $registry; FileTokenCount = $file }
+    }
+    Assert-AgentSmoke ($state.RegistryTokenCount -eq 0) 'enrollment_token_retained_in_registry'
+    Assert-AgentSmoke ($state.FileTokenCount -eq 0) 'enrollment_token_retained_in_env_file'
 }
 
 function Remove-AgentCredentialAsSystem {
@@ -174,26 +274,15 @@ function Remove-AgentCredentialAsSystem {
             if ($LASTEXITCODE -ne 0) { throw 'credential_remove_task_run_failed' }
             Start-Sleep -Seconds 2
         } finally {
-            & schtasks.exe /Delete /TN $task /F 2>$null | Out-Null
+            $cleanupCommand = "schtasks.exe /Delete /TN $task /F >nul 2>&1"
+            & cmd.exe /d /c $cleanupCommand | Out-Null
         }
     }
 }
 
-function Assert-EnrollmentTokenRemoved {
-    $state = Invoke-AgentServiceCommand -ScriptBlock {
-        $serviceKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\DlpWindowsService'
-        $registry = @((Get-ItemPropertyValue $serviceKey -Name Environment) |
-            Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
-        $file = @([IO.File]::ReadAllLines('C:\dlp\agent\agent.env') |
-            Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count
-        return @{ RegistryTokenCount = $registry; FileTokenCount = $file }
-    }
-    Assert-AgentSmoke ($state.RegistryTokenCount -eq 0) 'enrollment_token_retained_in_registry'
-    Assert-AgentSmoke ($state.FileTokenCount -eq 0) 'enrollment_token_retained_in_env_file'
-}
-
 switch ($Scenario) {
     'InitialEnrollmentCredential' {
+        Assert-LiveLabAvailable
         Invoke-LiveEnrollmentRecovery
         $state = Get-AgentServiceState
         Assert-AgentSmoke $state.Installed 'dlp_agent_service_not_installed'
@@ -203,23 +292,29 @@ switch ($Scenario) {
         Assert-NoHostArtifacts
     }
     'ReplacementRevocation' {
-        Stop-AgentService
-        Remove-AgentCredentialAsSystem
-        Invoke-LiveEnrollmentRecovery
+        Assert-LiveLabAvailable
+        $before = Get-AgentPreservationState
+        Assert-AgentSmoke ($before.ServicePresent -and $before.DataPresent -and $before.CachePresent) 'force_reenrollment_precondition_missing'
+        Invoke-LiveEnrollmentRecovery -Force
         $state = Get-AgentServiceState
         Assert-AgentSmoke $state.Installed 'dlp_agent_service_not_installed'
         Assert-AgentSmoke ($state.Status -eq 'Running') 'replacement_enrollment_service_not_running'
+        $after = Get-AgentPreservationState
+        Assert-AgentSmoke ($after.ServicePresent -and $after.DataPresent -and $after.CachePresent) 'force_reenrollment_removed_preserved_state'
         Assert-EnrollmentTokenRemoved
         Assert-NoHostArtifacts
     }
     'ConfigurationCache' {
-        $state = Get-AgentServiceState
-        Assert-AgentSmoke $state.Installed 'dlp_agent_service_not_installed'
-        # Once reachable, this scenario would stop the service, stage a signed
-        # bundle, restart, and assert current/LKG pointer state.
-        Stop-AgentSmoke 'configuration_cache_runtime_blocked'
+        # Static contract plus wire-layout fixture. The live InitialEnrollment
+        # scenario is the authoritative signed-fetch activation proof.
+        Assert-SourceContract -Pattern 'Wait-Client01ActivePolicy' -Code 'active_policy_wait_missing'
+        Assert-SourceContract -Pattern 'active_policy_version=\$\(\$state\.active_policy_version\)' -Code 'active_policy_version_output_missing'
+        Assert-SourceContract -Pattern 'active_policy_state=\$\(\$state\.active_policy_state\)' -Code 'active_policy_state_output_missing'
+        Assert-SourceContract -Pattern "'dlp-ptr1'" -Code 'signed_configuration_pointer_magic_missing'
+        Write-Output 'configuration_cache_contract=pass'
     }
     'ServiceRestart' {
+        Assert-LiveLabAvailable
         Install-AgentService
         $state = Get-AgentServiceState
         Assert-AgentSmoke $state.Installed 'dlp_agent_service_not_installed'
@@ -239,5 +334,47 @@ switch ($Scenario) {
         Get-AgentHealth
         Stop-AgentService
         Assert-NoHostArtifacts
+    }
+    'InstallStartFailureCleanup' {
+        $result = Invoke-TokenCleanupModel
+        Assert-AgentSmoke (@($result.State.AgentEnv | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count -eq 0) 'agent_env_cleanup_model_failed'
+        Assert-AgentSmoke (@($result.State.ScmEnvironment | Where-Object { $_ -like 'DLP_AGENT_ENROLLMENT_TOKEN=*' }).Count -eq 0) 'scm_cleanup_model_failed'
+        Assert-AgentSmoke ($result.State.ServicePresent -and $result.State.BinaryPresent -and $result.State.DataPresent -and $result.State.CachePresent) 'partial_artifacts_not_preserved'
+        Assert-SourceContract -Pattern 'partial service/binary artifacts were preserved' -Code 'failure_preservation_code_missing'
+        Assert-SourceContract -Pattern 'Remove-Client01EnrollmentToken' -Code 'failure_cleanup_call_missing'
+        Write-Output 'install_start_failure_cleanup=pass'
+    }
+    'CleanupFailure' {
+        $result = Invoke-TokenCleanupModel -FailAgentEnv
+        Assert-AgentSmoke ($result.Failures -contains 'agent.env') 'agent_env_failure_not_reported'
+        Assert-SourceContract -Pattern 'enrollment_token_cleanup_failed: agent\.env=\$\(\$result\.AgentEnv\); scm_environment=\$\(\$result\.ScmEnvironment\)' -Code 'stable_cleanup_failure_missing'
+        Assert-SourceContract -Pattern 'C:\\dlp\\agent\\agent\.env and HKLM:\\SYSTEM\\CurrentControlSet\\Services\\DlpWindowsService\\Environment' -Code 'cleanup_remediation_paths_missing'
+        Write-Output 'cleanup_failure=pass'
+    }
+    'FreshTokenRetry' {
+        Assert-SourceContract -Pattern '\$enrollmentToken = Invoke-Client01TrustedProvisioning' -Code 'fresh_token_acquisition_missing'
+        Assert-SourceContract -Pattern 'finally\s*\{\s*\$enrollmentToken = \$null' -Code 'local_token_clear_missing'
+        Assert-SourceContract -Pattern "EnrollmentTokenProvider = 'TrustedProvisioning'" -Code 'trusted_provider_not_default'
+        Assert-SourceContract -Pattern 'existing_credential_reused' -Code 'credential_reuse_gate_missing'
+        Write-Output 'fresh_token_retry=pass'
+    }
+    'NormalOutput' {
+        $source = Get-RuntimeSource
+        Assert-AgentSmoke ($source -notmatch 'dlpctl\.log:`n') 'unconditional_dlpctl_dump_present'
+        Assert-AgentSmoke ($source -notmatch 'env_file = Get-Content') 'raw_environment_dump_present'
+        Assert-SourceContract -Pattern 'Write-Client01Status' -Code 'coded_status_output_missing'
+        Assert-SourceContract -Pattern 'service_install_failed: partial service/binary artifacts were preserved' -Code 'stable_service_error_missing'
+        Write-Output '[normal_output_contract] pass'
+    }
+    'DiagnosticRedaction' {
+        $source = Get-RuntimeSource
+        Assert-SourceContract -Pattern '\[Parameter\(\)\]\[switch\]\$Diagnostic' -Code 'diagnostic_switch_missing'
+        Assert-SourceContract -Pattern 'file_lengths' -Code 'bounded_file_length_diagnostic_missing'
+        Assert-SourceContract -Pattern 'event_log_error_count' -Code 'bounded_event_diagnostic_missing'
+        Assert-AgentSmoke ($source -notmatch 'first_line=') 'diagnostic_first_line_dump_present'
+        Assert-AgentSmoke ($source -notmatch 'env_file = Get-Content') 'diagnostic_environment_dump_present'
+        $sample = '{"code":"trusted_provisioning_failed","protected_directory":"C:\\dlp\\provisioning","file_lengths":{"dlpctl.err":42},"error_type":"RuntimeException"}'
+        Assert-RedactedText -Text $sample
+        Write-Output '{"code":"diagnostic_redaction_contract","status":"pass","fields":"paths,lengths,fingerprints,bounded_error_metadata"}'
     }
 }

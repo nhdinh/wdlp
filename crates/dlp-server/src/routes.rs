@@ -207,21 +207,26 @@ async fn require_active_device(
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let peer = connection
-        .identity()
-        .cloned()
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let peer = connection.identity().cloned().ok_or_else(|| {
+        eprintln!("device_route_rejected: peer_identity_missing");
+        StatusCode::UNAUTHORIZED
+    })?;
     let credential_status = state
         .repository
         .credential_status(peer.subject(), peer.serial())
         .await;
-    let device = AuthenticatedDevice::from_peer(peer.clone(), credential_status)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let device = AuthenticatedDevice::from_peer(peer.clone(), credential_status).map_err(|_| {
+        eprintln!("device_route_rejected: credential_not_active");
+        StatusCode::UNAUTHORIZED
+    })?;
     state
         .repository
         .authorize_device(&device)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(|_| {
+            eprintln!("device_route_rejected: repository_authorization_failed");
+            StatusCode::UNAUTHORIZED
+        })?;
     request.extensions_mut().insert(device);
     Ok(next.run(request).await)
 }
@@ -314,7 +319,10 @@ async fn fetch_configuration(
     let configuration = state
         .signed_configuration_for(&device)
         .await
-        .map_err(route_error_status)?;
+        .map_err(|error| {
+            eprintln!("device_configuration_failed: {error:?}");
+            route_error_status(error)
+        })?;
     Ok((
         [(CONTENT_TYPE, "application/vnd.dlp.signed-configuration.v1")],
         serialize_signed_configuration(&configuration),

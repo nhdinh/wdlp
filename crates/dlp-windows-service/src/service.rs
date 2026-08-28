@@ -279,7 +279,8 @@ pub fn run_service_loop(
             match (&mut transport, &verifier) {
                 (Some(t), Some(v)) => match poll_and_activate(&context, t, v) {
                     Ok(_) => last_contact = Some(epoch_seconds()),
-                    Err(_) => {
+                    Err(error) => {
+                        service_log("WARN", format!("configuration poll failed: {error}"));
                         post_health(&context, RedactedDiagnostic::ConfigurationRejected);
                     }
                 },
@@ -649,8 +650,8 @@ fn load_service_config() -> Result<ServiceConfig, ServiceStartError> {
     let cache_directory = std::env::var("DLP_CACHE_DIRECTORY")
         .map_err(|_| ServiceStartError::ConfigMissing)
         .map(PathBuf::from)?;
-    let configuration_key_id =
-        std::env::var("DLP_CONFIGURATION_KEY_ID").unwrap_or_else(|_| "phase1-config-signer".into());
+    let configuration_key_id = std::env::var("DLP_CONFIGURATION_KEY_ID")
+        .unwrap_or_else(|_| "phase1-config-signing-key-v1".into());
     let configuration_public_key = std::env::var("DLP_CONFIGURATION_PUBLIC_KEY_HEX")
         .map_err(|_| ServiceStartError::ConfigMissing)
         .and_then(|hex| hex::decode_to_array(&hex).ok_or(ServiceStartError::ConfigInvalid))?;

@@ -1,7 +1,7 @@
 //! Transactional authority state. Production adapters use PostgreSQL row locks;
 //! mutex-backed stores below exist only as deterministic test fixtures.
 
-use crate::tls::{AuthenticatedDevice, CredentialStatus};
+use crate::tls::{AuthenticatedDevice, CredentialStatus, canonical_serial_bytes};
 use async_trait::async_trait;
 use dlp_protocol::{ProvisionDeviceRequestV1, SignedConfigurationV1};
 use sha2::{Digest, Sha256};
@@ -41,6 +41,15 @@ impl PgAuthorityRepository {
             .begin()
             .await
             .map_err(|_| RepositoryError::Unavailable)?;
+
+        sqlx::query(
+            "INSERT INTO device_allowlist (device_id, fingerprint_digest) VALUES ($1, $2) ON CONFLICT (device_id) DO UPDATE SET fingerprint_digest = EXCLUDED.fingerprint_digest",
+        )
+        .bind(request.device_id())
+        .bind(request.fingerprint_digest().as_slice())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RepositoryError::Unavailable)?;
 
         // Locking an existing device row makes duplicate provisioning serialize.
         // The unique constraints remain the final authority for a first insert race.
@@ -194,7 +203,7 @@ impl PgAuthorityRepository {
             return Err(RepositoryError::Denied);
         }
 
-        let new_serial = Uuid::new_v4().as_bytes().to_vec();
+        let new_serial = canonical_serial_bytes(Uuid::new_v4().as_bytes());
         let (result, public_certificate_digest) = issue(new_serial.clone())?;
         if let Some(previous) = active_serial {
             sqlx::query(
