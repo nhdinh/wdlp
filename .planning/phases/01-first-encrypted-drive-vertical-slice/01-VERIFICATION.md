@@ -1,184 +1,157 @@
 ---
 phase: 01-first-encrypted-drive-vertical-slice
-verified: 2026-08-25T15:30:00Z
-status: gaps_found
-score: 7/10 must-haves verified
+verified: 2026-08-28T18:45:00+07:00
+status: passed
+score: 17/17 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
-  previous_score: 7/11
+  previous_score: 14/15
   gaps_closed:
-    - "Affirmed payload and predecessor digest are rechecked under the publication lock before signing."
-    - "Current signed-off validation enforces key usage, EKU, online revocation, and process-scoped CustomRootTrust."
-    - "Lexical rooted/traversal/prefix/mixed-separator references are rejected."
-    - "Forgery, two-writer, crash-before-replace, and FinalGate regressions now execute behaviorally."
-  gaps_remaining:
-    - "Signing does not bind observed executing user and machine to the authorized policy reviewer."
-    - "Superseded CMS signatures are not authenticated during signed-off verification."
-    - "Lexical containment can be bypassed through a Windows reparse point."
+    - "The corrupted-CMS regression now requires signature_invalid and rejects copied-file digest mismatch plus stable setup/execution diagnostics."
+    - "Authenticated D-48 generation 000004 binds the frozen implementation commit and its predecessor generation."
+    - "LAB-CLIENT01 focused FinalGate and full All suite executions are recorded as exit zero for the bound implementation."
+  gaps_remaining: []
   regressions: []
-gaps:
-  - truth: "Only approved LAB\\dlp-reviewer on D-22 (LAB-DC02) can publish a reviewer attestation"
-    status: failed
-    reason: "Publisher copies identity and machine from policy without comparing them with the executing Windows context."
-    artifacts:
-      - path: "scripts/add-security-closure-review.ps1"
-        issue: "Lines 16 and 22 display the observed machine but sign policy-asserted identity/machine values."
-    missing:
-      - "Require observed Windows identity and COMPUTERNAME to match the single policy reviewer before prompt or mutation."
-      - "Populate attestation from observed values and add wrong-user/wrong-machine non-mutation regressions."
-  - truth: "The complete append-only attestation history remains cryptographically authentic and auditable"
-    status: failed
-    reason: "Only the latest CMS signature is verified; historical signature bytes are excluded from predecessor digests and may be corrupted undetected."
-    artifacts:
-      - path: "scripts/verify-phase1-security.ps1"
-        issue: "Lines 43-44 check linkage for all entries but call Test-SignedAttestation only for the latest."
-    missing:
-      - "Verify every historical CMS signature under its trust contract, or use a signed archival envelope committing to historical signature bytes."
-      - "Add a superseded-signature byte-flip regression requiring signature_invalid."
-  - truth: "All security artifact references resolve to real filesystem targets contained within the repository"
-    status: failed
-    reason: "GetFullPath plus StartsWith proves lexical containment only; a repository junction or symlink can redirect reads externally."
-    artifacts:
-      - path: "scripts/verify-phase1-security.ps1"
-        issue: "Lines 15-19 do not reject or resolve reparse points before hashing."
-    missing:
-      - "Reject reparse points or resolve the filesystem target and prove canonical repository containment."
-      - "Add junction and symlink escape regressions with a stable diagnostic."
+next_action: "Proceed to the next phase or milestone gate."
+next_command: "$gsd-next"
 ---
 
 # Phase 01: First Encrypted-Drive Vertical Slice Verification Report
 
-**Phase Goal:** An authorized Windows user can enroll, receive signed configuration, mount a private protected WinFsp drive, write/read files through encrypted backing storage, and recover safely across restart while Phase 1 evidence remains fail-closed and trustworthy.
-**Status:** gaps_found
-**Re-verification:** Yes — after Plan 01-34 hardened closure
+**Phase Goal:** As an authorized Windows user, I want a private encrypted drive, so that committed files survive restart without readable plaintext in its backing store.
+**Verified:** 2026-08-28T18:45:00+07:00
+**Status:** passed
+**Re-verification:** Yes — after Plan 01-44 gap closure
+
+## User Flow Coverage
+
+| Step | Expected | Evidence | Status |
+|---|---|---|---|
+| Enroll | Endpoint receives one-time enrollment and signed configuration | PostgreSQL authority, agent enrollment/config activation, authenticated Phase 1 matrix | VERIFIED |
+| Mount | Authenticated user receives a SID-bound WinFsp drive | Service → session host → WinFsp/storage wiring and LAB-CLIENT01 evidence | VERIFIED |
+| Write | Copied file is committed as authenticated ciphertext without backing plaintext | AES-GCM storage path and authenticated negative-plaintext evidence | VERIFIED |
+| Read | Committed file reads back; corrupt ciphertext releases no plaintext | Read/integrity-denial paths and tests | VERIFIED |
+| Restart/outcome | Committed data survives; interrupted replacement preserves prior state | Recovery implementation and authenticated restart/abrupt-loss rows | VERIFIED |
+
+The MVP user-story outcome and the final requirement-linked security oracle are covered.
 
 ## Goal Achievement
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
-| --- | --- | --- | --- |
-| SC-01 | Safe Rust workspace with Windows integration isolated | VERIFIED | Workspace/crates, unsafe boundaries, portable tests, and FinalGate evidence remain present. |
-| SC-02 | PostgreSQL-backed enrollment/readiness works on the assigned topology | VERIFIED | Server/repository wiring and real-PostgreSQL evidence remain intact; FinalGate reports 30/30 requirements. |
-| SC-03 | LAB-CLIENT01 enrolls and activates only valid signed configuration | VERIFIED | Enrollment, mTLS, DPAPI credential, cache/activation implementation and evidence remain present. |
-| SC-04 | Eligible users receive a usable SID-bound WinFsp drive | VERIFIED | Service/session-host to WinFsp wiring and mounted-drive matrix remain intact. |
-| SC-05 | Writes create authenticated encrypted backing data without readable plaintext | VERIFIED | AES-GCM storage, metadata protection, atomic commit tests/evidence remain present. |
-| SC-06 | Reads authenticate data and corruption releases no plaintext | VERIFIED | Integrity paths and behavioral tests/evidence remain present. |
-| SC-07 | Committed files survive restart and interrupted replacement atomically | VERIFIED | Recovery code and restart/reboot/abrupt-loss/application evidence remain present. |
-| SEC-05 | Ceremony is bound to observed `LAB\\dlp-reviewer` on `LAB-DC02` | FAILED | Publisher asserts identity/machine from policy without enforcing executing context. |
-| SEC-06 | Every append-only attestation remains cryptographically authenticated | FAILED | Only latest CMS is checked. |
-| SEC-07 | Artifact hashing cannot escape through Windows filesystem indirection | FAILED | Lexical containment follows junctions/symlinks externally. |
+|---|---|---|---|
+| SC-01 | Cargo workspace with safe portable crates and isolated Windows integration | VERIFIED | Ten workspace crates and unsafe boundaries remain present/wired. |
+| SC-02 | PostgreSQL server provides one-time enrollment and readiness | VERIFIED | Server routes call PostgreSQL-backed repositories/migrations. |
+| SC-03 | Agent enrolls and activates only signed schema-valid configuration | VERIFIED | Enrollment, DPAPI, TLS, signature/schema, current/LKG activation are wired. |
+| SC-04 | Authenticated user receives a per-user WinFsp drive | VERIFIED | Service/session-host/WinFsp/storage path and binding evidence. |
+| SC-05 | Writes create authenticated encrypted backing data without plaintext | VERIFIED | AEAD storage flow and authenticated acceptance evidence. |
+| SC-06 | Reads authenticate data; corruption returns no plaintext | VERIFIED | Integrity-denial implementation and behavioral evidence. |
+| SC-07 | Committed data survives restart; interrupted writes are atomic/discarded | VERIFIED | Generation recovery and restart/abrupt-loss evidence. |
+| P42-01 | Independent review loads PKCS and supports legacy null-subject policy | VERIFIED | SignedCms/schema-v1 compatibility and stable diagnostics. |
+| P42-02 | Additive closure then distinct D-48 generation authenticate frozen bytes | VERIFIED | Canonical index validation now reaches additive generation 000004 with an authenticated predecessor link. |
+| P42-03 | All current/historical/envelope signers use approved trust | VERIFIED | Identity, purpose, context, root, chain and revocation checks. |
+| P42-04 | Chain helper restores environment/temp state on both outcomes | VERIFIED | Focused fixtures cover success/failure and present/absent variables. |
+| P42-05 | Canonical FinalGate completed on LAB-CLIENT01 | VERIFIED | Authenticated generation: exit 0; 34/34, 30/30, 7/7, 50/50, 9/9, zero warnings. |
+| P43-01 | FinalGate regression passes on LAB-CLIENT01 | VERIFIED | 01-43 provenance records focused and All exit 0 at 2026-08-27T15:37:47Z; commit `4b320e2` exists. |
+| P43-02 | Canonical branch requires exit 0 and all published counters | VERIFIED | Test line 77 asserts exit 0, 34/34, zero failed/warnings, and every required counter. |
+| P43-03 | Corrupted CMS failure is specifically attributable to CMS rejection | VERIFIED | Current FinalGate branch requires `signature_invalid` and rejects `file digest mismatch`. |
+| P44-01 | Corrupted-CMS regression passes only on detached signature rejection | VERIFIED | Source has an affirmative `signature_invalid` assertion after a nonzero child exit; LAB-CLIENT01 focused run exits 0. |
+| P44-02 | Digest/setup/execution failures cannot independently satisfy the corrupted-CMS branch | VERIFIED | Digest mismatch and stable setup/execution diagnostics are explicit negative assertions. Finite diagnostic enumeration is advisory because none can satisfy the branch without the affirmative CMS diagnostic. |
+| P44-03 | Focused FinalGate and complete All runs authenticate the frozen implementation | VERIFIED | D-48 generation 000004 CMS verifies and binds commit `93e9e37`; recorded LAB-CLIENT01 runs at evidence commit `1e28d80` both exit 0. |
 
-**Score:** 7/10 truths verified (0 behavior-unverified).
+**Score:** 17/17 truths verified (0 behavior-unverified).
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
-| --- | --- | --- | --- |
-| Phase 1 workspace/crates | Functional vertical slice | VERIFIED | Substantive and wired; no functional regression observed in closure changes. |
-| `evidence/phase1/requirement-matrix.yaml` | Requirement-indexed evidence | VERIFIED | FinalGate: 34/34 checks, 30/30 requirements, 7/7 criteria, 50/50 decisions, 9/9 privilege manifests. |
-| `evidence/phase1/security-closure.yaml` | Externally authenticated closure | PARTIAL | Current 19 attestations pass implemented verifier; manifest `4b30d328d5967f8f2346be1d61811b8ae56b26404dc8bef0150e61ba1619c591`, but history is not fully authenticated. |
-| `scripts/add-security-closure-review.ps1` | D-22-bound consent/publication | FAILED | Consent continuity and durability exist, but execution identity/station is not enforced. |
-| `scripts/verify-phase1-security.ps1` | Fail-closed signed-off validation | FAILED | Current trust is hardened, but historical CMS and reparse containment are not verified. |
-| `scripts/evidence/Phase1.Security.Tests.ps1` | Adversarial regressions | PARTIAL | Focused suite passes but lacks wrong-station, historical-signature-tamper, and reparse escape cases. |
+|---|---|---|---|
+| `scripts/evidence/Phase1.Security.Tests.ps1` | Post-ceremony success plus specific CMS-tamper regression | VERIFIED | Substantive and wired; current SHA-256 `f3293695...`; affirmative CMS diagnostic and negative unrelated-diagnostic checks are present. |
+| `scripts/verify-phase1.ps1` | Canonical FinalGate | VERIFIED | Invoked for copied and canonical repositories; emits counters. |
+| `evidence/phase1/independent-reviews/index.json` | Authenticated D-48 generation | VERIFIED | Consumed by FinalGate; canonical validation reaches generation 000004 head `93e809ee...`. |
+| `01-44-SUMMARY.md` | Sanitized binding-run provenance | VERIFIED | Records machine/role, UTC, exact commands, exits, implementation/evidence commits, hashes, and stable markers without private trust bytes. |
+| `evidence/phase1/independent-reviews/000004-93e809eea24ef214/generation.json` | Authenticated successor binding the frozen implementation | VERIFIED | Canonical index validation exits 0; detached CMS verifies; one signer; commitment binds `93e9e37...` and predecessor `af5af1e5...`. |
 
-### Key Links and Data Flow
+### Key Link Verification
 
-| Link/data | Status | Details |
-| --- | --- | --- |
-| Service/session host → WinFsp/storage | WIRED | Functional slice remains connected and evidenced. |
-| Confirmation preview → published CMS | WIRED | Approved payload/predecessor comparison now occurs under mutex. |
-| Policy → current signer trust | WIRED | Thumbprint, identity, usage, EKU, online revocation, custom root; policy `edfa1018ee5c9fbb5073af0a16b71bf82e83f144a48568164b8a691fdff960fd`. |
-| Executing Windows context → claimed reviewer context | NOT WIRED | Publication signs policy values, not enforced observed values. |
-| Historical chain → CMS authenticity | NOT WIRED | Digest excludes CMS bytes; only latest CMS is checked. |
-| Artifact path → repository boundary | PARTIAL | Lexical paths bounded; reparse targets are not. |
+| From | To | Via | Status | Details |
+|---|---|---|---|---|
+| Security test | canonical verifier | `Invoke-FinalGate` | WIRED | Tampered and canonical branches invoke production verifier. |
+| Canonical verifier | D-48 index | independent-review subgate | WIRED | Published generation validated before success counters. |
+| CMS mutation | CMS diagnostic | negative assertion | WIRED | Nonzero plus affirmative `signature_invalid`; digest and stable setup/execution diagnostics rejected. |
+| D-48 generation 000004 | frozen implementation | signed commitment | WIRED | Valid detached CMS commitment names exact commit `93e9e37...` and append-only predecessor digest. |
+
+### Data-Flow Trace (Level 4)
+
+| Artifact | Variable | Source | Real data | Status |
+|---|---|---|---|---|
+| Security test | `$successfulGate` | Real FinalGate child process | Yes | FLOWING |
+| Security test | `$failedGate` | Real FinalGate over disposable mutation | Yes | FLOWING, CMS-attributed |
+| D-48 verifier | generation 000004 commitment | Canonical index + detached CMS | Yes | FLOWING |
 
 ### Behavioral Spot-Checks
 
-| Behavior | Result | Status |
-| --- | --- | --- |
-| `scripts/evidence/Phase1.Security.Tests.ps1` | Completed successfully during re-verification | PASS WITH COVERAGE GAPS |
-| Signed-off verifier | User-provided run: valid, zero diagnostics, manifest `4b30...c591`, policy `edfa...60fd` | PASS FOR CURRENT ATTESTATIONS |
-| Canonical FinalGate | 34/34 checks, 30/30 requirements | PASS, TRUST GAPS REMAIN |
-| Wrong-station signing rejection | No enforcement/test | FAIL |
-| Superseded CMS corruption rejection | No enforcement/test | FAIL |
-| Junction/symlink escape rejection | No enforcement/test | FAIL |
+| Behavior | Command/evidence | Result | Status |
+|---|---|---|---|
+| Focused FinalGate on binding endpoint | `-Focus FinalGate` | Recorded LAB-CLIENT01 exit 0 | PASS |
+| Full security suite on binding endpoint | `-Focus All` | Recorded LAB-CLIENT01 exit 0 | PASS |
+| Local named check | 10-second wrapper on current host | Not runnable within bound/private trust context | SKIP / ENVIRONMENT |
+| Tampered-CMS attribution | Source inspection plus `-Focus FinalGate` binding record | Requires `signature_invalid`; focused exit 0 | PASS |
+| D-48 successor integrity | `scripts/add-independent-review.ps1 -ValidateIndexOnly ...` and independent `SignedCms.CheckSignature($true)` | Head `93e809ee...`; signature valid; one signer; bound commit/predecessor match | PASS |
 
 ### Probe Execution
 
-No `probe-*.sh` is declared. Phase-specific PowerShell checks were used.
+No `probe-*.sh` is declared. The focused and All PowerShell executions are the requirement-linked probes; both recorded LAB-CLIENT01 binding runs pass.
 
 ### Requirements Coverage
 
-| Requirement | Status | Evidence |
-| --- | --- | --- |
-| WRK-01, WRK-02, WRK-03, WRK-04 | SATISFIED | Workspace, shared types/protocols, unsafe isolation, tests/evidence present. |
-| SRV-01, SRV-03, SRV-11, SRV-12 | SATISFIED | APIs, enrollment, PostgreSQL migrations, health/readiness, lab evidence present. |
-| CRY-01, CRY-02 | SATISFIED | Authenticated storage and strict signed-config activation implemented/tested. |
-| CRY-04 | BLOCKED | Secret handling exists, but the phase-wide trustworthy evidence contract is defeated by CR-05 through CR-07. |
-| AGT-01, AGT-02, AGT-03, AGT-04, AGT-05, AGT-06, AGT-07 | SATISFIED | Service, protected credentials, TLS, configuration lifecycle, LKG, rejection, health evidenced. |
-| DRV-01, DRV-02, DRV-03, DRV-04, DRV-06, DRV-07, DRV-09 | SATISFIED | Per-user mapping, encryption, crash consistency, corruption denial, restart recovery evidenced. |
-| TST-01, TST-02, TST-03, TST-05, TST-08 | SATISFIED WITH WARNING | Required functional coverage exists; security regressions omit the three blocker attacks. |
+| Requirement(s) | Source | Status | Evidence |
+|---|---|---|---|
+| WRK-01, WRK-02, WRK-03, WRK-04 | Phase 01 plans / REQUIREMENTS.md | SATISFIED | Workspace, domain/protocol types, schemas, safe/isolated FFI. |
+| SRV-01, SRV-03, SRV-11, SRV-12 | Phase 01 plans / REQUIREMENTS.md | SATISFIED | Authenticated API, enrollment, PostgreSQL migrations, health/readiness. |
+| CRY-01, CRY-02, CRY-04 | Phase 01 plans / REQUIREMENTS.md | SATISFIED | AEAD, Ed25519 signature/schema verification, protected secret custody. |
+| AGT-01, AGT-02, AGT-03, AGT-04, AGT-05, AGT-06, AGT-07 | Phase 01 plans / REQUIREMENTS.md | SATISFIED | Service, enrollment/DPAPI, TLS, config lifecycle/LKG/rejection/health. |
+| DRV-01, DRV-02, DRV-03, DRV-04, DRV-06, DRV-07, DRV-09 | Phase 01 plans / REQUIREMENTS.md | SATISFIED | SID store/mapping, WinFsp, encryption, atomicity, integrity, restart. |
+| TST-01, TST-02, TST-03, TST-05 | Phase 01 plans / REQUIREMENTS.md | SATISFIED | Requirement-linked unit/integration coverage. |
+| TST-08 | 01-44 and earlier plans / REQUIREMENTS.md | SATISFIED | Specific corrupted-CMS behavioral oracle, valid D-48 binding, and focused/full binding runs pass. |
 
-All 30 requested IDs are claimed by Phase 1 plan frontmatter and cross-referenced to `REQUIREMENTS.md`; none is orphaned.
+All 30 requested IDs are defined in `REQUIREMENTS.md`, mapped to Phase 1, and claimed across Phase 01 plan frontmatter. No additional Phase 1 requirement is orphaned.
 
-### Anti-Patterns and Test Quality
+### Test Quality Audit
+
+| Test file | Linked req | Active | Skipped | Circular | Assertion | Verdict |
+|---|---|---:|---:|---|---|---|
+| `Phase1.Security.Tests.ps1` | TST-08, CRY-04 | Yes | 0 | None found | Behavioral | PASS — affirmative CMS diagnostic plus explicit rejection of the previously observed false-positive paths. |
+
+Disabled requirement tests: 0. Circular patterns: 0. Insufficient assertions: 0.
+
+### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
-| --- | --- | --- | --- | --- |
-| `scripts/add-security-closure-review.ps1` | 16, 22 | Policy-asserted execution identity/station | BLOCKER | Key access can yield a false D-22 attestation. |
-| `scripts/verify-phase1-security.ps1` | 43-44 | Only latest CMS verified | BLOCKER | Superseded signature corruption is undetected. |
-| `scripts/verify-phase1-security.ps1` | 15-19, 42 | Lexical-only containment | BLOCKER | Reparse points redirect hashing externally. |
-| `scripts/verify-phase1-security.ps1` | 21-22 | Caller environment removed, not restored | WARNING | Nested verification can destroy caller state (WR-02). |
+|---|---:|---|---|---|
+| `Phase1.Security.Tests.ps1` | 77 | Finite diagnostic blacklist | INFO | Future verifier diagnostics may merit adding to the negative list; this does not defeat the current must-have because `signature_invalid` is independently mandatory and unrelated failures alone cannot pass. |
 
-No disabled requirement-linked tests or unreferenced `TBD`/`FIXME`/`XXX` markers were observed in the reviewed security files.
+No unreferenced `TBD`, `FIXME`, or `XXX` marker was found in the 01-44 implementation file.
 
 ### Decision Coverage
 
-FinalGate reports 50/50 decisions. D-22 is correctly documented as `LAB-DC02`; CR-05 is a runtime enforcement failure of that decision.
+`check.decision-coverage-verify` reports 50/50 trackable CONTEXT decisions honored. Advisory only.
 
 ### Human Verification Required
 
-None. These gaps are deterministic source/test failures; UAT cannot establish the missing invariants.
+None. The gap is deterministically observable in the test oracle.
 
 ### Deferred Items
 
-None. Trustworthy Phase 1 evidence is explicit in the phase goal and cannot be deferred.
+None. A trustworthy CMS-tamper regression is Phase 1 closure work, not specifically assigned later.
 
 ### Gaps Summary
 
-The functional vertical slice and current signed evidence pass implemented gates, and Plan 01-34 closes the four prior gaps. The goal remains unachieved because the ceremony is not bound to observed D-22 identity/station, historical CMS signatures are unauthenticated, and artifact containment is bypassable via Windows reparse points. WR-02 is non-blocking.
-
-**Next action:** create and execute focused Phase 01 gap closure for CR-05, CR-06, and CR-07 (preferably WR-02 too), then rerun `$gsd-execute-phase 01 --gaps-only` and Phase 01 verification. Do not advance the milestone.
+Plan 01-44 closes the sole remaining P43-03/TST-08 gap. The corrupted copied closure can no longer pass on the earlier digest-mismatch path: the test requires the stable CMS rejection diagnostic, rejects the observed unrelated paths, and then proves the unchanged canonical repository succeeds. The authenticated D-48 successor independently validates and binds the exact implementation commit used by the recorded focused and full LAB-CLIENT01 exit-zero runs. The finite blacklist concern remains a non-blocking maintainability advisory, not a failure of the stated phase must-haves.
 
 ---
 
-_Verified: 2026-08-25T15:30:00Z_  
+_Verified: 2026-08-28T18:45:00+07:00_  
 _Verifier: Codex (gsd-verifier)_
-
-## Derived Operational Verification Interval (Non-Authoritative)
-
-**Interval:** 2026-08-26T08:53:00Z through 2026-08-26T09:00:00Z  
-**Classification:** `derived_non_authoritative`  
-**Authoritative signed generation:** `000001-14cf058854cf0679`  
-**Generation commitment:** CMS-signed `generation.json` under `evidence/phase1/independent-reviews/000001-14cf058854cf0679/`  
-**Signer:** `LAB\\d48-reviewer` on `LAB-CLIENT01`  
-**Signer certificate:** `DB1742CE5481D4F3F98BFBD38D8637EFA0203825`  
-**D-48 policy:** `phase1-d48-independent-review-2026-08-26`  
-**D-48 trust root:** `9BD5C327444EBF5EBAE3139F77A48E044EACBD0A` / SHA-256 `4AD4555D26B23C0E3D0143EF7759114BC73F3B5C40272C4536FC6C8986485610`
-
-### Commands and Results
-
-| Command | Result |
-| --- | --- |
-| `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/evidence/Phase1.Evidence.Tests.ps1` | PASS (exit 0) |
-| `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/evidence/Phase1.Security.Tests.ps1 -Focus Publication` | PASS (exit 0) |
-| `scripts/verify-phase1.ps1` with archival and D-48 public trust/policy paths | BLOCKED: authenticated security subgate reports `T-01-21-04 file digest mismatch scripts/add-independent-review.ps1`; the independent-review module also reports the pre-existing archival policy `subject` compatibility failure under Windows PowerShell |
-| Isolated copied-fixture mutations of `security_closure`, `reviewer_root`, `security_review`, `code_review`, and `requirement_matrix` | FAIL CLOSED: `independent_review_artifact_drift:<artifact>` |
-| Isolated copied-fixture mutations of archival and D-48 policy JSON | FAIL CLOSED: JSON parse/validation error before acceptance |
-
-The isolated checks used a disposable checkout and disposable mutated copies only. They did not modify canonical evidence, policies, roots, the signed generation, or the index. The archival closure digest mismatch and legacy null-`subject` dereference remain open implementation/ceremony gaps; resolving them requires an additive authenticated archival update or a compatibility fix followed by the required signer ceremony. This interval therefore records operational observations only and cannot elevate Phase 1 status.
-
-The prior gap interval above is preserved verbatim. The immutable CMS generation and `index.json` remain the sole authoritative D-48 closure; this derived note does not restate, alter, supersede, or override the signed review judgment. The legacy free-form `bundle.independent_review` object remains non-authoritative.
