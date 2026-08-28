@@ -14,7 +14,8 @@ param(
         'CleanupFailure',
         'FreshTokenRetry',
         'NormalOutput',
-        'DiagnosticRedaction'
+        'DiagnosticRedaction',
+        'AuthorityQueryAdapter'
     )][string]$Scenario,
     [Parameter()][System.Management.Automation.PSCredential]$Credential
 )
@@ -237,27 +238,100 @@ function Invoke-LiveEnrollmentRecovery {
 }
 
 function Invoke-AuthorityQuery {
-    param([Parameter(Mandatory)][string]$Sql)
-    Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($env:DLP_DATABASE_URL)) 'database_url_missing'
-    $psql = Get-Command psql -ErrorAction SilentlyContinue
-    Assert-AgentSmoke ($null -ne $psql) 'psql_missing'
-    $output = & $psql.Source $env:DLP_DATABASE_URL -tA -v ON_ERROR_STOP=1 -c $Sql 2>&1
-    Assert-AgentSmoke ($LASTEXITCODE -eq 0) 'authority_query_failed'
-    return (($output -join "`n").Trim())
+    param(
+        [Parameter(Mandatory)][string]$Sql,
+        [Parameter()][ValidateSet('ActiveSerial', 'AuthoritySnapshot', 'CredentialStatus')][string]$ExpectedShape = 'ActiveSerial',
+        [Parameter()][string]$ExecutablePath,
+        [Parameter()][string]$DatabaseUrl
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DatabaseUrl)) { $DatabaseUrl = $env:DLP_DATABASE_URL }
+    Assert-AgentSmoke (-not [string]::IsNullOrWhiteSpace($DatabaseUrl)) 'database_url_missing'
+    if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
+        $psql = Get-Command psql -ErrorAction SilentlyContinue
+        Assert-AgentSmoke ($null -ne $psql) 'psql_missing'
+        $ExecutablePath = $psql.Source
+    }
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $ExecutablePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.CreateNoWindow = $true
+    foreach ($argument in @('-tA', '-v', 'ON_ERROR_STOP=1', '-c', $Sql, $DatabaseUrl)) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        try {
+            Assert-AgentSmoke $process.Start() 'authority_query_process_failed'
+        } catch {
+            Stop-AgentSmoke 'authority_query_process_failed'
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $exitCode = $process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+
+    Assert-AgentSmoke ($exitCode -eq 0) 'authority_query_exit_nonzero'
+    Assert-AgentSmoke ([string]::IsNullOrWhiteSpace($stderr)) 'authority_query_stderr'
+    $rows = @($stdout -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    Assert-AgentSmoke ($rows.Count -eq 1) 'authority_query_row_count_invalid'
+    $row = [string]$rows[0]
+
+    switch ($ExpectedShape) {
+        'ActiveSerial' {
+            Assert-AgentSmoke ($row -cmatch '^(?:[0-9a-f]{2})+$') 'authority_query_active_serial_invalid'
+        }
+        'AuthoritySnapshot' {
+            $fields = $row.Split([char]'|', [System.StringSplitOptions]::None)
+            Assert-AgentSmoke ($fields.Count -eq 4) 'authority_query_snapshot_invalid'
+            Assert-AgentSmoke ($fields[0] -cmatch '^(?:[0-9a-f]{2})+$') 'authority_query_snapshot_invalid'
+            Assert-AgentSmoke ($fields[1] -cmatch '^(?:[0-9a-f]{2})+$') 'authority_query_snapshot_invalid'
+            $parsedTimestamp = [DateTimeOffset]::MinValue
+            if (-not [string]::IsNullOrEmpty($fields[2])) {
+                Assert-AgentSmoke ([DateTimeOffset]::TryParse(
+                    $fields[2],
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::AllowWhiteSpaces,
+                    [ref]$parsedTimestamp
+                )) 'authority_query_snapshot_invalid'
+            }
+            $parsedTimestamp = [DateTimeOffset]::MinValue
+            Assert-AgentSmoke (-not [string]::IsNullOrEmpty($fields[3]) -and [DateTimeOffset]::TryParse(
+                $fields[3],
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AllowWhiteSpaces,
+                [ref]$parsedTimestamp
+            )) 'authority_query_snapshot_invalid'
+        }
+        'CredentialStatus' {
+            Assert-AgentSmoke ($row -ceq 'active' -or $row -ceq 'revoked') 'authority_query_status_invalid'
+        }
+    }
+    return $row
 }
 
 function Get-ActiveCredentialSerial {
-    return Invoke-AuthorityQuery -Sql "SELECT COALESCE(encode(active_serial, 'hex'), '') FROM enrollment_authority WHERE device_id = 'LAB-CLIENT01.lab.local'"
+    return Invoke-AuthorityQuery -ExpectedShape ActiveSerial -Sql "SELECT COALESCE(encode(active_serial, 'hex'), '') FROM enrollment_authority WHERE device_id = 'LAB-CLIENT01.lab.local'"
 }
 
 function Get-EnrollmentAuthoritySnapshot {
-    return Invoke-AuthorityQuery -Sql "SELECT concat_ws('|', COALESCE(encode(active_serial, 'hex'), ''), encode(token_digest, 'hex'), COALESCE(token_consumed_at::text, ''), token_expires_at::text) FROM enrollment_authority WHERE device_id = 'LAB-CLIENT01.lab.local'"
+    return Invoke-AuthorityQuery -ExpectedShape AuthoritySnapshot -Sql "SELECT concat_ws('|', COALESCE(encode(active_serial, 'hex'), ''), encode(token_digest, 'hex'), COALESCE(token_consumed_at::text, ''), token_expires_at::text) FROM enrollment_authority WHERE device_id = 'LAB-CLIENT01.lab.local'"
 }
 
 function Get-CredentialAuthorityStatus {
     param([Parameter(Mandatory)][string]$Serial)
     Assert-AgentSmoke ($Serial -match '^[0-9a-f]+$') 'credential_serial_invalid'
-    return Invoke-AuthorityQuery -Sql "SELECT credential_status FROM device_route_credentials WHERE device_id = 'LAB-CLIENT01.lab.local' AND credential_serial = decode('$Serial', 'hex')"
+    return Invoke-AuthorityQuery -ExpectedShape CredentialStatus -Sql "SELECT credential_status FROM device_route_credentials WHERE device_id = 'LAB-CLIENT01.lab.local' AND credential_serial = decode('$Serial', 'hex')"
 }
 
 function Get-AgentPreservationState {
@@ -423,7 +497,194 @@ function Assert-InitialEnrollmentStateEmpty {
     Assert-AgentSmoke (-not $pointerPresent) 'initial_enrollment_pointer_precondition_not_empty'
 }
 
+function New-AuthorityQueryFakeExecutable {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $sourcePath = [IO.Path]::ChangeExtension($Path, '.cs')
+    $source = @'
+using System;
+using System.IO;
+using System.Text;
+
+public static class AuthorityQueryFakePsql
+{
+    public static int Main(string[] args)
+    {
+        string recordPath = Environment.GetEnvironmentVariable("DLP_FAKE_PSQL_ARGUMENT_RECORD");
+        if (!String.IsNullOrWhiteSpace(recordPath))
+        {
+            using (var writer = new StreamWriter(recordPath, false, new UTF8Encoding(false)))
+            {
+                foreach (string arg in args)
+                {
+                    writer.WriteLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(arg)));
+                }
+            }
+        }
+
+        string sql = Environment.GetEnvironmentVariable("DLP_FAKE_PSQL_EXPECTED_SQL") ?? String.Empty;
+        string databaseUrl = Environment.GetEnvironmentVariable("DLP_FAKE_PSQL_EXPECTED_URL") ?? String.Empty;
+        string[] expected = new[] { "-tA", "-v", "ON_ERROR_STOP=1", "-c", sql, databaseUrl };
+        if (args.Length != expected.Length)
+        {
+            Console.Error.WriteLine("argv_mismatch");
+            return 41;
+        }
+        for (int index = 0; index < expected.Length; index++)
+        {
+            if (!String.Equals(args[index], expected[index], StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("argv_mismatch");
+                return 41;
+            }
+        }
+
+        string mode = Environment.GetEnvironmentVariable("DLP_FAKE_PSQL_MODE") ?? "clean";
+        string row = Environment.GetEnvironmentVariable("DLP_FAKE_PSQL_ROW") ?? String.Empty;
+        switch (mode)
+        {
+            case "clean":
+                Console.Out.WriteLine(row);
+                return 0;
+            case "zero-row":
+                return 0;
+            case "multiple-row":
+                Console.Out.WriteLine(row);
+                Console.Out.WriteLine(row);
+                return 0;
+            case "stderr-warning":
+                Console.Out.WriteLine(row);
+                Console.Error.WriteLine("warning");
+                return 0;
+            case "nonzero-exit":
+                return 42;
+            default:
+                Console.Error.WriteLine("fixture_mode_invalid");
+                return 43;
+        }
+    }
+}
+'@
+    $compilerCandidates = @(
+        (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+        (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+    )
+    $compiler = @($compilerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1)
+    Assert-AgentSmoke ($compiler.Count -eq 1) 'authority_query_fixture_compiler_missing'
+    [IO.File]::WriteAllText($sourcePath, $source, [Text.UTF8Encoding]::new($false))
+    & $compiler[0] /nologo /target:exe "/out:$Path" $sourcePath | Out-Null
+    Assert-AgentSmoke ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $Path -PathType Leaf)) 'authority_query_fixture_compile_failed'
+}
+
+function Assert-AuthorityQueryFailure {
+    param(
+        [Parameter(Mandatory)][string]$ExpectedCode,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+
+    $failed = $false
+    try {
+        & $Action | Out-Null
+    } catch {
+        $failed = $true
+        Assert-AgentSmoke ($_.Exception.Message -ceq $ExpectedCode) 'authority_query_unexpected_failure_code'
+    }
+    Assert-AgentSmoke $failed 'authority_query_expected_failure_missing'
+}
+
+function Invoke-AuthorityQueryAdapterFixture {
+    $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('authority-query-adapter-' + [Guid]::NewGuid().ToString('N'))
+    $fakePsql = Join-Path $fixtureRoot 'psql.exe'
+    $argumentRecord = Join-Path $fixtureRoot 'arguments.txt'
+    $sentinelSql = 'SELECT concat_ws(''|'', encode(active_serial, ''hex''), (token_expires_at::text)) FROM enrollment_authority WHERE device_id = ''LAB-CLIENT01.lab.local'''
+    $sentinelUrl = 'postgresql://authority-fixture.invalid/dlp'
+    $serial = '0123456789abcdef'
+    $snapshot = '0123456789abcdef|fedcba9876543210|2026-08-28 10:11:12.123456+00|2026-08-28 11:11:12.654321+00'
+    $oldPath = $env:PATH
+    $oldDatabaseUrl = $env:DLP_DATABASE_URL
+    $fixtureVariables = @(
+        'DLP_FAKE_PSQL_ARGUMENT_RECORD',
+        'DLP_FAKE_PSQL_EXPECTED_SQL',
+        'DLP_FAKE_PSQL_EXPECTED_URL',
+        'DLP_FAKE_PSQL_MODE',
+        'DLP_FAKE_PSQL_ROW'
+    )
+    $oldFixtureValues = @{}
+    foreach ($name in $fixtureVariables) { $oldFixtureValues[$name] = [Environment]::GetEnvironmentVariable($name) }
+
+    New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+    try {
+        New-AuthorityQueryFakeExecutable -Path $fakePsql
+        $env:PATH = $fixtureRoot + [IO.Path]::PathSeparator + $oldPath
+        $env:DLP_DATABASE_URL = $sentinelUrl
+        $env:DLP_FAKE_PSQL_ARGUMENT_RECORD = $argumentRecord
+        $env:DLP_FAKE_PSQL_EXPECTED_SQL = $sentinelSql
+        $env:DLP_FAKE_PSQL_EXPECTED_URL = $sentinelUrl
+        $env:DLP_FAKE_PSQL_MODE = 'clean'
+        $env:DLP_FAKE_PSQL_ROW = $serial
+
+        $actual = Invoke-AuthorityQuery -Sql $sentinelSql
+        Assert-AgentSmoke ($actual -ceq $serial) 'authority_query_clean_row_mismatch'
+        $recorded = @([IO.File]::ReadAllLines($argumentRecord) | ForEach-Object {
+            [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_))
+        })
+        $expectedArguments = @('-tA', '-v', 'ON_ERROR_STOP=1', '-c', $sentinelSql, $sentinelUrl)
+        Assert-AgentSmoke ($recorded.Count -eq $expectedArguments.Count) 'authority_query_argument_count_invalid'
+        for ($index = 0; $index -lt $expectedArguments.Count; $index++) {
+            Assert-AgentSmoke ($recorded[$index] -ceq $expectedArguments[$index]) 'authority_query_argument_order_invalid'
+        }
+
+        $env:DLP_FAKE_PSQL_ROW = $snapshot
+        Assert-AgentSmoke ((Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape AuthoritySnapshot -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl) -ceq $snapshot) 'authority_query_snapshot_row_mismatch'
+        $env:DLP_FAKE_PSQL_ROW = 'active'
+        Assert-AgentSmoke ((Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape CredentialStatus -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl) -ceq 'active') 'authority_query_status_row_mismatch'
+
+        $env:DLP_FAKE_PSQL_MODE = 'zero-row'
+        Assert-AuthorityQueryFailure -ExpectedCode 'authority_query_row_count_invalid' -Action {
+            Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape ActiveSerial -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl
+        }
+        $env:DLP_FAKE_PSQL_MODE = 'multiple-row'
+        $env:DLP_FAKE_PSQL_ROW = $serial
+        Assert-AuthorityQueryFailure -ExpectedCode 'authority_query_row_count_invalid' -Action {
+            Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape ActiveSerial -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl
+        }
+        $env:DLP_FAKE_PSQL_MODE = 'clean'
+        $env:DLP_FAKE_PSQL_ROW = 'ABC'
+        Assert-AuthorityQueryFailure -ExpectedCode 'authority_query_active_serial_invalid' -Action {
+            Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape ActiveSerial -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl
+        }
+        $env:DLP_FAKE_PSQL_ROW = '0123|4567|not-a-time|also-not-a-time'
+        Assert-AuthorityQueryFailure -ExpectedCode 'authority_query_snapshot_invalid' -Action {
+            Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape AuthoritySnapshot -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl
+        }
+        $env:DLP_FAKE_PSQL_ROW = 'ACTIVE'
+        Assert-AuthorityQueryFailure -ExpectedCode 'authority_query_status_invalid' -Action {
+            Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape CredentialStatus -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl
+        }
+        $env:DLP_FAKE_PSQL_MODE = 'stderr-warning'
+        $env:DLP_FAKE_PSQL_ROW = $serial
+        Assert-AuthorityQueryFailure -ExpectedCode 'authority_query_stderr' -Action {
+            Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape ActiveSerial -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl
+        }
+        $env:DLP_FAKE_PSQL_MODE = 'nonzero-exit'
+        Assert-AuthorityQueryFailure -ExpectedCode 'authority_query_exit_nonzero' -Action {
+            Invoke-AuthorityQuery -Sql $sentinelSql -ExpectedShape ActiveSerial -ExecutablePath $fakePsql -DatabaseUrl $sentinelUrl
+        }
+    } finally {
+        $env:PATH = $oldPath
+        $env:DLP_DATABASE_URL = $oldDatabaseUrl
+        foreach ($name in $fixtureVariables) {
+            [Environment]::SetEnvironmentVariable($name, $oldFixtureValues[$name])
+        }
+        Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 switch ($Scenario) {
+    'AuthorityQueryAdapter' {
+        Invoke-AuthorityQueryAdapterFixture
+        Write-Output 'authority_query_adapter=pass'
+    }
     'InitialEnrollmentCredential' {
         Assert-LiveLabAvailable
         Assert-InitialEnrollmentStateEmpty
