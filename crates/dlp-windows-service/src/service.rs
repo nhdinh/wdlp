@@ -11,8 +11,9 @@ use crate::session::{
     WtsSessionTokenProvider, active_session_ids,
 };
 use dlp_agent_core::{
-    AgentConfigurationTransport, AgentHttpClient, ConfigurationCache, EnrollmentCoordinator,
-    EnrollmentCredentialStore, EnrollmentMode, HealthSnapshot, RedactedDiagnostic,
+    ActivationOutcome, AgentConfigurationTransport, AgentHttpClient, ConfigurationCache,
+    EnrollmentCoordinator, EnrollmentCredentialStore, EnrollmentMode, HealthSnapshot,
+    RedactedDiagnostic,
 };
 use dlp_crypto::ConfigurationVerifier;
 use dlp_domain::DeviceId;
@@ -278,7 +279,17 @@ pub fn run_service_loop(
             last_poll = now;
             match (&mut transport, &verifier) {
                 (Some(t), Some(v)) => match poll_and_activate(&context, t, v) {
-                    Ok(_) => last_contact = Some(epoch_seconds()),
+                    Ok(outcome) => {
+                        last_contact = Some(epoch_seconds());
+                        let outcome = match outcome {
+                            ActivationOutcome::Activated { .. } => "activated",
+                            ActivationOutcome::Unchanged => "unchanged",
+                        };
+                        service_log(
+                            "INFO",
+                            format!("authenticated configuration poll succeeded: {outcome}"),
+                        );
+                    }
                     Err(error) => {
                         service_log("WARN", format!("configuration poll failed: {error}"));
                         post_health(&context, RedactedDiagnostic::ConfigurationRejected);
@@ -314,13 +325,12 @@ fn poll_and_activate(
     context: &ServiceContext,
     transport: &mut AgentConfigurationTransport,
     verifier: &ConfigurationVerifier,
-) -> Result<(), dlp_agent_core::ClientError> {
+) -> Result<ActivationOutcome, dlp_agent_core::ClientError> {
     let bytes = context.client.poll_configuration(transport)?;
-    let _ = context
+    context
         .cache
         .stage_verify_activate(&bytes, verifier)
-        .map_err(|_| dlp_agent_core::ClientError::ConfigurationFetchFailed)?;
-    Ok(())
+        .map_err(|_| dlp_agent_core::ClientError::ConfigurationFetchFailed)
 }
 
 fn post_health(context: &ServiceContext, diagnostic: RedactedDiagnostic) {

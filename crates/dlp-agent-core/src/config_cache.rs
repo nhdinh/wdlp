@@ -103,12 +103,13 @@ impl ConfigurationCache {
     }
 
     /// Stages raw bytes, verifies them, and atomically activates if valid and newer.
+    /// A byte-identical re-fetch of the selected version is a successful no-op.
     ///
     /// Verification order:
     /// 1. Wire format and content-digest integrity.
     /// 2. Strict Ed25519 signature over canonical envelope bytes.
     /// 3. Supported schema, trusted key identifier, device audience.
-    /// 4. Strictly increasing numeric bundle version versus current.
+    /// 4. Monotonic bundle version and same-version content consistency.
     pub fn stage_verify_activate(
         &self,
         bytes: &[u8],
@@ -138,17 +139,20 @@ impl ConfigurationCache {
         }
 
         let version = parse_bundle_version(signed.envelope().bundle_version())?;
+        let digest = *signed.content_digest();
         let pointers = self.read_pointers()?;
-        if let Some(current_version) = pointers.current_version
-            && version <= current_version
-        {
-            return Err(CacheError::StaleVersion {
-                received: version,
-                active: current_version,
-            });
+        if let Some(current_version) = pointers.current_version {
+            if version == current_version && pointers.current_digest == Some(digest) {
+                return Ok(ActivationOutcome::Unchanged);
+            }
+            if version <= current_version {
+                return Err(CacheError::StaleVersion {
+                    received: version,
+                    active: current_version,
+                });
+            }
         }
 
-        let digest = *signed.content_digest();
         self.write_staged_bundle(&digest, bytes)?;
 
         let new_generation = state.generation.saturating_add(1);
@@ -633,6 +637,44 @@ mod tests {
         assert_eq!(pointers.current_version, Some(1));
         assert!(pointers.lkg_version.is_none());
 
+        let current = cache.current_bundle().expect("current").expect("present");
+        assert_eq!(current.envelope().payload(), "allow");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn repeated_current_bundle_is_unchanged_but_conflicting_content_is_rejected() {
+        let tmp =
+            std::env::temp_dir().join(format!("dlp-cache-idempotence-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let cache = ConfigurationCache::open(&tmp, test_device()).expect("open cache");
+        let signer = test_signer();
+        let verifier = ConfigurationVerifier::from_public_key_bytes(
+            signer.key_id(),
+            signer.public_key_bytes(),
+        )
+        .expect("valid verifier");
+        let (_, selected) = signed_bundle(&test_device(), 1, "allow", &signer);
+        cache
+            .stage_verify_activate(&selected, &verifier)
+            .expect("activate selected bundle");
+
+        assert_eq!(
+            cache
+                .stage_verify_activate(&selected, &verifier)
+                .expect("identical current bundle is idempotent"),
+            ActivationOutcome::Unchanged
+        );
+
+        let (_, conflicting) = signed_bundle(&test_device(), 1, "deny", &signer);
+        assert!(matches!(
+            cache.stage_verify_activate(&conflicting, &verifier),
+            Err(CacheError::StaleVersion {
+                received: 1,
+                active: 1
+            })
+        ));
         let current = cache.current_bundle().expect("current").expect("present");
         assert_eq!(current.envelope().payload(), "allow");
 
