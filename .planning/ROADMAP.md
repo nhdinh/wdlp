@@ -119,13 +119,13 @@ Plans:
 **Goal:** As a lab operator, I want the endpoint deployment script to obtain the enrollment token automatically from trusted provisioning, so that I can install and start DlpWindowsService without manually copying a short-lived secret.
 **Requirements**: SRV-13, SRV-14, TST-05, AGT-01
 **Depends on:** Phase 1
-**Plans:** 1/1 plans executed
+**Plans:** 1 plan
 
 Plans:
 
 **Wave 1**
 
-- [x] 01.2-01-PLAN.md (Wave 1) — Orchestrator-chained automatic enrollment token acquisition, validation, cleanup, and doc update (completed 2026-08-13)
+- [ ] 01.2-01-PLAN.md (Wave 1) — Automatic enrollment token acquisition with force-gated replacement, fail-closed cleanup, redacted diagnostics, and operator docs
 
 ### Phase 01.1: Add docs for those env var DLP_DEVICE_ID, DLP_SERVER_URL, DLP_ROOT_CA_PEM, DLP_CONFIGURATION_PUBLIC_KEY_HEX. Add docs to guide how to collect/create all env vars for setting up (INSERTED)
 
