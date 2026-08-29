@@ -289,7 +289,8 @@ fn production_route_contract_partitions_bootstrap_admin_and_active_device_access
     let server = include_str!("../../crates/dlp-server/src/lib.rs");
 
     assert!(routes.contains("/api/v1/enrollment"));
-    assert!(routes.contains("require_administrator"));
+    assert!(routes.contains("require_registered_principal"));
+    assert!(routes.contains("require_mutating_administrator"));
     assert!(routes.contains("require_active_device"));
     assert!(!server.contains("DLP_ADMIN_PROVISIONING_KEY"));
     assert!(!server.contains("Bearer "));
