@@ -103,7 +103,13 @@ pub struct PolicyInput {
     pub owner: UserSid,
     pub size_bytes: u64,
     pub operation: Operation,
+    mime_type: Option<String>,
+    destination: Option<String>,
+    process: Option<String>,
+    owner_available: bool,
     content_prefix: Option<Vec<u8>>,
+    authenticated_digest: Option<[u8; 32]>,
+    inspection_failure: Option<InspectionFailure>,
 }
 
 impl PolicyInput {
@@ -130,7 +136,13 @@ impl PolicyInput {
             owner,
             size_bytes,
             operation: Operation::Read,
+            mime_type: None,
+            destination: None,
+            process: None,
+            owner_available: true,
             content_prefix: None,
+            authenticated_digest: None,
+            inspection_failure: None,
         })
     }
 
@@ -139,24 +151,87 @@ impl PolicyInput {
         self
     }
 
+    pub fn with_mime_type(mut self, mime_type: impl Into<String>) -> Self {
+        self.mime_type = Some(mime_type.into());
+        self
+    }
+
+    pub fn with_destination(mut self, destination: impl Into<String>) -> Self {
+        self.destination = Some(destination.into());
+        self
+    }
+
+    pub fn with_process(mut self, process: impl Into<String>) -> Self {
+        self.process = Some(process.into());
+        self
+    }
+
+    pub const fn without_owner_context(mut self) -> Self {
+        self.owner_available = false;
+        self
+    }
+
     pub fn with_content_prefix(mut self, content: &[u8]) -> Self {
         self.content_prefix = Some(content.to_vec());
         self
+    }
+
+    pub const fn with_authenticated_digest(mut self, digest: [u8; 32]) -> Self {
+        self.authenticated_digest = Some(digest);
+        self
+    }
+
+    pub const fn with_inspection_failure(mut self, failure: InspectionFailure) -> Self {
+        self.inspection_failure = Some(failure);
+        self
+    }
+
+    pub fn mime_type(&self) -> Option<&str> {
+        self.mime_type.as_deref()
+    }
+
+    pub fn destination(&self) -> Option<&str> {
+        self.destination.as_deref()
+    }
+
+    pub fn process(&self) -> Option<&str> {
+        self.process.as_deref()
+    }
+
+    pub fn owner_context(&self) -> Option<&UserSid> {
+        self.owner_available.then_some(&self.owner)
     }
 
     pub fn content_prefix(&self) -> Option<&[u8]> {
         self.content_prefix.as_deref()
     }
 
+    pub const fn authenticated_digest(&self) -> Option<&[u8; 32]> {
+        self.authenticated_digest.as_ref()
+    }
+
+    pub const fn inspection_failure(&self) -> Option<InspectionFailure> {
+        self.inspection_failure
+    }
+
     pub fn canonical_bytes(&self) -> Vec<u8> {
         format!(
-            "file_name={};extension={};path={};owner={};size_bytes={};operation={}",
+            "file_name={};extension={};path={};owner={};owner_available={};size_bytes={};operation={};mime_type={};destination={};process={};authenticated_digest={};inspection_failure={}",
             self.file_name,
             self.extension,
             self.path,
             self.owner.to_wire(),
+            self.owner_available,
             self.size_bytes,
-            self.operation.as_str()
+            self.operation.as_str(),
+            self.mime_type.as_deref().unwrap_or(""),
+            self.destination.as_deref().unwrap_or(""),
+            self.process.as_deref().unwrap_or(""),
+            self.authenticated_digest
+                .as_ref()
+                .map(|digest| digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
+                .unwrap_or_default(),
+            self.inspection_failure.map_or("", InspectionFailure::as_str),
         )
         .into_bytes()
     }
@@ -172,11 +247,36 @@ impl fmt::Debug for PolicyInput {
             .field("owner", &self.owner)
             .field("size_bytes", &self.size_bytes)
             .field("operation", &self.operation)
+            .field("mime_type", &self.mime_type)
+            .field("destination", &self.destination)
+            .field("process", &self.process)
+            .field("owner_available", &self.owner_available)
             .field(
                 "content_prefix",
                 &self.content_prefix.as_ref().map(Vec::len),
             )
+            .field("authenticated_digest", &self.authenticated_digest.is_some())
+            .field("inspection_failure", &self.inspection_failure)
             .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum InspectionFailure {
+    Corrupt,
+    Decode,
+    MissingDigest,
+    Resource,
+}
+
+impl InspectionFailure {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Corrupt => "corrupt",
+            Self::Decode => "decode",
+            Self::MissingDigest => "missing_digest",
+            Self::Resource => "resource",
+        }
     }
 }
 

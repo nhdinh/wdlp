@@ -698,6 +698,7 @@ dependencies = [
  "aho-corasick",
  "dlp-domain",
  "regex",
+ "serde_json",
 ]
 
 [[package]]
