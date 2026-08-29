@@ -163,7 +163,21 @@ Plans:
   5. A blocked or warned operation returns an appropriate access-denied result, and the companion process shows a Windows toast with file name, rule reason, and remediation guidance.
   6. Enforcement events are created at the time of the decision with policy version, matched rule, action, and selected metadata.
 
-**Plans**: TBD
+**Plans**: 11 plans
+
+Plans:
+
+- [ ] 02-01-PLAN.md — Deterministic bounded policy compiler and read/export enforcement tracer
+- [ ] 02-02-PLAN.md — mTLS roles, immutable PostgreSQL policy lifecycle, assignments, and named bundle contract
+- [ ] 02-03-PLAN.md — Complete dlpctl policy lifecycle, inspection, assignment, and status surface
+- [ ] 02-04-PLAN.md — Canonical signed bundle materialization and atomic endpoint current/LKG activation
+- [ ] 02-05-PLAN.md — Authenticated production drive-host policy bootstrap and hot update
+- [ ] 02-06-PLAN.md — Old-key-authorized rotation and server-to-endpoint distribution E2E
+- [ ] 02-07-PLAN.md — Authenticated staged inspection and pre-effect enforcement for every drive callback
+- [ ] 02-08-PLAN.md — Service-authoritative exact Proceed-once grants and authenticated companion actions
+- [ ] 02-09-PLAN.md — Production decision/event/grant transport and privacy-safe notification projection
+- [ ] 02-10-PLAN.md — Native per-user companion and session/restart isolation lifecycle
+- [ ] 02-11-PLAN.md — Real Windows DLP matrix, evidence, and final coverage/validation seal
 **UI hint**: yes
 
 ### Phase 3: Audit, Offline Operation, and Fleet Control

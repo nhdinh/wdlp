@@ -537,7 +537,7 @@ DATA_B5T1Y9DU_END
 | A3 | Outstanding Proceed-once grants should be memory-only and expire on service restart. | Architecture Pattern 6 | Product may require restart continuity, which needs protected persistence and replay design. |
 | A4 | Compiled regex machines should not be serialized; endpoint should reconstruct from canonical definitions. | Anti-Patterns | A stable, authenticated portable representation might later be justified, but version coupling is high. |
 | A5 | Proposed new test paths and helper API names are appropriate. | Validation / Code Examples | Planner should map them to actual module ownership and avoid unnecessary public APIs. |
-| A6 | Every allow decision gets an event, with `allow_and_audit` distinguished by explicit audit semantics. | Resolved Phase 2 contract | Plans 02-04/02-05 make decision-time creation testable while leaving durable transport to the later phase boundary. |
+| A6 | Every allow decision gets an event, with `allow_and_audit` distinguished by explicit audit semantics. | Resolved Phase 2 contract | Plans 02-07/02-09 make decision-time creation testable while leaving durable transport to the later phase boundary. |
 | A7 | Missing local Docker and PostgreSQL readiness can be covered by the existing lab/CI topology. | Environment Availability | Server integration tests may block locally until a database is provided. |
 
 ## Open Questions — RESOLVED
@@ -552,17 +552,17 @@ All four research questions below are resolved as Phase 2 execution contracts by
 2. **[RESOLVED] How are authenticated content digests established for files created before Phase 2?**
    - What we know: the current `EncryptedManifestV1` codec in `format.rs` has no plaintext digest. [VERIFIED: crates/dlp-storage/src/format.rs:141-193]
    - Resolved uncertainty: eager maintenance migration versus lazy recomputation on authenticated full read.
-   - Resolution: Plan 02-04 versions the explicit `EncryptedManifestV1` encode/decode contract, authenticates a full-file digest for each newly committed import, lazily backfills only after an authenticated complete legacy read, and applies D-14 `inspection_failed` whenever a required digest is still missing. This directly implements D-12 through D-14. [RESOLVED: 02-04 Task 1]
+   - Resolution: Plan 02-07 versions the explicit `EncryptedManifestV1` encode/decode contract, authenticates a full-file digest for each newly committed import, lazily backfills only after an authenticated complete legacy read, and applies D-14 `inspection_failed` whenever a required digest is still missing. This directly implements D-12 through D-14. [RESOLVED: 02-07 Task 1]
 
 3. **[RESOLVED] What exact evidence distinction is required between `allow` and `allow_and_audit` in Phase 2?**
    - What we know: success criteria require decision-time enforcement events, while durable offline queuing/upload belongs to Phase 3. [VERIFIED: .planning/ROADMAP.md:35-76; 02-CONTEXT.md Phase Boundary]
    - Resolved uncertainty: whether `allow` emits the same event class/retention as `allow_and_audit`.
-   - Resolution: Plans 02-04 and 02-05 create one normalized synchronous event for every decision; `allow_and_audit` sets `mandatory_audit=true`, ordinary `allow` sets it false, and both allow the immediate operation. Phase 2 keeps the event handoff local/in-memory, consistent with the Phase Boundary and D-18; durable offline transport remains outside this phase. [RESOLVED: 02-04 Task 2; 02-05 Task 2]
+   - Resolution: Plans 02-07 and 02-09 create one normalized synchronous event for every decision; `allow_and_audit` sets `mandatory_audit=true`, ordinary `allow` sets it false, and both allow the immediate operation. Phase 2 keeps the event handoff local/in-memory, consistent with the Phase Boundary and D-18; durable offline transport remains outside this phase. [RESOLVED: 02-07 Task 2; 02-09 Task 2]
 
 4. **[RESOLVED] What is the exact rotation overlap/removal policy?**
    - What we know: ADR-005 requires old-key authorization and allows re-enrollment for endpoints that miss the overlap. [VERIFIED: .planning/docs/adrs/ADR-005-policy-signing.md:72-126]
    - Resolved uncertainty: overlap duration and whether old-key retirement is time- or version-based.
-   - Resolution: Plan 02-03 requires an already-trusted old key to authorize a transition carrying both a monotonic not-after bundle version and an epoch-seconds not-after bound. Equality at both bounds is accepted; exceeding either rejects old-key use, preserves LKG, and endpoints that miss the overlap follow ADR-005 re-enrollment. This preserves D-04 next-poll activation and introduces no trust-on-first-use path. [RESOLVED: 02-03 Task 2]
+   - Resolution: Plan 02-06 Task 1 requires an already-trusted old key to authorize a transition carrying both a monotonic not-after bundle version and an epoch-seconds not-after bound. Equality at both bounds is accepted; exceeding either rejects old-key use, preserves LKG, and endpoints that miss the overlap follow ADR-005 re-enrollment. This preserves D-04 next-poll activation and introduces no trust-on-first-use path. [RESOLVED: 02-06 Task 1]
 
 ## Environment Availability
 

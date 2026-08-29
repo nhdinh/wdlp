@@ -651,7 +651,7 @@ fn main() -> ExitCode {
 }
 ```
 
-Copy the exact argument grammar, stable fail-closed exit codes, service pipe handshake, and non-sensitive errors from `dlp-drive-host`. The companion should render a privacy-safe toast containing a generic operation label and policy/rule display label, never content, filename, or path. `Proceed once` sends only the opaque challenge ID back through authenticated IPC. Toast deduplication by Tag+Group is presentation-only; each operation still requires a distinct service-owned challenge/grant.
+Copy the exact argument grammar, stable fail-closed exit codes, service pipe handshake, and non-sensitive errors from `dlp-drive-host`. The companion should render a privacy-safe toast containing the base file name, operation, safe policy/rule display label, stable reason, and remediation per D-17/UI-03; it must not reveal the full path, content or detector matches, SID, secret, or internal identifier. `Proceed once` sends only the opaque challenge ID back through authenticated IPC. Toast deduplication by Tag+Group is presentation-only; each operation still requires a distinct service-owned challenge/grant.
 
 There is no in-repo Windows App SDK/WinRT notification provider analog. Follow official platform API patterns selected during implementation for activation registration, per-user execution, Tag+Group replacement, and cleanup; keep all platform-specific FFI inside the Windows service crate and expose a small safe trait for tests.
 
@@ -691,7 +691,7 @@ Apply TLS-derived identities to all server policy routes and kernel-verified SID
 
 **Sources:** `crates/dlp-domain/src/lib.rs` lines 27-43; `crates/dlp-server/src/routes.rs` lines 147-161; `crates/dlpctl/src/main.rs` lines 221-247; `crates/dlp-windows-service/src/pipe.rs` lines 90-118.
 
-Use typed internal errors mapped to stable codes/statuses. Logs, HTTP bodies, CLI output, pipe errors, and toasts must not contain plaintext content, filenames, paths, keys, signatures, or raw parser/regex errors.
+Use typed internal errors mapped to stable codes/statuses. Logs, HTTP bodies, CLI output, and pipe errors must not contain plaintext content, filenames, paths, keys, signatures, or raw parser/regex errors. Per D-17/UI-03, toasts may contain only the base file name plus the allowlisted operation, safe rule display name, stable reason, and remediation; they must not contain full paths, content or detector matches, SIDs, secrets, or internal identifiers.
 
 ### Canonicalization, Bounds, and Validation
 
