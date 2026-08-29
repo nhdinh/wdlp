@@ -6,26 +6,101 @@
 
 use crate::{
     enrollment::{EnrollmentServicePort, EnrollmentSubmission, ProvisioningServicePort},
-    repository::{RouteRepository, RouteRepositoryError, RouteRepositoryPort},
-    tls::{AuthenticatedAdmin, AuthenticatedDevice, PeerIdentity, TlsConnectionInfo, TlsError},
+    repository::{
+        PolicyDistributionStatus, PrincipalRole, PublishedPolicyVersion, RouteRepository,
+        RouteRepositoryError, RouteRepositoryPort,
+    },
+    tls::{
+        AdministratorPrincipalV1, AuthenticatedAdmin, AuthenticatedDevice, PeerIdentity,
+        TlsConnectionInfo, TlsError,
+    },
 };
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, DefaultBodyLimit, Extension, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Extension, Path, State},
     http::{Request, StatusCode, header::CONTENT_TYPE},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use dlp_agent_core::serialize_signed_configuration;
 use dlp_crypto::ConfigurationSigner;
 use dlp_domain::{BundleVersion, DeviceId};
+use dlp_policy::{DetectorCeilings, PolicyDocumentV2};
 use dlp_protocol::{
     ConfigurationEnvelopeV1, ProvisionDeviceRequestV1, ProvisionDeviceResponseV1,
     SignedConfigurationV1,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
+
+pub use crate::repository::PolicyDeploymentUpdate;
+
+const POLICY_EFFECTIVE_AT_EPOCH_SECONDS: i64 = 1_754_568_000;
+const POLICY_OFFLINE_ALLOWANCE_SECONDS: u64 = 7 * 24 * 60 * 60;
+const POLICY_AGENT_SETTINGS_JSON: &str = r#"{"preferred_drive_letter":"P"}"#;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PolicyBundleContract {
+    schema_version: u16,
+    policy_id: String,
+    policy_version: u64,
+    policy_digest: [u8; 32],
+    policy_source_json: Vec<u8>,
+    agent_settings_json: String,
+    effective_at_epoch_seconds: i64,
+    offline_allowance_seconds: u64,
+    device_audience: String,
+    bundle_version: u64,
+    signing_key_id: String,
+}
+
+impl PolicyBundleContract {
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    pub fn policy_id(&self) -> &str {
+        &self.policy_id
+    }
+
+    pub const fn policy_version(&self) -> u64 {
+        self.policy_version
+    }
+
+    pub const fn policy_digest(&self) -> &[u8; 32] {
+        &self.policy_digest
+    }
+
+    pub fn policy_source_json(&self) -> &[u8] {
+        &self.policy_source_json
+    }
+
+    pub fn agent_settings_json(&self) -> &str {
+        &self.agent_settings_json
+    }
+
+    pub const fn effective_at_epoch_seconds(&self) -> i64 {
+        self.effective_at_epoch_seconds
+    }
+
+    pub const fn offline_allowance_seconds(&self) -> u64 {
+        self.offline_allowance_seconds
+    }
+
+    pub fn device_audience(&self) -> &str {
+        &self.device_audience
+    }
+
+    pub const fn bundle_version(&self) -> u64 {
+        self.bundle_version
+    }
+
+    pub fn signing_key_id(&self) -> &str {
+        &self.signing_key_id
+    }
+}
 
 #[derive(Clone)]
 pub struct RouteState {
@@ -41,6 +116,19 @@ impl RouteState {
     pub fn for_test() -> Self {
         Self::new(
             Arc::new(RouteRepository::default()),
+            Arc::new(AlwaysOkEnrollmentService),
+            Arc::new(AlwaysOkProvisioningService),
+            Arc::new(ConfigurationSigner::from_seed(
+                "phase1-test-key",
+                [0xA5; 32],
+            )),
+        )
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    pub fn with_repository_for_test(repository: Arc<dyn RouteRepositoryPort>) -> Self {
+        Self::new(
+            repository,
             Arc::new(AlwaysOkEnrollmentService),
             Arc::new(AlwaysOkProvisioningService),
             Arc::new(ConfigurationSigner::from_seed(
@@ -142,11 +230,223 @@ impl RouteState {
             .await?;
         Ok(())
     }
+
+    async fn principal_role(
+        &self,
+        administrator: &AuthenticatedAdmin,
+    ) -> Result<PrincipalRole, RouteError> {
+        self.repository
+            .resolve_principal_role(administrator.principal())
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn require_mutating_administrator(
+        &self,
+        administrator: &AuthenticatedAdmin,
+    ) -> Result<(), RouteError> {
+        match self.principal_role(administrator).await? {
+            PrincipalRole::Administrator => Ok(()),
+            PrincipalRole::Auditor => Err(RouteError::Forbidden),
+        }
+    }
+
+    pub async fn grant_principal(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        principal: &AdministratorPrincipalV1,
+        role: PrincipalRole,
+    ) -> Result<(), RouteError> {
+        self.require_mutating_administrator(administrator).await?;
+        self.repository
+            .grant_principal(administrator, principal, role)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn revoke_principal(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        principal: &AdministratorPrincipalV1,
+    ) -> Result<(), RouteError> {
+        self.require_mutating_administrator(administrator).await?;
+        self.repository
+            .revoke_principal(administrator, principal)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn save_policy_draft(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        policy_id: &str,
+        source_json: &[u8],
+    ) -> Result<(), RouteError> {
+        self.require_mutating_administrator(administrator).await?;
+        self.repository
+            .save_policy_draft(policy_id, source_json)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn validate_policy_draft(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        policy_id: &str,
+    ) -> Result<[u8; 32], RouteError> {
+        self.require_mutating_administrator(administrator).await?;
+        let source = self
+            .repository
+            .policy_draft(policy_id)
+            .await?
+            .ok_or(RouteError::NotFound)?;
+        compile_policy(&source)?;
+        let digest: [u8; 32] = Sha256::digest(&source).into();
+        self.repository
+            .record_policy_validation(policy_id, &digest)
+            .await?;
+        Ok(digest)
+    }
+
+    pub async fn publish_policy_draft(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<PublishedPolicyVersion, RouteError> {
+        self.require_mutating_administrator(administrator).await?;
+        let source = self
+            .repository
+            .policy_draft(policy_id)
+            .await?
+            .ok_or(RouteError::NotFound)?;
+        compile_policy(&source)?;
+        let digest: [u8; 32] = Sha256::digest(&source).into();
+        self.repository
+            .record_policy_validation(policy_id, &digest)
+            .await?;
+        self.repository
+            .publish_policy(policy_id, version, &digest)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn inspect_policy_version(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<PublishedPolicyVersion, RouteError> {
+        self.principal_role(administrator).await?;
+        self.repository
+            .published_policy(policy_id, version)
+            .await?
+            .ok_or(RouteError::NotFound)
+    }
+
+    pub async fn assign_organization_policy(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<(), RouteError> {
+        self.require_mutating_administrator(administrator).await?;
+        self.repository
+            .assign_organization_policy(policy_id, version)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn assign_device_policy(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        device_id: &str,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<(), RouteError> {
+        self.require_mutating_administrator(administrator).await?;
+        self.repository
+            .assign_device_policy(device_id, policy_id, version)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn clear_device_policy(
+        &self,
+        administrator: &AuthenticatedAdmin,
+        device_id: &str,
+    ) -> Result<(), RouteError> {
+        self.require_mutating_administrator(administrator).await?;
+        self.repository
+            .clear_device_policy(device_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn policy_bundle_for(
+        &self,
+        device: &AuthenticatedDevice,
+    ) -> Result<PolicyBundleContract, RouteError> {
+        self.repository.authorize_device(device).await?;
+        let selected = self
+            .repository
+            .selected_policy(device.device_id())
+            .await?
+            .ok_or(RouteError::NotFound)?;
+        let published = selected.published();
+        Ok(PolicyBundleContract {
+            schema_version: published.schema_version(),
+            policy_id: published.policy_id().to_owned(),
+            policy_version: published.version(),
+            policy_digest: *published.content_digest(),
+            policy_source_json: published.source_json().to_vec(),
+            agent_settings_json: POLICY_AGENT_SETTINGS_JSON.to_owned(),
+            effective_at_epoch_seconds: POLICY_EFFECTIVE_AT_EPOCH_SECONDS,
+            offline_allowance_seconds: POLICY_OFFLINE_ALLOWANCE_SECONDS,
+            device_audience: device.device_id().to_owned(),
+            bundle_version: selected.bundle_version(),
+            signing_key_id: self.signer.key_id().to_owned(),
+        })
+    }
+
+    pub async fn policy_distribution_status(
+        &self,
+        device: &AuthenticatedDevice,
+    ) -> Result<PolicyDistributionStatus, RouteError> {
+        self.repository.authorize_device(device).await?;
+        self.repository
+            .policy_distribution_status(device.device_id())
+            .await?
+            .ok_or(RouteError::NotFound)
+    }
+
+    pub async fn report_policy_deployment(
+        &self,
+        device: &AuthenticatedDevice,
+        update: PolicyDeploymentUpdate,
+    ) -> Result<PolicyDistributionStatus, RouteError> {
+        self.repository.authorize_device(device).await?;
+        self.repository
+            .report_policy_deployment(device.device_id(), update)
+            .await
+            .map_err(Into::into)
+    }
+}
+
+fn compile_policy(source: &[u8]) -> Result<(), RouteError> {
+    PolicyDocumentV2::from_json_bytes(source)
+        .and_then(|document| document.compile(DetectorCeilings::default()))
+        .map(|_| ())
+        .map_err(|_| RouteError::InvalidPolicy)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RouteError {
     Denied,
+    Forbidden,
+    Conflict,
+    InvalidPolicy,
+    NotFound,
     Unavailable,
 }
 
@@ -155,22 +455,80 @@ impl From<RouteRepositoryError> for RouteError {
         match value {
             RouteRepositoryError::Denied => Self::Denied,
             RouteRepositoryError::Replay => Self::Denied,
+            RouteRepositoryError::Conflict | RouteRepositoryError::LastAdministrator => {
+                Self::Conflict
+            }
+            RouteRepositoryError::MissingInitialAdministrator => Self::Unavailable,
+            RouteRepositoryError::NotFound => Self::NotFound,
             RouteRepositoryError::Unavailable => Self::Unavailable,
         }
+    }
+}
+
+impl IntoResponse for RouteError {
+    fn into_response(self) -> Response {
+        let (status, code) = match self {
+            Self::Denied => (StatusCode::UNAUTHORIZED, "request_denied"),
+            Self::Forbidden => (StatusCode::FORBIDDEN, "mutation_forbidden"),
+            Self::Conflict => (StatusCode::CONFLICT, "authority_conflict"),
+            Self::InvalidPolicy => (StatusCode::BAD_REQUEST, "policy_invalid"),
+            Self::NotFound => (StatusCode::NOT_FOUND, "authority_not_found"),
+            Self::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "authority_unavailable"),
+        };
+        (status, Json(serde_json::json!({ "error": code }))).into_response()
     }
 }
 
 /// Versioned API branches. Identity extraction is run before every protected
 /// handler and does not accept any HTTP-provided certificate header.
 pub fn api_v1_router(state: RouteState) -> Router {
-    let admin_routes = Router::new()
+    let administrator_mutation_routes = Router::new()
         .route(
             "/api/v1/admin/provisioning",
             post(admin_provisioning_contract),
         )
-        .route_layer(middleware::from_fn(require_administrator));
+        .route("/api/v1/admin/principals/grant", post(grant_principal))
+        .route("/api/v1/admin/principals/revoke", post(revoke_principal))
+        .route(
+            "/api/v1/admin/policies/{policy_id}/draft",
+            put(save_policy_draft),
+        )
+        .route(
+            "/api/v1/admin/policies/{policy_id}/validate",
+            post(validate_policy_draft),
+        )
+        .route(
+            "/api/v1/admin/policies/{policy_id}/publish",
+            post(publish_policy_draft),
+        )
+        .route(
+            "/api/v1/admin/policy-assignment",
+            put(assign_organization_policy),
+        )
+        .route(
+            "/api/v1/admin/devices/{device_id}/policy-assignment",
+            put(assign_device_policy).delete(clear_device_policy),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_mutating_administrator,
+        ));
+    let administrator_inspection_routes = Router::new()
+        .route(
+            "/api/v1/admin/policies/{policy_id}/versions/{version}",
+            get(inspect_policy_version),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_registered_principal,
+        ));
     let device_routes = Router::new()
         .route("/api/v1/device/configuration", get(fetch_configuration))
+        .route("/api/v1/device/policy-bundle", get(fetch_policy_bundle))
+        .route(
+            "/api/v1/device/policy-status",
+            get(fetch_policy_distribution_status).post(post_policy_deployment),
+        )
         .route("/api/v1/device/health", post(post_health))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -181,24 +539,50 @@ pub fn api_v1_router(state: RouteState) -> Router {
         .layer(DefaultBodyLimit::max(65_536));
     Router::new()
         .merge(bootstrap_routes)
-        .merge(admin_routes)
+        .merge(administrator_mutation_routes)
+        .merge(administrator_inspection_routes)
         .merge(device_routes)
         .with_state(state)
 }
 
-async fn require_administrator(
-    ConnectInfo(connection): ConnectInfo<TlsConnectionInfo>,
-    mut request: Request<axum::body::Body>,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    let administrator = connection
+fn tls_administrator(connection: &TlsConnectionInfo) -> Result<AuthenticatedAdmin, StatusCode> {
+    connection
         .identity()
         .cloned()
         .ok_or(StatusCode::UNAUTHORIZED)
         .and_then(|peer| AuthenticatedAdmin::from_peer(peer).map_err(|_| StatusCode::UNAUTHORIZED))
+}
+
+async fn require_registered_principal(
+    State(state): State<RouteState>,
+    ConnectInfo(connection): ConnectInfo<TlsConnectionInfo>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let administrator = tls_administrator(&connection)?;
+    state
+        .principal_role(&administrator)
+        .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
     request.extensions_mut().insert(administrator);
     Ok(next.run(request).await)
+}
+
+async fn require_mutating_administrator(
+    State(state): State<RouteState>,
+    ConnectInfo(connection): ConnectInfo<TlsConnectionInfo>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let administrator = tls_administrator(&connection)?;
+    match state.principal_role(&administrator).await {
+        Ok(PrincipalRole::Administrator) => {
+            request.extensions_mut().insert(administrator);
+            Ok(next.run(request).await)
+        }
+        Ok(PrincipalRole::Auditor) => Err(StatusCode::FORBIDDEN),
+        Err(_) => Err(StatusCode::UNAUTHORIZED),
+    }
 }
 
 async fn require_active_device(
@@ -312,6 +696,159 @@ async fn admin_provisioning_contract(
     }))
 }
 
+async fn grant_principal(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Json(request): Json<PrincipalMutationRequest>,
+) -> Result<StatusCode, RouteError> {
+    if request.version != 1 {
+        return Err(RouteError::InvalidPolicy);
+    }
+    let principal =
+        AdministratorPrincipalV1::parse(&request.principal).map_err(|_| RouteError::Denied)?;
+    state
+        .grant_principal(&administrator, &principal, request.role)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn revoke_principal(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Json(request): Json<PrincipalRevocationRequest>,
+) -> Result<StatusCode, RouteError> {
+    if request.version != 1 {
+        return Err(RouteError::InvalidPolicy);
+    }
+    let principal =
+        AdministratorPrincipalV1::parse(&request.principal).map_err(|_| RouteError::Denied)?;
+    state.revoke_principal(&administrator, &principal).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn save_policy_draft(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Path(policy_id): Path<String>,
+    Json(request): Json<PolicyDraftRequest>,
+) -> Result<StatusCode, RouteError> {
+    if request.version != 2 {
+        return Err(RouteError::InvalidPolicy);
+    }
+    let source_json =
+        serde_json::to_vec(&request.document).map_err(|_| RouteError::InvalidPolicy)?;
+    state
+        .save_policy_draft(&administrator, &policy_id, &source_json)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn validate_policy_draft(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Path(policy_id): Path<String>,
+) -> Result<Json<PolicyValidationResponse>, RouteError> {
+    let digest = state
+        .validate_policy_draft(&administrator, &policy_id)
+        .await?;
+    Ok(Json(PolicyValidationResponse {
+        valid: true,
+        content_digest: lower_hex(&digest),
+    }))
+}
+
+async fn publish_policy_draft(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Path(policy_id): Path<String>,
+    Json(request): Json<PolicyPublishRequest>,
+) -> Result<Json<PolicyVersionResponse>, RouteError> {
+    let published = state
+        .publish_policy_draft(&administrator, &policy_id, request.version)
+        .await?;
+    policy_version_response(published).map(Json)
+}
+
+async fn inspect_policy_version(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Path((policy_id, version)): Path<(String, u64)>,
+) -> Result<Json<PolicyVersionResponse>, RouteError> {
+    let published = state
+        .inspect_policy_version(&administrator, &policy_id, version)
+        .await?;
+    policy_version_response(published).map(Json)
+}
+
+async fn assign_organization_policy(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Json(request): Json<PolicyAssignmentRequest>,
+) -> Result<StatusCode, RouteError> {
+    if request.version != 1 {
+        return Err(RouteError::InvalidPolicy);
+    }
+    state
+        .assign_organization_policy(&administrator, &request.policy_id, request.policy_version)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn assign_device_policy(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Path(device_id): Path<String>,
+    Json(request): Json<PolicyAssignmentRequest>,
+) -> Result<StatusCode, RouteError> {
+    if request.version != 1 {
+        return Err(RouteError::InvalidPolicy);
+    }
+    state
+        .assign_device_policy(
+            &administrator,
+            &device_id,
+            &request.policy_id,
+            request.policy_version,
+        )
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn clear_device_policy(
+    State(state): State<RouteState>,
+    Extension(administrator): Extension<AuthenticatedAdmin>,
+    Path(device_id): Path<String>,
+) -> Result<StatusCode, RouteError> {
+    state
+        .clear_device_policy(&administrator, &device_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn policy_version_response(
+    published: PublishedPolicyVersion,
+) -> Result<PolicyVersionResponse, RouteError> {
+    let document =
+        serde_json::from_slice(published.source_json()).map_err(|_| RouteError::Unavailable)?;
+    Ok(PolicyVersionResponse {
+        policy_id: published.policy_id().to_owned(),
+        version: published.version(),
+        schema_version: published.schema_version(),
+        content_digest: lower_hex(published.content_digest()),
+        document,
+    })
+}
+
+fn lower_hex(value: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(value.len() * 2);
+    for byte in value {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
 async fn fetch_configuration(
     State(state): State<RouteState>,
     Extension(device): Extension<AuthenticatedDevice>,
@@ -328,6 +865,46 @@ async fn fetch_configuration(
         serialize_signed_configuration(&configuration),
     )
         .into_response())
+}
+
+async fn fetch_policy_bundle(
+    State(state): State<RouteState>,
+    Extension(device): Extension<AuthenticatedDevice>,
+) -> Result<Json<PolicyBundleContract>, RouteError> {
+    state.policy_bundle_for(&device).await.map(Json)
+}
+
+async fn fetch_policy_distribution_status(
+    State(state): State<RouteState>,
+    Extension(device): Extension<AuthenticatedDevice>,
+) -> Result<Json<PolicyDistributionStatus>, RouteError> {
+    state.policy_distribution_status(&device).await.map(Json)
+}
+
+async fn post_policy_deployment(
+    State(state): State<RouteState>,
+    Extension(device): Extension<AuthenticatedDevice>,
+    Json(request): Json<PolicyDeploymentRequest>,
+) -> Result<Json<PolicyDistributionStatus>, RouteError> {
+    if request.version != 1 {
+        return Err(RouteError::InvalidPolicy);
+    }
+    let update = match request.state {
+        PolicyDeploymentState::Issued => PolicyDeploymentUpdate::Issued {
+            bundle_version: request.bundle_version,
+        },
+        PolicyDeploymentState::Activated => PolicyDeploymentUpdate::Activated {
+            bundle_version: request.bundle_version,
+        },
+        PolicyDeploymentState::Error => PolicyDeploymentUpdate::Error {
+            bundle_version: request.bundle_version,
+            error_code: request.error_code.ok_or(RouteError::InvalidPolicy)?,
+        },
+    };
+    state
+        .report_policy_deployment(&device, update)
+        .await
+        .map(Json)
 }
 
 async fn post_health(
@@ -348,6 +925,10 @@ async fn post_health(
 fn route_error_status(error: RouteError) -> StatusCode {
     match error {
         RouteError::Denied => StatusCode::UNAUTHORIZED,
+        RouteError::Forbidden => StatusCode::FORBIDDEN,
+        RouteError::Conflict => StatusCode::CONFLICT,
+        RouteError::InvalidPolicy => StatusCode::BAD_REQUEST,
+        RouteError::NotFound => StatusCode::NOT_FOUND,
         RouteError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
@@ -357,6 +938,75 @@ struct ProvisioningResponse {
     version: u16,
     device_id: String,
     enrollment_token: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrincipalMutationRequest {
+    version: u16,
+    principal: String,
+    role: PrincipalRole,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrincipalRevocationRequest {
+    version: u16,
+    principal: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyDraftRequest {
+    version: u16,
+    document: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyPublishRequest {
+    version: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyAssignmentRequest {
+    version: u16,
+    policy_id: String,
+    policy_version: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PolicyDeploymentState {
+    Issued,
+    Activated,
+    Error,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyDeploymentRequest {
+    version: u16,
+    bundle_version: u64,
+    state: PolicyDeploymentState,
+    #[serde(default)]
+    error_code: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PolicyValidationResponse {
+    valid: bool,
+    content_digest: String,
+}
+
+#[derive(Serialize)]
+struct PolicyVersionResponse {
+    policy_id: String,
+    version: u64,
+    schema_version: u16,
+    content_digest: String,
+    document: serde_json::Value,
 }
 
 #[derive(Deserialize)]

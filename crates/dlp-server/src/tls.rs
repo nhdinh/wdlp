@@ -8,6 +8,7 @@ use axum::{
     extract::connect_info::Connected,
     serve::{IncomingStream, Listener},
 };
+use sha2::{Digest, Sha256};
 use std::{env, fs, io, path::PathBuf, sync::Arc};
 use tokio::{
     net::TcpListener,
@@ -41,6 +42,84 @@ pub struct PeerIdentity {
     role: PeerRole,
     subject: String,
     serial: Vec<u8>,
+    administrator_principal: Option<AdministratorPrincipalV1>,
+}
+
+/// Opaque administrator identity derived only from a rustls-verified issuer and
+/// canonical leaf certificate. Subjects and serial strings are deliberately not
+/// part of the authorization key.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct AdministratorPrincipalV1 {
+    issuer_sha256: [u8; 32],
+    leaf_sha256: [u8; 32],
+}
+
+impl AdministratorPrincipalV1 {
+    pub fn from_verified_der(issuer_der: &[u8], leaf_der: &[u8]) -> Self {
+        Self {
+            issuer_sha256: Sha256::digest(issuer_der).into(),
+            leaf_sha256: Sha256::digest(leaf_der).into(),
+        }
+    }
+
+    pub const fn from_fingerprints(issuer_sha256: [u8; 32], leaf_sha256: [u8; 32]) -> Self {
+        Self {
+            issuer_sha256,
+            leaf_sha256,
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, TlsError> {
+        if value.len() != 129 || value.as_bytes().get(64) != Some(&b':') {
+            return Err(TlsError::InvalidPrincipal);
+        }
+        let issuer_sha256 = decode_lower_hex_32(&value[..64])?;
+        let leaf_sha256 = decode_lower_hex_32(&value[65..])?;
+        Ok(Self::from_fingerprints(issuer_sha256, leaf_sha256))
+    }
+
+    pub fn to_wire(&self) -> String {
+        format!(
+            "{}:{}",
+            encode_lower_hex(&self.issuer_sha256),
+            encode_lower_hex(&self.leaf_sha256)
+        )
+    }
+
+    pub const fn issuer_sha256(&self) -> &[u8; 32] {
+        &self.issuer_sha256
+    }
+
+    pub const fn leaf_sha256(&self) -> &[u8; 32] {
+        &self.leaf_sha256
+    }
+}
+
+fn decode_lower_hex_32(value: &str) -> Result<[u8; 32], TlsError> {
+    if value.len() != 64
+        || !value
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+    {
+        return Err(TlsError::InvalidPrincipal);
+    }
+    let mut decoded = [0_u8; 32];
+    for (index, output) in decoded.iter_mut().enumerate() {
+        *output = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| TlsError::InvalidPrincipal)?;
+    }
+    Ok(decoded)
+}
+
+fn encode_lower_hex(value: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(value.len() * 2);
+    for byte in value {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
 }
 
 pub(crate) fn canonical_serial_bytes(serial: &[u8]) -> Vec<u8> {
@@ -52,34 +131,11 @@ pub(crate) fn canonical_serial_bytes(serial: &[u8]) -> Vec<u8> {
 }
 
 impl PeerIdentity {
-    /// Converts a certificate accepted by the rustls verifier into the only
-    /// application identity representation. Device leaves must carry the fixed
-    /// Phase 1 client profile; other verified leaves are administrator-only.
+    /// Converts a verified device leaf into its route identity. Administrator
+    /// construction intentionally remains on `IdentityRoots::peer_identity`,
+    /// where both verified issuer DER and canonical leaf DER are available.
     pub fn from_verified_leaf(leaf_der: &[u8]) -> Result<Self, TlsError> {
-        match Self::device_from_verified_leaf(leaf_der) {
-            Ok(device) => Ok(device),
-            Err(TlsError::Unauthorized) => {
-                let (remainder, certificate) =
-                    parse_x509_certificate(leaf_der).map_err(|_| TlsError::InvalidMaterial)?;
-                if !remainder.is_empty()
-                    || certificate.is_ca()
-                    || !certificate.validity().is_valid()
-                {
-                    return Err(TlsError::Unauthorized);
-                }
-                let subject = certificate.subject().to_string();
-                let serial = certificate.raw_serial().to_vec();
-                if subject.is_empty() || serial.is_empty() {
-                    return Err(TlsError::Unauthorized);
-                }
-                Ok(Self {
-                    role: PeerRole::Administrator,
-                    subject,
-                    serial,
-                })
-            }
-            Err(error) => Err(error),
-        }
+        Self::device_from_verified_leaf(leaf_der)
     }
 
     pub fn device_from_verified_leaf(leaf_der: &[u8]) -> Result<Self, TlsError> {
@@ -117,14 +173,31 @@ impl PeerIdentity {
             role: PeerRole::Device,
             subject: device_id.to_owned(),
             serial: canonical_serial_bytes(certificate.raw_serial()),
+            administrator_principal: None,
         })
     }
     #[cfg(any(test, debug_assertions))]
     pub fn admin_for_test(subject: impl Into<String>) -> Self {
+        let subject = subject.into();
+        let principal = AdministratorPrincipalV1::from_verified_der(
+            b"dlp-test-administrator-issuer",
+            subject.as_bytes(),
+        );
         Self {
             role: PeerRole::Administrator,
-            subject: subject.into(),
+            subject,
             serial: vec![1],
+            administrator_principal: Some(principal),
+        }
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    pub fn admin_for_test_principal(principal: AdministratorPrincipalV1) -> Self {
+        Self {
+            role: PeerRole::Administrator,
+            subject: "verified-administrator".to_owned(),
+            serial: vec![1],
+            administrator_principal: Some(principal),
         }
     }
 
@@ -134,6 +207,7 @@ impl PeerIdentity {
             role: PeerRole::Device,
             subject: subject.into(),
             serial,
+            administrator_principal: None,
         }
     }
 
@@ -143,6 +217,10 @@ impl PeerIdentity {
 
     pub fn serial(&self) -> &[u8] {
         &self.serial
+    }
+
+    pub fn administrator_principal(&self) -> Option<&AdministratorPrincipalV1> {
+        self.administrator_principal.as_ref()
     }
 }
 
@@ -156,18 +234,24 @@ pub struct TlsConnectionInfo {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IdentityRoots {
     administrator_issuer: String,
+    administrator_issuer_der: Vec<u8>,
     device_issuer: String,
 }
 
 impl IdentityRoots {
     fn from_paths(paths: &TlsPaths) -> Result<Self, TlsError> {
+        let administrator_certificates = load_certificates(&paths.administrator_ca)?;
         Ok(Self {
-            administrator_issuer: certificate_subject(&paths.administrator_ca)?,
+            administrator_issuer: certificate_subject_from_der(
+                administrator_certificates[0].as_ref(),
+            )?,
+            administrator_issuer_der: administrator_certificates[0].as_ref().to_vec(),
             device_issuer: certificate_subject(&paths.device_issuing_ca)?,
         })
     }
 
-    fn peer_identity(&self, leaf_der: &[u8]) -> Result<PeerIdentity, TlsError> {
+    fn peer_identity(&self, chain: &[CertificateDer<'static>]) -> Result<PeerIdentity, TlsError> {
+        let leaf_der = chain.first().ok_or(TlsError::Unauthorized)?.as_ref();
         let (remainder, certificate) =
             parse_x509_certificate(leaf_der).map_err(|_| TlsError::InvalidMaterial)?;
         if !remainder.is_empty() || certificate.is_ca() || !certificate.validity().is_valid() {
@@ -189,6 +273,10 @@ impl IdentityRoots {
             role: PeerRole::Administrator,
             subject,
             serial,
+            administrator_principal: Some(AdministratorPrincipalV1::from_verified_der(
+                &self.administrator_issuer_der,
+                leaf_der,
+            )),
         })
     }
 }
@@ -251,8 +339,7 @@ impl Listener for RustlsListener {
                 .get_ref()
                 .1
                 .peer_certificates()
-                .and_then(|chain| chain.first())
-                .map(|certificate| self.identity_roots.peer_identity(certificate.as_ref()))
+                .map(|chain| self.identity_roots.peer_identity(chain))
                 .transpose();
             let Ok(identity) = identity else {
                 continue;
@@ -296,7 +383,7 @@ pub async fn serve_tls_listener(
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuthenticatedAdmin {
-    subject: String,
+    principal: AdministratorPrincipalV1,
 }
 
 impl AuthenticatedAdmin {
@@ -304,13 +391,12 @@ impl AuthenticatedAdmin {
         if peer.role != PeerRole::Administrator || peer.subject.is_empty() {
             return Err(TlsError::Unauthorized);
         }
-        Ok(Self {
-            subject: peer.subject,
-        })
+        let principal = peer.administrator_principal.ok_or(TlsError::Unauthorized)?;
+        Ok(Self { principal })
     }
 
-    pub fn subject(&self) -> &str {
-        &self.subject
+    pub const fn principal(&self) -> &AdministratorPrincipalV1 {
+        &self.principal
     }
 
     /// Headers are never a TLS identity source, including in test/dev mode.
@@ -433,6 +519,7 @@ impl TlsPaths {
 pub enum TlsError {
     MissingConfiguration,
     InvalidMaterial,
+    InvalidPrincipal,
     Unauthorized,
 }
 
@@ -466,7 +553,10 @@ fn load_private_key(path: &PathBuf) -> Result<PrivateKeyDer<'static>, TlsError> 
 
 fn certificate_subject(path: &PathBuf) -> Result<String, TlsError> {
     let certificates = load_certificates(path)?;
-    let (_, certificate) =
-        parse_x509_certificate(certificates[0].as_ref()).map_err(|_| TlsError::InvalidMaterial)?;
+    certificate_subject_from_der(certificates[0].as_ref())
+}
+
+fn certificate_subject_from_der(der: &[u8]) -> Result<String, TlsError> {
+    let (_, certificate) = parse_x509_certificate(der).map_err(|_| TlsError::InvalidMaterial)?;
     Ok(certificate.subject().to_string())
 }
