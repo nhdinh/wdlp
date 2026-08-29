@@ -12,7 +12,7 @@ mod host;
 pub mod status;
 mod wildmatch;
 
-pub use filesystem::DlpFileSystemContext;
+pub use filesystem::{DlpFileSystemContext, EnforcementEventSink, PolicyEnforcementPort};
 pub use host::{WinFspMountHost, WinFspMountedVolume};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
