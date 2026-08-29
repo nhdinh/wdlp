@@ -44,6 +44,58 @@ CREATE TABLE published_policy_versions (
     PRIMARY KEY (policy_id, policy_version)
 );
 
+-- Publication is deliberately separate from deployment. These tables hold
+-- only explicit pointers to immutable published versions; changing a draft or
+-- publishing another version cannot alter an endpoint's desired policy.
+CREATE TABLE organization_policy_assignment (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    policy_id TEXT NOT NULL,
+    policy_version BIGINT NOT NULL,
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (policy_id, policy_version)
+        REFERENCES published_policy_versions(policy_id, policy_version)
+);
+
+CREATE TABLE device_policy_assignments (
+    device_id TEXT PRIMARY KEY REFERENCES device_allowlist(device_id),
+    policy_id TEXT NOT NULL,
+    policy_version BIGINT NOT NULL,
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (policy_id, policy_version)
+        REFERENCES published_policy_versions(policy_id, policy_version)
+);
+
+-- Bundle versions are monotonic per authenticated device. Issued, activated,
+-- and error cursors refer to bundle versions rather than mutable policy rows.
+CREATE TABLE device_policy_distribution (
+    device_id TEXT PRIMARY KEY REFERENCES device_allowlist(device_id),
+    desired_policy_id TEXT NOT NULL,
+    desired_policy_version BIGINT NOT NULL,
+    desired_bundle_version BIGINT NOT NULL CHECK (desired_bundle_version > 0),
+    issued_bundle_version BIGINT CHECK (
+        issued_bundle_version IS NULL OR
+        (issued_bundle_version > 0 AND issued_bundle_version <= desired_bundle_version)
+    ),
+    activated_bundle_version BIGINT CHECK (
+        activated_bundle_version IS NULL OR
+        (activated_bundle_version > 0 AND
+         activated_bundle_version <= desired_bundle_version AND
+         issued_bundle_version IS NOT NULL AND
+         activated_bundle_version <= issued_bundle_version)
+    ),
+    error_bundle_version BIGINT CHECK (
+        error_bundle_version IS NULL OR
+        (error_bundle_version > 0 AND error_bundle_version <= desired_bundle_version)
+    ),
+    last_error_code TEXT CHECK (
+        last_error_code IS NULL OR char_length(last_error_code) BETWEEN 1 AND 64
+    ),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (desired_policy_id, desired_policy_version)
+        REFERENCES published_policy_versions(policy_id, policy_version),
+    CHECK ((error_bundle_version IS NULL) = (last_error_code IS NULL))
+);
+
 CREATE FUNCTION reject_published_policy_mutation()
 RETURNS TRIGGER
 LANGUAGE plpgsql

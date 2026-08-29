@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use dlp_protocol::{ProvisionDeviceRequestV1, SignedConfigurationV1};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Row, postgres::PgRow};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Mutex,
@@ -17,6 +17,7 @@ use std::{
 use uuid::Uuid;
 
 const POLICY_AUTHORITY_ADVISORY_LOCK: i64 = 0x0202_0001;
+const POLICY_DISTRIBUTION_ADVISORY_LOCK: i64 = 0x0202_0002;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +78,211 @@ impl PublishedPolicyVersion {
     pub const fn content_digest(&self) -> &[u8; 32] {
         &self.content_digest
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedPolicyVersion {
+    published: PublishedPolicyVersion,
+    bundle_version: u64,
+}
+
+impl SelectedPolicyVersion {
+    pub fn published(&self) -> &PublishedPolicyVersion {
+        &self.published
+    }
+
+    pub const fn bundle_version(&self) -> u64 {
+        self.bundle_version
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PolicyDistributionStatus {
+    desired_bundle_version: u64,
+    issued_bundle_version: Option<u64>,
+    activated_bundle_version: Option<u64>,
+    error_bundle_version: Option<u64>,
+    last_error_code: Option<String>,
+}
+
+impl PolicyDistributionStatus {
+    pub const fn desired_bundle_version(&self) -> u64 {
+        self.desired_bundle_version
+    }
+
+    pub const fn issued_bundle_version(&self) -> Option<u64> {
+        self.issued_bundle_version
+    }
+
+    pub const fn activated_bundle_version(&self) -> Option<u64> {
+        self.activated_bundle_version
+    }
+
+    pub const fn error_bundle_version(&self) -> Option<u64> {
+        self.error_bundle_version
+    }
+
+    pub fn last_error_code(&self) -> Option<&str> {
+        self.last_error_code.as_deref()
+    }
+
+    fn for_desired(bundle_version: u64) -> Self {
+        Self {
+            desired_bundle_version: bundle_version,
+            issued_bundle_version: None,
+            activated_bundle_version: None,
+            error_bundle_version: None,
+            last_error_code: None,
+        }
+    }
+
+    fn apply(&mut self, update: &PolicyDeploymentUpdate) -> Result<(), RouteRepositoryError> {
+        let bundle_version = update.bundle_version();
+        if bundle_version != self.desired_bundle_version {
+            return Err(RouteRepositoryError::Conflict);
+        }
+        match update {
+            PolicyDeploymentUpdate::Issued { bundle_version } => {
+                if self
+                    .issued_bundle_version
+                    .is_some_and(|current| *bundle_version < current)
+                    || self
+                        .activated_bundle_version
+                        .is_some_and(|current| *bundle_version < current)
+                {
+                    return Err(RouteRepositoryError::Conflict);
+                }
+                self.issued_bundle_version = Some(*bundle_version);
+            }
+            PolicyDeploymentUpdate::Activated { bundle_version } => {
+                if self
+                    .issued_bundle_version
+                    .is_none_or(|issued| issued < *bundle_version)
+                    || self
+                        .activated_bundle_version
+                        .is_some_and(|current| *bundle_version < current)
+                {
+                    return Err(RouteRepositoryError::Conflict);
+                }
+                self.activated_bundle_version = Some(*bundle_version);
+                self.error_bundle_version = None;
+                self.last_error_code = None;
+            }
+            PolicyDeploymentUpdate::Error {
+                bundle_version,
+                error_code,
+            } => {
+                if error_code.is_empty()
+                    || error_code.len() > 64
+                    || !error_code.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+                    || self
+                        .activated_bundle_version
+                        .is_some_and(|current| *bundle_version <= current)
+                {
+                    return Err(RouteRepositoryError::Conflict);
+                }
+                self.error_bundle_version = Some(*bundle_version);
+                self.last_error_code = Some(error_code.clone());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PolicyDeploymentUpdate {
+    Issued {
+        bundle_version: u64,
+    },
+    Activated {
+        bundle_version: u64,
+    },
+    Error {
+        bundle_version: u64,
+        error_code: String,
+    },
+}
+
+impl PolicyDeploymentUpdate {
+    const fn bundle_version(&self) -> u64 {
+        match self {
+            Self::Issued { bundle_version }
+            | Self::Activated { bundle_version }
+            | Self::Error { bundle_version, .. } => *bundle_version,
+        }
+    }
+}
+
+fn database_version(version: u64) -> Result<i64, RouteRepositoryError> {
+    let version = i64::try_from(version).map_err(|_| RouteRepositoryError::Denied)?;
+    if version <= 0 {
+        return Err(RouteRepositoryError::Denied);
+    }
+    Ok(version)
+}
+
+fn published_policy_from_row(
+    policy_id: String,
+    version: i64,
+    row: &PgRow,
+) -> Result<PublishedPolicyVersion, RouteRepositoryError> {
+    let schema_version: i16 = row
+        .try_get("schema_version")
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+    let source_json: Vec<u8> = row
+        .try_get("source_json")
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+    let content_digest: Vec<u8> = row
+        .try_get("content_digest")
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+    Ok(PublishedPolicyVersion {
+        policy_id,
+        version: u64::try_from(version).map_err(|_| RouteRepositoryError::Unavailable)?,
+        schema_version: u16::try_from(schema_version)
+            .map_err(|_| RouteRepositoryError::Unavailable)?,
+        source_json,
+        content_digest: content_digest
+            .try_into()
+            .map_err(|_| RouteRepositoryError::Unavailable)?,
+    })
+}
+
+fn distribution_status_from_row(
+    row: &PgRow,
+) -> Result<PolicyDistributionStatus, RouteRepositoryError> {
+    let desired: i64 = row
+        .try_get("desired_bundle_version")
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+    let issued: Option<i64> = row
+        .try_get("issued_bundle_version")
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+    let activated: Option<i64> = row
+        .try_get("activated_bundle_version")
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+    let error: Option<i64> = row
+        .try_get("error_bundle_version")
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+    Ok(PolicyDistributionStatus {
+        desired_bundle_version: u64::try_from(desired)
+            .map_err(|_| RouteRepositoryError::Unavailable)?,
+        issued_bundle_version: issued
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|_| RouteRepositoryError::Unavailable)?,
+        activated_bundle_version: activated
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|_| RouteRepositoryError::Unavailable)?,
+        error_bundle_version: error
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|_| RouteRepositoryError::Unavailable)?,
+        last_error_code: row
+            .try_get("last_error_code")
+            .map_err(|_| RouteRepositoryError::Unavailable)?,
+    })
 }
 
 /// PostgreSQL is the only authority adapter that may be selected for server
@@ -722,6 +928,421 @@ impl RouteRepositoryPort for PgRouteRepository {
         }))
     }
 
+    async fn assign_organization_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<(), RouteRepositoryError> {
+        let version = database_version(version)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(POLICY_DISTRIBUTION_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let published: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM published_policy_versions WHERE policy_id = $1 AND policy_version = $2)",
+        )
+        .bind(policy_id)
+        .bind(version)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if !published {
+            return Err(RouteRepositoryError::NotFound);
+        }
+        let current = sqlx::query(
+            "SELECT policy_id, policy_version FROM organization_policy_assignment WHERE singleton = TRUE FOR UPDATE",
+        )
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if current.as_ref().is_some_and(|row| {
+            row.try_get::<String, _>("policy_id").ok().as_deref() == Some(policy_id)
+                && row.try_get::<i64, _>("policy_version").ok() == Some(version)
+        }) {
+            transaction
+                .commit()
+                .await
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            return Ok(());
+        }
+        sqlx::query(
+            "INSERT INTO organization_policy_assignment (singleton, policy_id, policy_version) VALUES (TRUE, $1, $2) ON CONFLICT (singleton) DO UPDATE SET policy_id = EXCLUDED.policy_id, policy_version = EXCLUDED.policy_version, assigned_at = CURRENT_TIMESTAMP",
+        )
+        .bind(policy_id)
+        .bind(version)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query(
+            "UPDATE device_policy_distribution AS distribution SET desired_policy_id = $1, desired_policy_version = $2, desired_bundle_version = desired_bundle_version + 1, error_bundle_version = NULL, last_error_code = NULL, updated_at = CURRENT_TIMESTAMP WHERE NOT EXISTS (SELECT 1 FROM device_policy_assignments AS assignment WHERE assignment.device_id = distribution.device_id) AND (distribution.desired_policy_id, distribution.desired_policy_version) IS DISTINCT FROM ($1, $2)",
+        )
+        .bind(policy_id)
+        .bind(version)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query(
+            "INSERT INTO policy_audit_events (event_code) VALUES ('organization_policy_assigned')",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)
+    }
+
+    async fn assign_device_policy(
+        &self,
+        device_id: &str,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<(), RouteRepositoryError> {
+        let version = database_version(version)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(POLICY_DISTRIBUTION_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let device_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM device_allowlist WHERE device_id = $1)",
+        )
+        .bind(device_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let published: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM published_policy_versions WHERE policy_id = $1 AND policy_version = $2)",
+        )
+        .bind(policy_id)
+        .bind(version)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if !device_exists || !published {
+            return Err(RouteRepositoryError::NotFound);
+        }
+        let current = sqlx::query(
+            "SELECT policy_id, policy_version FROM device_policy_assignments WHERE device_id = $1 FOR UPDATE",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if current.as_ref().is_some_and(|row| {
+            row.try_get::<String, _>("policy_id").ok().as_deref() == Some(policy_id)
+                && row.try_get::<i64, _>("policy_version").ok() == Some(version)
+        }) {
+            transaction
+                .commit()
+                .await
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            return Ok(());
+        }
+        sqlx::query(
+            "INSERT INTO device_policy_assignments (device_id, policy_id, policy_version) VALUES ($1, $2, $3) ON CONFLICT (device_id) DO UPDATE SET policy_id = EXCLUDED.policy_id, policy_version = EXCLUDED.policy_version, assigned_at = CURRENT_TIMESTAMP",
+        )
+        .bind(device_id)
+        .bind(policy_id)
+        .bind(version)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let distribution = sqlx::query(
+            "SELECT desired_policy_id, desired_policy_version FROM device_policy_distribution WHERE device_id = $1 FOR UPDATE",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if distribution.is_some() {
+            sqlx::query(
+                "UPDATE device_policy_distribution SET desired_policy_id = $2, desired_policy_version = $3, desired_bundle_version = desired_bundle_version + 1, error_bundle_version = NULL, last_error_code = NULL, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1 AND (desired_policy_id, desired_policy_version) IS DISTINCT FROM ($2, $3)",
+            )
+            .bind(device_id)
+            .bind(policy_id)
+            .bind(version)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        } else {
+            sqlx::query(
+                "INSERT INTO device_policy_distribution (device_id, desired_policy_id, desired_policy_version, desired_bundle_version) VALUES ($1, $2, $3, 1)",
+            )
+            .bind(device_id)
+            .bind(policy_id)
+            .bind(version)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        }
+        sqlx::query(
+            "INSERT INTO policy_audit_events (event_code) VALUES ('device_policy_assigned')",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)
+    }
+
+    async fn clear_device_policy(&self, device_id: &str) -> Result<(), RouteRepositoryError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(POLICY_DISTRIBUTION_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let current = sqlx::query(
+            "SELECT policy_id FROM device_policy_assignments WHERE device_id = $1 FOR UPDATE",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if current.is_none() {
+            transaction
+                .commit()
+                .await
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            return Ok(());
+        }
+        let default = sqlx::query(
+            "SELECT policy_id, policy_version FROM organization_policy_assignment WHERE singleton = TRUE FOR UPDATE",
+        )
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?
+        .ok_or(RouteRepositoryError::NotFound)?;
+        let policy_id: String = default
+            .try_get("policy_id")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let version: i64 = default
+            .try_get("policy_version")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("DELETE FROM device_policy_assignments WHERE device_id = $1")
+            .bind(device_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query(
+            "UPDATE device_policy_distribution SET desired_policy_id = $2, desired_policy_version = $3, desired_bundle_version = desired_bundle_version + 1, error_bundle_version = NULL, last_error_code = NULL, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1 AND (desired_policy_id, desired_policy_version) IS DISTINCT FROM ($2, $3)",
+        )
+        .bind(device_id)
+        .bind(policy_id)
+        .bind(version)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query(
+            "INSERT INTO policy_audit_events (event_code) VALUES ('device_policy_cleared')",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)
+    }
+
+    async fn selected_policy(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<SelectedPolicyVersion>, RouteRepositoryError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(POLICY_DISTRIBUTION_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let assignment = sqlx::query(
+            "SELECT policy_id, policy_version FROM device_policy_assignments WHERE device_id = $1",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let assignment = match assignment {
+            Some(row) => Some(row),
+            None => sqlx::query(
+                "SELECT policy_id, policy_version FROM organization_policy_assignment WHERE singleton = TRUE",
+            )
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?,
+        };
+        let Some(assignment) = assignment else {
+            transaction
+                .commit()
+                .await
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            return Ok(None);
+        };
+        let policy_id: String = assignment
+            .try_get("policy_id")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let policy_version: i64 = assignment
+            .try_get("policy_version")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let distribution = sqlx::query(
+            "SELECT desired_policy_id, desired_policy_version, desired_bundle_version FROM device_policy_distribution WHERE device_id = $1 FOR UPDATE",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let bundle_version = if let Some(row) = distribution {
+            let current_id: String = row
+                .try_get("desired_policy_id")
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            let current_version: i64 = row
+                .try_get("desired_policy_version")
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            let current_bundle: i64 = row
+                .try_get("desired_bundle_version")
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            if current_id == policy_id && current_version == policy_version {
+                current_bundle
+            } else {
+                sqlx::query_scalar(
+                    "UPDATE device_policy_distribution SET desired_policy_id = $2, desired_policy_version = $3, desired_bundle_version = desired_bundle_version + 1, error_bundle_version = NULL, last_error_code = NULL, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1 RETURNING desired_bundle_version",
+                )
+                .bind(device_id)
+                .bind(&policy_id)
+                .bind(policy_version)
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(|_| RouteRepositoryError::Unavailable)?
+            }
+        } else {
+            sqlx::query_scalar(
+                "INSERT INTO device_policy_distribution (device_id, desired_policy_id, desired_policy_version, desired_bundle_version) VALUES ($1, $2, $3, 1) RETURNING desired_bundle_version",
+            )
+            .bind(device_id)
+            .bind(&policy_id)
+            .bind(policy_version)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+        };
+        let row = sqlx::query(
+            "SELECT schema_version, source_json, content_digest FROM published_policy_versions WHERE policy_id = $1 AND policy_version = $2",
+        )
+        .bind(&policy_id)
+        .bind(policy_version)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?
+        .ok_or(RouteRepositoryError::Unavailable)?;
+        let published = published_policy_from_row(policy_id, policy_version, &row)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(Some(SelectedPolicyVersion {
+            published,
+            bundle_version: u64::try_from(bundle_version)
+                .map_err(|_| RouteRepositoryError::Unavailable)?,
+        }))
+    }
+
+    async fn policy_distribution_status(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<PolicyDistributionStatus>, RouteRepositoryError> {
+        let row = sqlx::query(
+            "SELECT desired_bundle_version, issued_bundle_version, activated_bundle_version, error_bundle_version, last_error_code FROM device_policy_distribution WHERE device_id = $1",
+        )
+        .bind(device_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        row.as_ref().map(distribution_status_from_row).transpose()
+    }
+
+    async fn report_policy_deployment(
+        &self,
+        device_id: &str,
+        update: PolicyDeploymentUpdate,
+    ) -> Result<PolicyDistributionStatus, RouteRepositoryError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(POLICY_DISTRIBUTION_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let row = sqlx::query(
+            "SELECT desired_bundle_version, issued_bundle_version, activated_bundle_version, error_bundle_version, last_error_code FROM device_policy_distribution WHERE device_id = $1 FOR UPDATE",
+        )
+        .bind(device_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?
+        .ok_or(RouteRepositoryError::NotFound)?;
+        let mut status = distribution_status_from_row(&row)?;
+        status.apply(&update)?;
+        let error_bundle_version = status
+            .error_bundle_version
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query(
+            "UPDATE device_policy_distribution SET issued_bundle_version = $2, activated_bundle_version = $3, error_bundle_version = $4, last_error_code = $5, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1",
+        )
+        .bind(device_id)
+        .bind(
+            status
+                .issued_bundle_version
+                .map(i64::try_from)
+                .transpose()
+                .map_err(|_| RouteRepositoryError::Unavailable)?,
+        )
+        .bind(
+            status
+                .activated_bundle_version
+                .map(i64::try_from)
+                .transpose()
+                .map_err(|_| RouteRepositoryError::Unavailable)?,
+        )
+        .bind(error_bundle_version)
+        .bind(&status.last_error_code)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(status)
+    }
+
     async fn activate_device(&self, device_id: &str, serial: &[u8]) {
         let _ = sqlx::query(
             "INSERT INTO device_route_credentials (device_id, credential_serial, credential_status, public_certificate_digest, expires_at) VALUES ($1, $2, 'active', $3, CURRENT_TIMESTAMP + INTERVAL '30 days') ON CONFLICT (credential_serial) DO UPDATE SET credential_status = 'active', revoked_at = NULL",
@@ -1029,6 +1650,31 @@ pub trait RouteRepositoryPort: Send + Sync {
         policy_id: &str,
         version: u64,
     ) -> Result<Option<PublishedPolicyVersion>, RouteRepositoryError>;
+    async fn assign_organization_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<(), RouteRepositoryError>;
+    async fn assign_device_policy(
+        &self,
+        device_id: &str,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<(), RouteRepositoryError>;
+    async fn clear_device_policy(&self, device_id: &str) -> Result<(), RouteRepositoryError>;
+    async fn selected_policy(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<SelectedPolicyVersion>, RouteRepositoryError>;
+    async fn policy_distribution_status(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<PolicyDistributionStatus>, RouteRepositoryError>;
+    async fn report_policy_deployment(
+        &self,
+        device_id: &str,
+        update: PolicyDeploymentUpdate,
+    ) -> Result<PolicyDistributionStatus, RouteRepositoryError>;
     async fn activate_device(&self, device_id: &str, serial: &[u8]);
     async fn revoke_device(&self, device_id: &str, serial: &[u8]);
     async fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus;
@@ -1059,11 +1705,48 @@ pub struct RouteRepository {
     bootstrap: Mutex<Option<AdministratorPrincipalV1>>,
     policy_drafts: Mutex<BTreeMap<String, PolicyDraftRecord>>,
     published_policies: Mutex<BTreeMap<(String, u64), PublishedPolicyVersion>>,
+    policy_distribution: Mutex<PolicyDistributionFixture>,
 }
 
 struct PolicyDraftRecord {
     source_json: Vec<u8>,
     validated_digest: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PolicyPointer {
+    policy_id: String,
+    version: u64,
+}
+
+#[derive(Default)]
+struct PolicyDistributionFixture {
+    organization: Option<PolicyPointer>,
+    devices: BTreeMap<String, PolicyPointer>,
+    status: BTreeMap<String, FixtureDistributionRecord>,
+}
+
+struct FixtureDistributionRecord {
+    desired: PolicyPointer,
+    status: PolicyDistributionStatus,
+}
+
+impl FixtureDistributionRecord {
+    fn new(desired: PolicyPointer) -> Self {
+        Self {
+            desired,
+            status: PolicyDistributionStatus::for_desired(1),
+        }
+    }
+
+    fn select(&mut self, desired: PolicyPointer) {
+        if self.desired != desired {
+            self.desired = desired;
+            self.status.desired_bundle_version += 1;
+            self.status.error_bundle_version = None;
+            self.status.last_error_code = None;
+        }
+    }
 }
 
 impl Default for RouteRepository {
@@ -1081,6 +1764,7 @@ impl Default for RouteRepository {
             bootstrap: Mutex::new(Some(principal)),
             policy_drafts: Mutex::new(BTreeMap::new()),
             published_policies: Mutex::new(BTreeMap::new()),
+            policy_distribution: Mutex::new(PolicyDistributionFixture::default()),
         }
     }
 }
@@ -1266,6 +1950,182 @@ impl RouteRepositoryPort for RouteRepository {
             .map_err(|_| RouteRepositoryError::Unavailable)?
             .get(&(policy_id.to_owned(), version))
             .cloned())
+    }
+
+    async fn assign_organization_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<(), RouteRepositoryError> {
+        if version == 0
+            || !self
+                .published_policies
+                .lock()
+                .map_err(|_| RouteRepositoryError::Unavailable)?
+                .contains_key(&(policy_id.to_owned(), version))
+        {
+            return Err(RouteRepositoryError::NotFound);
+        }
+        let desired = PolicyPointer {
+            policy_id: policy_id.to_owned(),
+            version,
+        };
+        let mut authority = self
+            .policy_distribution
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if authority.organization.as_ref() == Some(&desired) {
+            return Ok(());
+        }
+        authority.organization = Some(desired.clone());
+        let overridden = authority.devices.keys().cloned().collect::<Vec<_>>();
+        for (device_id, record) in &mut authority.status {
+            if !overridden.contains(device_id) {
+                record.select(desired.clone());
+            }
+        }
+        Ok(())
+    }
+
+    async fn assign_device_policy(
+        &self,
+        device_id: &str,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<(), RouteRepositoryError> {
+        if !self
+            .devices
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .contains_key(device_id)
+        {
+            return Err(RouteRepositoryError::NotFound);
+        }
+        if version == 0
+            || !self
+                .published_policies
+                .lock()
+                .map_err(|_| RouteRepositoryError::Unavailable)?
+                .contains_key(&(policy_id.to_owned(), version))
+        {
+            return Err(RouteRepositoryError::NotFound);
+        }
+        let desired = PolicyPointer {
+            policy_id: policy_id.to_owned(),
+            version,
+        };
+        let mut authority = self
+            .policy_distribution
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if authority.devices.get(device_id) == Some(&desired) {
+            return Ok(());
+        }
+        authority
+            .devices
+            .insert(device_id.to_owned(), desired.clone());
+        authority
+            .status
+            .entry(device_id.to_owned())
+            .and_modify(|record| record.select(desired.clone()))
+            .or_insert_with(|| FixtureDistributionRecord::new(desired));
+        Ok(())
+    }
+
+    async fn clear_device_policy(&self, device_id: &str) -> Result<(), RouteRepositoryError> {
+        if !self
+            .devices
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .contains_key(device_id)
+        {
+            return Err(RouteRepositoryError::NotFound);
+        }
+        let mut authority = self
+            .policy_distribution
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if !authority.devices.contains_key(device_id) {
+            return Ok(());
+        }
+        let default = authority
+            .organization
+            .clone()
+            .ok_or(RouteRepositoryError::NotFound)?;
+        authority.devices.remove(device_id);
+        authority
+            .status
+            .entry(device_id.to_owned())
+            .and_modify(|record| record.select(default.clone()))
+            .or_insert_with(|| FixtureDistributionRecord::new(default));
+        Ok(())
+    }
+
+    async fn selected_policy(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<SelectedPolicyVersion>, RouteRepositoryError> {
+        let (desired, bundle_version) = {
+            let mut authority = self
+                .policy_distribution
+                .lock()
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            let desired = authority
+                .devices
+                .get(device_id)
+                .cloned()
+                .or_else(|| authority.organization.clone());
+            let Some(desired) = desired else {
+                return Ok(None);
+            };
+            let record = authority
+                .status
+                .entry(device_id.to_owned())
+                .or_insert_with(|| FixtureDistributionRecord::new(desired.clone()));
+            record.select(desired.clone());
+            (desired, record.status.desired_bundle_version)
+        };
+        let published = self
+            .published_policies
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .get(&(desired.policy_id, desired.version))
+            .cloned()
+            .ok_or(RouteRepositoryError::Unavailable)?;
+        Ok(Some(SelectedPolicyVersion {
+            published,
+            bundle_version,
+        }))
+    }
+
+    async fn policy_distribution_status(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<PolicyDistributionStatus>, RouteRepositoryError> {
+        Ok(self
+            .policy_distribution
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .status
+            .get(device_id)
+            .map(|record| record.status.clone()))
+    }
+
+    async fn report_policy_deployment(
+        &self,
+        device_id: &str,
+        update: PolicyDeploymentUpdate,
+    ) -> Result<PolicyDistributionStatus, RouteRepositoryError> {
+        let mut authority = self
+            .policy_distribution
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let record = authority
+            .status
+            .get_mut(device_id)
+            .ok_or(RouteRepositoryError::NotFound)?;
+        record.status.apply(&update)?;
+        Ok(record.status.clone())
     }
 
     async fn activate_device(&self, device_id: &str, serial: &[u8]) {
