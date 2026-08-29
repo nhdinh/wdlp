@@ -86,6 +86,8 @@ The server should own mutable authoring and canonical compilation; endpoints sho
 
 User feedback is a separate trust boundary. The service should create every enforcement event synchronously, deny `warn` on the current attempt, and send a privacy-minimized notification to a per-user companion over purpose-limited authenticated IPC. The companion returns only an opaque notification identifier; the service resolves it and owns an exact, expiring, atomically consumed grant. Existing SID/session/PID/generation authentication is the right reusable pattern. [VERIFIED: crates/dlp-windows-service/src/pipe.rs:50-174; crates/dlp-windows-service/src/session.rs:1-320]
 
+The live process boundary also needs explicit Phase 2 work: `run_scm_service` constructs `SessionMonitor`, the monitor sends `StorageBootstrap`, and `dlp-drive-host` currently constructs `DlpFileSystemContext` with identity/store only and discards retained control frames. Therefore activation is not production-complete until the service delivers current/LKG snapshots at bootstrap, pushes acknowledged updates, and receives synchronous decision/event/grant request-response traffic from the real mounted host. Injected evaluator/event ports remain useful unit seams but cannot prove this process path. Process/ETW inputs remain audit enrichment only per D-10. [VERIFIED: crates/dlp-windows-service/src/service.rs:369-622; crates/dlp-windows-service/src/session.rs:944-1076; crates/dlp-windows-service/src/pipe.rs:18-486; crates/dlp-windows-drive/src/bin/dlp-drive-host.rs:46-320]
+
 **Primary recommendation:** Plan Phase 2 as six ordered contracts—policy schema/compiler, immutable server lifecycle, signed activation/key rotation, decision-time drive enforcement, service event/grant authority, and per-user toast UI—with storage and Windows-registration migrations explicitly scheduled before end-to-end tests.
 
 ## Architectural Responsibility Map
@@ -109,6 +111,7 @@ User feedback is a separate trust boundary. The service should create every enfo
 - Run complete, non-partial GitNexus change detection before committing. [VERIFIED: AGENTS.md:9-12]
 - Prefix every shell command with `rtk`; use `rtk passthrough <command>` only when exact output is required, and use `rtk powershell -Command` for PowerShell built-ins. [VERIFIED: C:/Users/nhdinh/.codex/RTK.md:1-30]
 - Portable Rust crates forbid unsafe code; Windows FFI is isolated in Windows adapter crates. [VERIFIED: Cargo.toml:1-23; crates/dlp-windows-drive/Cargo.toml:5-21; crates/dlp-windows-service/Cargo.toml:5-28]
+- The root manifest has no `[workspace.dependencies]`; dependencies are declared in consuming crate manifests, with exact pins for versioned dependencies. Phase 2 should add exact crate-local `dlp-policy` path/version entries to its four consumers and refresh `Cargo.lock`. [VERIFIED: Cargo.toml:1-23; crates/dlp-windows-drive/Cargo.toml; crates/dlp-server/Cargo.toml; crates/dlpctl/Cargo.toml; crates/dlp-agent-core/Cargo.toml]
 
 ## Standard Stack
 
@@ -544,7 +547,7 @@ All four research questions below are resolved as Phase 2 execution contracts by
 1. **[RESOLVED] How are existing administrator certificates bootstrapped into the new role model?**
    - What we know: current TLS authentication yields an administrator identity without an `admin`/`auditor` repository lookup. [VERIFIED: crates/dlp-server/src/tls.rs:1-260]
    - Resolved uncertainty: canonical principal key and first-admin bootstrap path.
-   - Resolution: Plan 02-02 keys the persisted principal by trusted issuer plus canonical leaf fingerprint, assigns exactly `admin` or `auditor`, seeds the currently configured administrator through a forward migration/operator-safe path, and rejects request-supplied roles. This is the server-side authorization contract supporting D-01/D-02 without changing the locked lifecycle. [RESOLVED: 02-02 Task 1]
+   - Resolution: Plan 02-02 modifies `crates/dlp-server/src/tls.rs` so, only after rustls chain verification, it forms an opaque principal from SHA-256 of the verified issuer-certificate DER plus SHA-256 of the canonical verified leaf-certificate DER. `AuthenticatedAdmin` carries this opaque principal—not either certificate subject—through route middleware to persisted `admin`/`auditor` lookup. The plan seeds the currently configured administrator through a forward migration/operator-safe path and tests equal-subject/different-DER collisions, unregistered fingerprints, and rejected header/body/query role claims. No bearer/header fallback is added, so the contract supports D-01/D-02 without weakening mTLS. [RESOLVED: 02-02 Task 1]
 
 2. **[RESOLVED] How are authenticated content digests established for files created before Phase 2?**
    - What we know: the current `EncryptedManifestV1` codec in `format.rs` has no plaintext digest. [VERIFIED: crates/dlp-storage/src/format.rs:141-193]

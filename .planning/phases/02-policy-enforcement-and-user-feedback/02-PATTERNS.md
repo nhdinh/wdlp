@@ -1,8 +1,8 @@
 # Phase 2: Policy Enforcement and User Feedback - Pattern Map
 
 **Mapped:** 2026-08-29
-**Files analyzed:** 31 new or modified files
-**Analogs found:** 30 / 31
+**Files analyzed:** 35 new or modified files
+**Analogs found:** 34 / 35
 
 ## Scope Notes
 
@@ -11,6 +11,7 @@
 - The research path `crates/dlp-storage/src/manifest.rs` does not exist. The manifest codec is `EncryptedManifestV1` in `crates/dlp-storage/src/format.rs` lines 141-193.
 - Migrations are stored in root `migrations/`, not `crates/dlp-server/migrations/`. The next lifecycle migration should follow the root migration sequence.
 - `Cargo.lock` will be regenerated if dependencies change, but it is intentionally omitted from the implementation classification because it contains no hand-authored pattern.
+- The root `Cargo.toml` has no `[workspace.dependencies]`; live manifests use crate-local paths for internal crates and exact `=version` pins for versioned dependencies. Phase 2 follows that current convention: add `dlp-policy = { path = "../dlp-policy", version = "=0.1.0" }` directly to each consuming crate and do not introduce workspace dependency centralization.
 
 ## File Classification
 
@@ -19,6 +20,10 @@
 | `crates/dlp-domain/src/lib.rs` | model | transform | Existing `PolicyInput`, `EnforcementAction`, `PolicyDecision` in same file | exact |
 | `crates/dlp-policy/src/lib.rs` | service | transform | Existing `PolicyEvaluator::evaluate` in same file | exact |
 | `crates/dlp-policy/Cargo.toml` | config | batch | Existing crate manifest and root workspace manifest | exact |
+| `crates/dlp-windows-drive/Cargo.toml` | config | batch | Existing crate-local internal paths and exact external pins | exact |
+| `crates/dlp-server/Cargo.toml` | config | batch | Existing crate-local internal paths and exact external pins | exact |
+| `crates/dlpctl/Cargo.toml` | config | batch | Existing crate-local internal paths and exact external pins | exact |
+| `crates/dlp-agent-core/Cargo.toml` | config | batch | Existing crate-local internal paths and exact external pins | exact |
 | `crates/dlp-protocol/src/lib.rs` | model | request-response | `ConfigurationEnvelopeV1` / `SignedConfigurationV1` in same file | exact |
 | `migrations/<next>_policy_lifecycle.sql` | migration | CRUD | `migrations/202608070001_walking_skeleton.sql` and `202608070003_authenticated_routes.sql` | role-match |
 | `crates/dlp-server/src/routes.rs` | controller | request-response | Existing authenticated configuration and enrollment handlers | exact |
@@ -143,7 +148,7 @@ fn higher_priority_rule_wins() {
 }
 ```
 
-For `Cargo.toml`, follow the existing workspace-pinned dependency style. If `regex` and/or `aho-corasick` are added, declare versions centrally in root `[workspace.dependencies]` and reference them with `{ workspace = true }` in this crate. Configure explicit size/complexity limits in code; dependency choice alone does not bound content inspection.
+For `Cargo.toml`, follow the live crate-local pin style. Add `regex = "=1.13.1"` and `aho-corasick = "=1.1.5"` directly to `crates/dlp-policy/Cargo.toml`. Add exact internal `dlp-policy = { path = "../dlp-policy", version = "=0.1.0" }` entries directly to `dlp-windows-drive`, `dlp-server`, `dlpctl`, and `dlp-agent-core`; refresh `Cargo.lock`. Do not add root `[workspace.dependencies]`. Configure explicit size/complexity limits in code; dependency choice alone does not bound content inspection.
 
 ---
 
@@ -723,7 +728,7 @@ Hide databases, clocks, process launch, notifications, and pipes behind narrow t
 
 **Analog search scope:** `crates/dlp-domain`, `dlp-policy`, `dlp-protocol`, `dlp-agent-core`, `dlp-server`, `dlpctl`, `dlp-storage`, `dlp-windows-drive`, `dlp-windows-service`, root `migrations`, `tests/e2e`, and `tests/windows`.
 
-**Files scanned:** 25 source, manifest, migration, and test files, plus phase context/research.
+**Files scanned:** 29 source, manifest, migration, and test files, plus phase context/research.
 
 **GitNexus use:** The repository index was refreshed before concept and symbol queries. GitNexus still reported a two-commit freshness lag after refresh, and `DlpFileSystemContext::read` had unresolved receiver call sites, so graph results for that callback were treated as a lower bound and confirmed against source. No source files were edited.
 
