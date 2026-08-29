@@ -747,10 +747,12 @@ name = "dlp-windows-drive"
 version = "0.1.0"
 dependencies = [
  "dlp-domain",
+ "dlp-policy",
  "dlp-storage",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tempfile",
  "windows 0.62.2",
  "winfsp",
  "zeroize",
