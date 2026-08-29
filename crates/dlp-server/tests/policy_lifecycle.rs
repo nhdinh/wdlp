@@ -7,9 +7,12 @@ use dlp_server::{
         BootstrapOutcome, PgRouteRepository, PrincipalRole, RouteRepositoryError,
         RouteRepositoryPort,
     },
-    routes::{RouteState, api_v1_router},
+    routes::{PolicyDeploymentUpdate, RouteState, api_v1_router},
     run_migrations,
-    tls::{AdministratorPrincipalV1, AuthenticatedAdmin, PeerIdentity, TlsConnectionInfo},
+    tls::{
+        AdministratorPrincipalV1, AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus,
+        PeerIdentity, TlsConnectionInfo,
+    },
 };
 use serde_json::json;
 use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
@@ -294,8 +297,257 @@ async fn policy_roles_and_immutable_publish() {
 
 #[tokio::test]
 async fn policy_bundle_contract() {
-    // Plan 02-02 Task 2 replaces this RED sentinel with the selected immutable
-    // policy and monotonic distribution contract. Plan 02-04 then extends the
-    // same top-level test with signed-byte assertions.
-    panic!("Task 2 bundle contract is not implemented yet");
+    let (_guard, pool) = policy_test_database().await;
+    let repository = Arc::new(PgRouteRepository::new(pool.clone()));
+    let administrator_principal =
+        AdministratorPrincipalV1::from_verified_der(b"bundle-issuer", b"bundle-admin");
+    repository
+        .bootstrap_initial_administrator(Some(&administrator_principal))
+        .await
+        .expect("bootstrap bundle contract administrator");
+    let administrator = admin(administrator_principal);
+    let state = RouteState::with_repository_for_test(repository.clone());
+
+    let device_id = format!("device-{}", uuid::Uuid::new_v4());
+    let serial = uuid::Uuid::new_v4().as_bytes().to_vec();
+    let first_random = *uuid::Uuid::new_v4().as_bytes();
+    let second_random = *uuid::Uuid::new_v4().as_bytes();
+    let mut fingerprint = [0_u8; 32];
+    fingerprint[..16].copy_from_slice(&first_random);
+    fingerprint[16..].copy_from_slice(&second_random);
+    let mut token_digest = fingerprint;
+    token_digest.reverse();
+    sqlx::query("INSERT INTO device_allowlist (device_id, fingerprint_digest) VALUES ($1, $2)")
+        .bind(&device_id)
+        .bind(fingerprint.as_slice())
+        .execute(&pool)
+        .await
+        .expect("allow bundle contract device");
+    sqlx::query(
+        "INSERT INTO enrollment_authority (device_id, fingerprint_version, fingerprint_digest, ad_object_guid, ad_object_sid, ad_dns_name, ad_domain, preferred_drive_letter, token_digest, token_expires_at) VALUES ($1, 1, $2, $3, $4, $5, 'LAB', 'P', $6, CURRENT_TIMESTAMP + INTERVAL '10 minutes')",
+    )
+    .bind(&device_id)
+    .bind(fingerprint.as_slice())
+    .bind(first_random.as_slice())
+    .bind([1_u8; 8].as_slice())
+    .bind(format!("{device_id}.lab.local"))
+    .bind(token_digest.as_slice())
+    .execute(&pool)
+    .await
+    .expect("create bundle contract enrollment authority");
+    state.activate_device_for_test(&device_id, &serial).await;
+    let device = AuthenticatedDevice::from_peer(
+        PeerIdentity::device_for_test(&device_id, serial),
+        CredentialStatus::Active,
+    )
+    .expect("authenticated bundle contract device");
+
+    let default_policy_id = format!("default-{}", uuid::Uuid::new_v4());
+    let first_override_id = format!("override-a-{}", uuid::Uuid::new_v4());
+    let second_override_id = format!("override-b-{}", uuid::Uuid::new_v4());
+    let default_source = valid_policy("default-1", "allow");
+    let first_override_source = valid_policy("override-a-1", "block");
+    let second_override_source = valid_policy("override-b-1", "allow");
+    let mut published = Vec::new();
+    for (policy_id, source) in [
+        (&default_policy_id, &default_source),
+        (&first_override_id, &first_override_source),
+        (&second_override_id, &second_override_source),
+    ] {
+        state
+            .save_policy_draft(&administrator, policy_id, source)
+            .await
+            .expect("save bundle policy draft");
+        state
+            .validate_policy_draft(&administrator, policy_id)
+            .await
+            .expect("validate bundle policy draft");
+        published.push(
+            state
+                .publish_policy_draft(&administrator, policy_id, 1)
+                .await
+                .expect("publish bundle policy version"),
+        );
+    }
+
+    assert_eq!(
+        state.policy_bundle_for(&device).await,
+        Err(dlp_server::routes::RouteError::NotFound),
+        "publication alone must not deploy a policy"
+    );
+
+    state
+        .assign_organization_policy(&administrator, &default_policy_id, 1)
+        .await
+        .expect("assign organization default");
+    let default_bundle = state
+        .policy_bundle_for(&device)
+        .await
+        .expect("select organization default");
+    assert_eq!(default_bundle.schema_version(), 2);
+    assert_eq!(default_bundle.policy_id(), default_policy_id);
+    assert_eq!(default_bundle.policy_version(), 1);
+    assert_eq!(
+        default_bundle.policy_digest(),
+        published[0].content_digest()
+    );
+    assert_eq!(
+        default_bundle.agent_settings_json(),
+        r#"{"preferred_drive_letter":"P"}"#
+    );
+    assert_eq!(default_bundle.effective_at_epoch_seconds(), 1_754_568_000);
+    assert_eq!(default_bundle.offline_allowance_seconds(), 7 * 24 * 60 * 60);
+    assert_eq!(default_bundle.device_audience(), device_id);
+    assert_eq!(default_bundle.bundle_version(), 1);
+    assert_eq!(default_bundle.signing_key_id(), "phase1-test-key");
+
+    state
+        .assign_organization_policy(&administrator, &default_policy_id, 1)
+        .await
+        .expect("repeat organization default idempotently");
+    assert_eq!(
+        state
+            .policy_bundle_for(&device)
+            .await
+            .expect("reselect unchanged default")
+            .bundle_version(),
+        default_bundle.bundle_version(),
+        "an identical desired policy must not advance the cursor"
+    );
+
+    let left_state = state.clone();
+    let left_admin = administrator.clone();
+    let left_device_id = device_id.clone();
+    let left_policy_id = first_override_id.clone();
+    let right_state = state.clone();
+    let right_admin = administrator.clone();
+    let right_device_id = device_id.clone();
+    let right_policy_id = second_override_id.clone();
+    let (left, right) = tokio::join!(
+        async move {
+            left_state
+                .assign_device_policy(&left_admin, &left_device_id, &left_policy_id, 1)
+                .await
+        },
+        async move {
+            right_state
+                .assign_device_policy(&right_admin, &right_device_id, &right_policy_id, 1)
+                .await
+        }
+    );
+    left.expect("serialize first concurrent override");
+    right.expect("serialize second concurrent override");
+    let override_bundle = state
+        .policy_bundle_for(&device)
+        .await
+        .expect("select winning device override");
+    assert!(
+        [first_override_id.as_str(), second_override_id.as_str()]
+            .contains(&override_bundle.policy_id()),
+        "one complete concurrent assignment must win"
+    );
+    assert_eq!(
+        override_bundle.bundle_version(),
+        default_bundle.bundle_version() + 2,
+        "each distinct serialized assignment advances the device cursor once"
+    );
+    let winning_policy_id = override_bundle.policy_id().to_owned();
+    state
+        .assign_device_policy(&administrator, &device_id, &winning_policy_id, 1)
+        .await
+        .expect("repeat winning override idempotently");
+    assert_eq!(
+        state
+            .policy_bundle_for(&device)
+            .await
+            .expect("reselect unchanged override")
+            .bundle_version(),
+        override_bundle.bundle_version()
+    );
+
+    let desired_version = override_bundle.bundle_version();
+    let initial_status = state
+        .policy_distribution_status(&device)
+        .await
+        .expect("read initial distribution status");
+    assert_eq!(initial_status.desired_bundle_version(), desired_version);
+    assert_eq!(initial_status.issued_bundle_version(), None);
+    assert_eq!(initial_status.activated_bundle_version(), None);
+    assert_eq!(initial_status.last_error_code(), None);
+    state
+        .report_policy_deployment(
+            &device,
+            PolicyDeploymentUpdate::Issued {
+                bundle_version: desired_version,
+            },
+        )
+        .await
+        .expect("report issued bundle");
+    state
+        .report_policy_deployment(
+            &device,
+            PolicyDeploymentUpdate::Error {
+                bundle_version: desired_version,
+                error_code: "apply_failed".to_owned(),
+            },
+        )
+        .await
+        .expect("report bounded deployment error");
+    assert_eq!(
+        state
+            .policy_distribution_status(&device)
+            .await
+            .expect("read failed deployment status")
+            .last_error_code(),
+        Some("apply_failed")
+    );
+    state
+        .report_policy_deployment(
+            &device,
+            PolicyDeploymentUpdate::Activated {
+                bundle_version: desired_version,
+            },
+        )
+        .await
+        .expect("report activated bundle");
+    assert_eq!(
+        state
+            .report_policy_deployment(
+                &device,
+                PolicyDeploymentUpdate::Issued {
+                    bundle_version: desired_version - 1,
+                },
+            )
+            .await,
+        Err(dlp_server::routes::RouteError::Conflict),
+        "deployment status cannot move backward"
+    );
+    let activated_status = state
+        .policy_distribution_status(&device)
+        .await
+        .expect("read activated deployment status");
+    assert_eq!(
+        activated_status.issued_bundle_version(),
+        Some(desired_version)
+    );
+    assert_eq!(
+        activated_status.activated_bundle_version(),
+        Some(desired_version)
+    );
+    assert_eq!(activated_status.last_error_code(), None);
+
+    state
+        .clear_device_policy(&administrator, &device_id)
+        .await
+        .expect("clear device override");
+    let restored_default = state
+        .policy_bundle_for(&device)
+        .await
+        .expect("fall back to organization default");
+    assert_eq!(restored_default.policy_id(), default_policy_id);
+    assert_eq!(
+        restored_default.policy_digest(),
+        published[0].content_digest()
+    );
+    assert_eq!(restored_default.bundle_version(), desired_version + 1);
 }
