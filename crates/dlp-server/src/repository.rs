@@ -1,9 +1,13 @@
 //! Transactional authority state. Production adapters use PostgreSQL row locks;
 //! mutex-backed stores below exist only as deterministic test fixtures.
 
-use crate::tls::{AuthenticatedDevice, CredentialStatus, canonical_serial_bytes};
+use crate::tls::{
+    AdministratorPrincipalV1, AuthenticatedAdmin, AuthenticatedDevice, CredentialStatus,
+    canonical_serial_bytes,
+};
 use async_trait::async_trait;
 use dlp_protocol::{ProvisionDeviceRequestV1, SignedConfigurationV1};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::{
@@ -11,6 +15,69 @@ use std::{
     sync::Mutex,
 };
 use uuid::Uuid;
+
+const POLICY_AUTHORITY_ADVISORY_LOCK: i64 = 0x0202_0001;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrincipalRole {
+    Administrator,
+    Auditor,
+}
+
+impl PrincipalRole {
+    const fn as_database_value(self) -> &'static str {
+        match self {
+            Self::Administrator => "administrator",
+            Self::Auditor => "auditor",
+        }
+    }
+
+    fn from_database_value(value: &str) -> Result<Self, RouteRepositoryError> {
+        match value {
+            "administrator" => Ok(Self::Administrator),
+            "auditor" => Ok(Self::Auditor),
+            _ => Err(RouteRepositoryError::Unavailable),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BootstrapOutcome {
+    Created,
+    Idempotent,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublishedPolicyVersion {
+    policy_id: String,
+    version: u64,
+    schema_version: u16,
+    source_json: Vec<u8>,
+    content_digest: [u8; 32],
+}
+
+impl PublishedPolicyVersion {
+    pub fn policy_id(&self) -> &str {
+        &self.policy_id
+    }
+
+    pub const fn version(&self) -> u64 {
+        self.version
+    }
+
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    pub fn source_json(&self) -> &[u8] {
+        &self.source_json
+    }
+
+    pub const fn content_digest(&self) -> &[u8; 32] {
+        &self.content_digest
+    }
+}
 
 /// PostgreSQL is the only authority adapter that may be selected for server
 /// deployment. It is intentionally impossible to construct without a real pool.
@@ -275,6 +342,386 @@ impl PgRouteRepository {
 
 #[async_trait]
 impl RouteRepositoryPort for PgRouteRepository {
+    async fn bootstrap_initial_administrator(
+        &self,
+        configured: Option<&AdministratorPrincipalV1>,
+    ) -> Result<BootstrapOutcome, RouteRepositoryError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(POLICY_AUTHORITY_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+
+        let marker = sqlx::query(
+            "SELECT p.issuer_sha256, p.leaf_sha256, p.principal_role FROM initial_admin_bootstrap b JOIN administrator_principals p ON p.id = b.principal_id WHERE b.singleton = TRUE",
+        )
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if let Some(row) = marker {
+            let issuer: Vec<u8> = row
+                .try_get("issuer_sha256")
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            let leaf: Vec<u8> = row
+                .try_get("leaf_sha256")
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            let role: String = row
+                .try_get("principal_role")
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            let matches = configured.is_none_or(|principal| {
+                issuer.as_slice() == principal.issuer_sha256()
+                    && leaf.as_slice() == principal.leaf_sha256()
+            });
+            let active_administrators: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM administrator_principals WHERE active = TRUE AND principal_role = 'administrator'",
+            )
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+            if !matches
+                || active_administrators == 0
+                || role != PrincipalRole::Administrator.as_database_value()
+            {
+                sqlx::query("INSERT INTO policy_audit_events (event_code) VALUES ('initial_admin_bootstrap_conflict')")
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| RouteRepositoryError::Unavailable)?;
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| RouteRepositoryError::Unavailable)?;
+                return Err(RouteRepositoryError::Conflict);
+            }
+            sqlx::query("INSERT INTO policy_audit_events (event_code) VALUES ('initial_admin_bootstrap_idempotent')")
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            transaction
+                .commit()
+                .await
+                .map_err(|_| RouteRepositoryError::Unavailable)?;
+            return Ok(BootstrapOutcome::Idempotent);
+        }
+
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM administrator_principals WHERE active = TRUE AND principal_role = 'administrator'",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if active_count != 0 {
+            return Err(RouteRepositoryError::Conflict);
+        }
+        let principal = configured.ok_or(RouteRepositoryError::MissingInitialAdministrator)?;
+        let principal_id: i64 = sqlx::query_scalar(
+            "INSERT INTO administrator_principals (issuer_sha256, leaf_sha256, principal_role) VALUES ($1, $2, 'administrator') RETURNING id",
+        )
+        .bind(principal.issuer_sha256().as_slice())
+        .bind(principal.leaf_sha256().as_slice())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query(
+            "INSERT INTO initial_admin_bootstrap (singleton, principal_id) VALUES (TRUE, $1)",
+        )
+        .bind(principal_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("INSERT INTO policy_audit_events (event_code) VALUES ('initial_admin_bootstrap_created')")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(BootstrapOutcome::Created)
+    }
+
+    async fn resolve_principal_role(
+        &self,
+        principal: &AdministratorPrincipalV1,
+    ) -> Result<PrincipalRole, RouteRepositoryError> {
+        let role = sqlx::query_scalar::<_, String>(
+            "SELECT principal_role FROM administrator_principals WHERE issuer_sha256 = $1 AND leaf_sha256 = $2 AND active = TRUE",
+        )
+        .bind(principal.issuer_sha256().as_slice())
+        .bind(principal.leaf_sha256().as_slice())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?
+        .ok_or(RouteRepositoryError::Denied)?;
+        PrincipalRole::from_database_value(&role)
+    }
+
+    async fn grant_principal(
+        &self,
+        actor: &AuthenticatedAdmin,
+        principal: &AdministratorPrincipalV1,
+        role: PrincipalRole,
+    ) -> Result<(), RouteRepositoryError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(POLICY_AUTHORITY_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let actor_role = sqlx::query_scalar::<_, String>(
+            "SELECT principal_role FROM administrator_principals WHERE issuer_sha256 = $1 AND leaf_sha256 = $2 AND active = TRUE FOR UPDATE",
+        )
+        .bind(actor.principal().issuer_sha256().as_slice())
+        .bind(actor.principal().leaf_sha256().as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if actor_role.as_deref() != Some(PrincipalRole::Administrator.as_database_value()) {
+            return Err(RouteRepositoryError::Denied);
+        }
+        sqlx::query(
+            "INSERT INTO administrator_principals (issuer_sha256, leaf_sha256, principal_role) VALUES ($1, $2, $3) ON CONFLICT (issuer_sha256, leaf_sha256) DO UPDATE SET principal_role = EXCLUDED.principal_role, active = TRUE, revoked_at = NULL",
+        )
+        .bind(principal.issuer_sha256().as_slice())
+        .bind(principal.leaf_sha256().as_slice())
+        .bind(role.as_database_value())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("INSERT INTO policy_audit_events (event_code) VALUES ('administrator_principal_granted')")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)
+    }
+
+    async fn revoke_principal(
+        &self,
+        actor: &AuthenticatedAdmin,
+        principal: &AdministratorPrincipalV1,
+    ) -> Result<(), RouteRepositoryError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(POLICY_AUTHORITY_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let actor_role = sqlx::query_scalar::<_, String>(
+            "SELECT principal_role FROM administrator_principals WHERE issuer_sha256 = $1 AND leaf_sha256 = $2 AND active = TRUE FOR UPDATE",
+        )
+        .bind(actor.principal().issuer_sha256().as_slice())
+        .bind(actor.principal().leaf_sha256().as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if actor_role.as_deref() != Some(PrincipalRole::Administrator.as_database_value()) {
+            return Err(RouteRepositoryError::Denied);
+        }
+        let target_role = sqlx::query_scalar::<_, String>(
+            "SELECT principal_role FROM administrator_principals WHERE issuer_sha256 = $1 AND leaf_sha256 = $2 AND active = TRUE FOR UPDATE",
+        )
+        .bind(principal.issuer_sha256().as_slice())
+        .bind(principal.leaf_sha256().as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?
+        .ok_or(RouteRepositoryError::Denied)?;
+        if target_role == PrincipalRole::Administrator.as_database_value() {
+            let active_administrators: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM administrator_principals WHERE active = TRUE AND principal_role = 'administrator'",
+            )
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+            if active_administrators <= 1 {
+                return Err(RouteRepositoryError::LastAdministrator);
+            }
+        }
+        let result = sqlx::query(
+            "UPDATE administrator_principals SET active = FALSE, revoked_at = CURRENT_TIMESTAMP WHERE issuer_sha256 = $1 AND leaf_sha256 = $2 AND active = TRUE",
+        )
+        .bind(principal.issuer_sha256().as_slice())
+        .bind(principal.leaf_sha256().as_slice())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if result.rows_affected() != 1 {
+            return Err(RouteRepositoryError::Denied);
+        }
+        sqlx::query("INSERT INTO policy_audit_events (event_code) VALUES ('administrator_principal_revoked')")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)
+    }
+
+    async fn save_policy_draft(
+        &self,
+        policy_id: &str,
+        source_json: &[u8],
+    ) -> Result<(), RouteRepositoryError> {
+        if policy_id.is_empty()
+            || policy_id.len() > 128
+            || !(2..=1_048_576).contains(&source_json.len())
+        {
+            return Err(RouteRepositoryError::Denied);
+        }
+        sqlx::query(
+            "INSERT INTO policy_drafts (policy_id, source_json) VALUES ($1, $2) ON CONFLICT (policy_id) DO UPDATE SET source_json = EXCLUDED.source_json, validated_digest = NULL, updated_at = CURRENT_TIMESTAMP",
+        )
+        .bind(policy_id)
+        .bind(source_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(())
+    }
+
+    async fn policy_draft(&self, policy_id: &str) -> Result<Option<Vec<u8>>, RouteRepositoryError> {
+        sqlx::query_scalar("SELECT source_json FROM policy_drafts WHERE policy_id = $1")
+            .bind(policy_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)
+    }
+
+    async fn record_policy_validation(
+        &self,
+        policy_id: &str,
+        digest: &[u8; 32],
+    ) -> Result<(), RouteRepositoryError> {
+        let result = sqlx::query(
+            "UPDATE policy_drafts SET validated_digest = $2, updated_at = CURRENT_TIMESTAMP WHERE policy_id = $1",
+        )
+        .bind(policy_id)
+        .bind(digest.as_slice())
+        .execute(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if result.rows_affected() != 1 {
+            return Err(RouteRepositoryError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn publish_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+        digest: &[u8; 32],
+    ) -> Result<PublishedPolicyVersion, RouteRepositoryError> {
+        let version = i64::try_from(version).map_err(|_| RouteRepositoryError::Denied)?;
+        if version <= 0 {
+            return Err(RouteRepositoryError::Denied);
+        }
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let source_json = sqlx::query_scalar::<_, Vec<u8>>(
+            "SELECT source_json FROM policy_drafts WHERE policy_id = $1 FOR UPDATE",
+        )
+        .bind(policy_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?
+        .ok_or(RouteRepositoryError::NotFound)?;
+        let inserted = sqlx::query(
+            "INSERT INTO published_policy_versions (policy_id, policy_version, schema_version, source_json, content_digest) VALUES ($1, $2, 2, $3, $4)",
+        )
+        .bind(policy_id)
+        .bind(version)
+        .bind(&source_json)
+        .bind(digest.as_slice())
+        .execute(&mut *transaction)
+        .await;
+        if let Err(error) = inserted {
+            if error
+                .as_database_error()
+                .and_then(|database| database.code())
+                .as_deref()
+                == Some("23505")
+            {
+                return Err(RouteRepositoryError::Conflict);
+            }
+            return Err(RouteRepositoryError::Unavailable);
+        }
+        sqlx::query(
+            "INSERT INTO policy_audit_events (event_code) VALUES ('policy_version_published')",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(PublishedPolicyVersion {
+            policy_id: policy_id.to_owned(),
+            version: u64::try_from(version).map_err(|_| RouteRepositoryError::Unavailable)?,
+            schema_version: 2,
+            source_json,
+            content_digest: *digest,
+        })
+    }
+
+    async fn published_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<Option<PublishedPolicyVersion>, RouteRepositoryError> {
+        let version = i64::try_from(version).map_err(|_| RouteRepositoryError::Denied)?;
+        let row = sqlx::query(
+            "SELECT schema_version, source_json, content_digest FROM published_policy_versions WHERE policy_id = $1 AND policy_version = $2",
+        )
+        .bind(policy_id)
+        .bind(version)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let schema_version: i16 = row
+            .try_get("schema_version")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let source_json: Vec<u8> = row
+            .try_get("source_json")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let content_digest: Vec<u8> = row
+            .try_get("content_digest")
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        Ok(Some(PublishedPolicyVersion {
+            policy_id: policy_id.to_owned(),
+            version: u64::try_from(version).map_err(|_| RouteRepositoryError::Unavailable)?,
+            schema_version: u16::try_from(schema_version)
+                .map_err(|_| RouteRepositoryError::Unavailable)?,
+            source_json,
+            content_digest: content_digest
+                .try_into()
+                .map_err(|_| RouteRepositoryError::Unavailable)?,
+        }))
+    }
+
     async fn activate_device(&self, device_id: &str, serial: &[u8]) {
         let _ = sqlx::query(
             "INSERT INTO device_route_credentials (device_id, credential_serial, credential_status, public_certificate_digest, expires_at) VALUES ($1, $2, 'active', $3, CURRENT_TIMESTAMP + INTERVAL '30 days') ON CONFLICT (credential_serial) DO UPDATE SET credential_status = 'active', revoked_at = NULL",
@@ -541,6 +988,47 @@ pub enum RepositoryError {
 /// PostgreSQL ledger; the authorization invariant remains the same.
 #[async_trait]
 pub trait RouteRepositoryPort: Send + Sync {
+    async fn bootstrap_initial_administrator(
+        &self,
+        configured: Option<&AdministratorPrincipalV1>,
+    ) -> Result<BootstrapOutcome, RouteRepositoryError>;
+    async fn resolve_principal_role(
+        &self,
+        principal: &AdministratorPrincipalV1,
+    ) -> Result<PrincipalRole, RouteRepositoryError>;
+    async fn grant_principal(
+        &self,
+        actor: &AuthenticatedAdmin,
+        principal: &AdministratorPrincipalV1,
+        role: PrincipalRole,
+    ) -> Result<(), RouteRepositoryError>;
+    async fn revoke_principal(
+        &self,
+        actor: &AuthenticatedAdmin,
+        principal: &AdministratorPrincipalV1,
+    ) -> Result<(), RouteRepositoryError>;
+    async fn save_policy_draft(
+        &self,
+        policy_id: &str,
+        source_json: &[u8],
+    ) -> Result<(), RouteRepositoryError>;
+    async fn policy_draft(&self, policy_id: &str) -> Result<Option<Vec<u8>>, RouteRepositoryError>;
+    async fn record_policy_validation(
+        &self,
+        policy_id: &str,
+        digest: &[u8; 32],
+    ) -> Result<(), RouteRepositoryError>;
+    async fn publish_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+        digest: &[u8; 32],
+    ) -> Result<PublishedPolicyVersion, RouteRepositoryError>;
+    async fn published_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<Option<PublishedPolicyVersion>, RouteRepositoryError>;
     async fn activate_device(&self, device_id: &str, serial: &[u8]);
     async fn revoke_device(&self, device_id: &str, serial: &[u8]);
     async fn credential_status(&self, device_id: &str, serial: &[u8]) -> CredentialStatus;
@@ -565,9 +1053,36 @@ pub trait RouteRepositoryPort: Send + Sync {
     async fn health_report_count(&self, device_id: &str) -> usize;
 }
 
-#[derive(Default)]
 pub struct RouteRepository {
     devices: Mutex<HashMap<String, DeviceRouteRecord>>,
+    principals: Mutex<BTreeMap<AdministratorPrincipalV1, PrincipalRole>>,
+    bootstrap: Mutex<Option<AdministratorPrincipalV1>>,
+    policy_drafts: Mutex<BTreeMap<String, PolicyDraftRecord>>,
+    published_policies: Mutex<BTreeMap<(String, u64), PublishedPolicyVersion>>,
+}
+
+struct PolicyDraftRecord {
+    source_json: Vec<u8>,
+    validated_digest: Option<[u8; 32]>,
+}
+
+impl Default for RouteRepository {
+    fn default() -> Self {
+        let principal = AdministratorPrincipalV1::from_verified_der(
+            b"dlp-test-administrator-issuer",
+            b"admin-test",
+        );
+        Self {
+            devices: Mutex::new(HashMap::new()),
+            principals: Mutex::new(BTreeMap::from([(
+                principal.clone(),
+                PrincipalRole::Administrator,
+            )])),
+            bootstrap: Mutex::new(Some(principal)),
+            policy_drafts: Mutex::new(BTreeMap::new()),
+            published_policies: Mutex::new(BTreeMap::new()),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -580,6 +1095,179 @@ struct DeviceRouteRecord {
 
 #[async_trait]
 impl RouteRepositoryPort for RouteRepository {
+    async fn bootstrap_initial_administrator(
+        &self,
+        configured: Option<&AdministratorPrincipalV1>,
+    ) -> Result<BootstrapOutcome, RouteRepositoryError> {
+        let mut marker = self
+            .bootstrap
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if let Some(existing) = marker.as_ref() {
+            if configured.is_none_or(|principal| principal == existing) {
+                return Ok(BootstrapOutcome::Idempotent);
+            }
+            return Err(RouteRepositoryError::Conflict);
+        }
+        let principal = configured.ok_or(RouteRepositoryError::MissingInitialAdministrator)?;
+        self.principals
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .insert(principal.clone(), PrincipalRole::Administrator);
+        *marker = Some(principal.clone());
+        Ok(BootstrapOutcome::Created)
+    }
+
+    async fn resolve_principal_role(
+        &self,
+        principal: &AdministratorPrincipalV1,
+    ) -> Result<PrincipalRole, RouteRepositoryError> {
+        self.principals
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .get(principal)
+            .copied()
+            .ok_or(RouteRepositoryError::Denied)
+    }
+
+    async fn grant_principal(
+        &self,
+        actor: &AuthenticatedAdmin,
+        principal: &AdministratorPrincipalV1,
+        role: PrincipalRole,
+    ) -> Result<(), RouteRepositoryError> {
+        if self.resolve_principal_role(actor.principal()).await? != PrincipalRole::Administrator {
+            return Err(RouteRepositoryError::Denied);
+        }
+        self.principals
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .insert(principal.clone(), role);
+        Ok(())
+    }
+
+    async fn revoke_principal(
+        &self,
+        actor: &AuthenticatedAdmin,
+        principal: &AdministratorPrincipalV1,
+    ) -> Result<(), RouteRepositoryError> {
+        if self.resolve_principal_role(actor.principal()).await? != PrincipalRole::Administrator {
+            return Err(RouteRepositoryError::Denied);
+        }
+        let mut principals = self
+            .principals
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let role = principals
+            .get(principal)
+            .copied()
+            .ok_or(RouteRepositoryError::Denied)?;
+        if role == PrincipalRole::Administrator
+            && principals
+                .values()
+                .filter(|candidate| **candidate == PrincipalRole::Administrator)
+                .count()
+                <= 1
+        {
+            return Err(RouteRepositoryError::LastAdministrator);
+        }
+        principals.remove(principal);
+        Ok(())
+    }
+
+    async fn save_policy_draft(
+        &self,
+        policy_id: &str,
+        source_json: &[u8],
+    ) -> Result<(), RouteRepositoryError> {
+        if policy_id.is_empty()
+            || policy_id.len() > 128
+            || !(2..=1_048_576).contains(&source_json.len())
+        {
+            return Err(RouteRepositoryError::Denied);
+        }
+        self.policy_drafts
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .insert(
+                policy_id.to_owned(),
+                PolicyDraftRecord {
+                    source_json: source_json.to_vec(),
+                    validated_digest: None,
+                },
+            );
+        Ok(())
+    }
+
+    async fn policy_draft(&self, policy_id: &str) -> Result<Option<Vec<u8>>, RouteRepositoryError> {
+        Ok(self
+            .policy_drafts
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .get(policy_id)
+            .map(|draft| draft.source_json.clone()))
+    }
+
+    async fn record_policy_validation(
+        &self,
+        policy_id: &str,
+        digest: &[u8; 32],
+    ) -> Result<(), RouteRepositoryError> {
+        let mut drafts = self
+            .policy_drafts
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        let draft = drafts
+            .get_mut(policy_id)
+            .ok_or(RouteRepositoryError::NotFound)?;
+        draft.validated_digest = Some(*digest);
+        Ok(())
+    }
+
+    async fn publish_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+        digest: &[u8; 32],
+    ) -> Result<PublishedPolicyVersion, RouteRepositoryError> {
+        if version == 0 {
+            return Err(RouteRepositoryError::Denied);
+        }
+        let source_json = self
+            .policy_draft(policy_id)
+            .await?
+            .ok_or(RouteRepositoryError::NotFound)?;
+        let published = PublishedPolicyVersion {
+            policy_id: policy_id.to_owned(),
+            version,
+            schema_version: 2,
+            source_json,
+            content_digest: *digest,
+        };
+        let mut policies = self
+            .published_policies
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?;
+        if policies.contains_key(&(policy_id.to_owned(), version)) {
+            return Err(RouteRepositoryError::Conflict);
+        }
+        policies.insert((policy_id.to_owned(), version), published.clone());
+        Ok(published)
+    }
+
+    async fn published_policy(
+        &self,
+        policy_id: &str,
+        version: u64,
+    ) -> Result<Option<PublishedPolicyVersion>, RouteRepositoryError> {
+        Ok(self
+            .published_policies
+            .lock()
+            .map_err(|_| RouteRepositoryError::Unavailable)?
+            .get(&(policy_id.to_owned(), version))
+            .cloned())
+    }
+
     async fn activate_device(&self, device_id: &str, serial: &[u8]) {
         if let Ok(mut devices) = self.devices.lock() {
             let record = devices.entry(device_id.to_owned()).or_default();
@@ -721,5 +1409,9 @@ impl RouteRepositoryPort for RouteRepository {
 pub enum RouteRepositoryError {
     Denied,
     Replay,
+    Conflict,
+    LastAdministrator,
+    MissingInitialAdministrator,
+    NotFound,
     Unavailable,
 }

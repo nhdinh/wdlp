@@ -16,7 +16,7 @@ use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
 use std::sync::Arc;
 use tower::ServiceExt;
 
-const POLICY_TEST_LOCK: i64 = 0x0202_0001;
+const POLICY_TEST_LOCK: i64 = 0x0202_00ff;
 
 async fn policy_test_database() -> (PgConnection, PgPool) {
     let database_url = std::env::var("DATABASE_URL")
@@ -37,26 +37,12 @@ async fn policy_test_database() -> (PgConnection, PgPool) {
     run_migrations(&pool)
         .await
         .expect("apply policy migrations");
-    sqlx::query("DELETE FROM policy_audit_events")
+    sqlx::query(
+        "TRUNCATE policy_audit_events, published_policy_versions, policy_drafts, initial_admin_bootstrap, administrator_principals RESTART IDENTITY CASCADE",
+    )
         .execute(&pool)
         .await
-        .expect("reset policy audit events");
-    sqlx::query("DELETE FROM published_policy_versions")
-        .execute(&pool)
-        .await
-        .expect("reset published policies");
-    sqlx::query("DELETE FROM policy_drafts")
-        .execute(&pool)
-        .await
-        .expect("reset policy drafts");
-    sqlx::query("DELETE FROM initial_admin_bootstrap")
-        .execute(&pool)
-        .await
-        .expect("reset initial administrator bootstrap");
-    sqlx::query("DELETE FROM administrator_principals")
-        .execute(&pool)
-        .await
-        .expect("reset administrator principals");
+        .expect("reset policy lifecycle authority");
     (guard, pool)
 }
 

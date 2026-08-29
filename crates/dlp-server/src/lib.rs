@@ -4,6 +4,7 @@
 //! deliberately added by later plans; this seam owns process-only liveness and
 //! migration-before-bind ordering now.
 
+use crate::repository::RouteRepositoryPort;
 use axum::{Json, Router, extract::Extension, http::StatusCode, routing::get};
 use serde::Serialize;
 use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
@@ -17,7 +18,10 @@ pub mod repository;
 pub mod routes;
 pub mod tls;
 
-pub use crate::ad::{DirectoryError, DirectoryVerifier, LdapDirectoryAdapter, LdapDirectoryVerifier, VerifiedComputerIdentity};
+pub use crate::ad::{
+    DirectoryError, DirectoryVerifier, LdapDirectoryAdapter, LdapDirectoryVerifier,
+    VerifiedComputerIdentity,
+};
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 
@@ -30,6 +34,9 @@ pub enum ServerError {
     ListenerFailed,
     ServeFailed,
     InvalidEnvironmentFile,
+    InvalidInitialAdministrator,
+    MissingInitialAdministrator,
+    InitialAdministratorConflict,
 }
 
 impl fmt::Display for ServerError {
@@ -42,6 +49,9 @@ impl fmt::Display for ServerError {
             Self::ListenerFailed => "server_listener_failed",
             Self::ServeFailed => "server_serve_failed",
             Self::InvalidEnvironmentFile => "server_environment_invalid",
+            Self::InvalidInitialAdministrator => "initial_administrator_invalid",
+            Self::MissingInitialAdministrator => "initial_administrator_required",
+            Self::InitialAdministratorConflict => "initial_administrator_conflict",
         };
         write!(formatter, "{code}")
     }
@@ -126,11 +136,12 @@ impl ProductionProviders {
     /// directory endpoint, PostgreSQL URL, issuer, signer, clock, or TLS path
     /// fails before migrations or listener binding.
     pub fn from_environment(config: &ServerConfig) -> Result<Self, ServerError> {
-        let directory: Arc<dyn DirectoryVerifier> = Arc::new(
-            ad::LdapDirectoryAdapter::from_environment().map_err(|_| ServerError::MissingProvider {
-                provider: "directory_verifier",
-            })?,
-        );
+        let directory: Arc<dyn DirectoryVerifier> =
+            Arc::new(ad::LdapDirectoryAdapter::from_environment().map_err(|_| {
+                ServerError::MissingProvider {
+                    provider: "directory_verifier",
+                }
+            })?);
         let pool = PgPoolOptions::new()
             .connect_lazy(&config.database_url)
             .map_err(|_| ServerError::DatabaseUnavailable)?;
@@ -153,7 +164,7 @@ impl ProductionProviders {
             provider: "tls_paths",
         })?;
         let authority_repository = repository::PgAuthorityRepository::new(pool.clone());
-        let route_repository = repository::PgRouteRepository::new(pool);
+        let route_repository = Arc::new(repository::PgRouteRepository::new(pool));
         let enrollment_service = Arc::new(enrollment::EnrollmentService::new(
             authority_repository.clone(),
             issuer.clone(),
@@ -168,9 +179,7 @@ impl ProductionProviders {
             configuration_signer: Some(Arc::new(RuntimeSigner(Arc::new(
                 dlp_crypto::ConfigurationSigner::from_seed(configuration_key_id, seed),
             )))),
-            repository: Some(Arc::new(RuntimeRepository {
-                route_repository: Arc::new(route_repository),
-            })),
+            repository: Some(Arc::new(RuntimeRepository { route_repository })),
             enrollment_service: Some(enrollment_service),
             provisioning_service: Some(provisioning_service),
             clock: Some(Arc::new(RuntimeClock)),
@@ -212,11 +221,21 @@ impl ConfigurationSigner for RuntimeSigner {
     }
 }
 struct RuntimeRepository {
-    route_repository: Arc<dyn repository::RouteRepositoryPort>,
+    route_repository: Arc<repository::PgRouteRepository>,
 }
+#[async_trait::async_trait]
 impl ServerRepository for RuntimeRepository {
     fn route_repository(&self) -> Arc<dyn repository::RouteRepositoryPort> {
-        Arc::clone(&self.route_repository)
+        self.route_repository.clone()
+    }
+
+    async fn bootstrap_initial_administrator(
+        &self,
+        configured: Option<&tls::AdministratorPrincipalV1>,
+    ) -> Result<repository::BootstrapOutcome, repository::RouteRepositoryError> {
+        self.route_repository
+            .bootstrap_initial_administrator(configured)
+            .await
     }
 }
 struct RuntimeClock;
@@ -226,8 +245,13 @@ pub trait DeviceCertificateIssuer: Send + Sync {}
 pub trait ConfigurationSigner: Send + Sync {
     fn route_signer(&self) -> Arc<dlp_crypto::ConfigurationSigner>;
 }
+#[async_trait::async_trait]
 pub trait ServerRepository: Send + Sync {
     fn route_repository(&self) -> Arc<dyn crate::repository::RouteRepositoryPort>;
+    async fn bootstrap_initial_administrator(
+        &self,
+        configured: Option<&tls::AdministratorPrincipalV1>,
+    ) -> Result<repository::BootstrapOutcome, repository::RouteRepositoryError>;
 }
 pub trait Clock: Send + Sync {}
 
@@ -421,12 +445,37 @@ pub async fn run_server(
     config: ServerConfig,
     providers: ProductionProviders,
 ) -> Result<(), ServerError> {
-    let state = ServerState::production(config.clone(), providers)?;
+    validate_providers(&providers)?;
     let pool = PgPoolOptions::new()
         .connect(&config.database_url)
         .await
         .map_err(|_| ServerError::DatabaseUnavailable)?;
     run_migrations_for_startup(Some(&pool)).await?;
+    let initial_administrator = initial_administrator_from_environment()?;
+    let repository = providers
+        .repository
+        .as_ref()
+        .expect("validated repository provider");
+    match repository
+        .bootstrap_initial_administrator(initial_administrator.as_ref())
+        .await
+    {
+        Ok(repository::BootstrapOutcome::Created) => {
+            eprintln!("initial_admin_bootstrap_created");
+        }
+        Ok(repository::BootstrapOutcome::Idempotent) => {
+            eprintln!("initial_admin_bootstrap_idempotent");
+        }
+        Err(repository::RouteRepositoryError::MissingInitialAdministrator) => {
+            return Err(ServerError::MissingInitialAdministrator);
+        }
+        Err(repository::RouteRepositoryError::Conflict) => {
+            eprintln!("initial_admin_bootstrap_conflict");
+            return Err(ServerError::InitialAdministratorConflict);
+        }
+        Err(_) => return Err(ServerError::DatabaseUnavailable),
+    }
+    let state = ServerState::production(config.clone(), providers)?;
     let listener = tokio::net::TcpListener::bind(config.listen_address())
         .await
         .map_err(|_| ServerError::ListenerFailed)?;
@@ -445,6 +494,17 @@ pub async fn run_server(
     )
     .await
     .map_err(|_| ServerError::ServeFailed)
+}
+
+fn initial_administrator_from_environment()
+-> Result<Option<tls::AdministratorPrincipalV1>, ServerError> {
+    match std::env::var("DLP_INITIAL_ADMIN_PRINCIPAL_SHA256") {
+        Ok(value) => tls::AdministratorPrincipalV1::parse(&value)
+            .map(Some)
+            .map_err(|_| ServerError::InvalidInitialAdministrator),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(ServerError::InvalidInitialAdministrator),
+    }
 }
 
 #[cfg(test)]
@@ -486,9 +546,18 @@ mod tests {
             }
         }
         struct Repository;
+        #[async_trait::async_trait]
         impl ServerRepository for Repository {
             fn route_repository(&self) -> Arc<dyn crate::repository::RouteRepositoryPort> {
                 Arc::new(crate::repository::RouteRepository::default())
+            }
+
+            async fn bootstrap_initial_administrator(
+                &self,
+                _configured: Option<&crate::tls::AdministratorPrincipalV1>,
+            ) -> Result<crate::repository::BootstrapOutcome, crate::repository::RouteRepositoryError>
+            {
+                Ok(crate::repository::BootstrapOutcome::Idempotent)
             }
         }
         struct TestEnrollmentService;
