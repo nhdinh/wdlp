@@ -26,8 +26,8 @@
 - [ ] **SRV-10**: Provide audit search and export by time, device, user, action, rule, and severity.
 - [x] **SRV-11**: Persist data in PostgreSQL with versioned migrations.
 - [x] **SRV-12**: Provide health and readiness endpoints.
-- [ ] **SRV-13**: Endpoint deployment orchestration automatically obtains a short-lived enrollment token through trusted provisioning, passes it to the Windows service installation, and requires no manual token copy for the normal install path.
-- [ ] **SRV-14**: Trusted provisioning preserves the administrator mTLS boundary on LAB-DC01, validates token handoff before endpoint writes, removes token state after enrollment or failed installation, and never exposes the token or administrator credentials in logs, evidence, or diagnostic output.
+- [x] **SRV-13**: Endpoint deployment orchestration automatically obtains a short-lived enrollment token through trusted provisioning, passes it to the Windows service installation, and requires no manual token copy for the normal install path.
+- [x] **SRV-14**: Trusted provisioning preserves the administrator mTLS boundary on LAB-DC01, validates token handoff before endpoint writes, removes token state after enrollment or failed installation, and never exposes the token or administrator credentials in logs, evidence, or diagnostic output.
 
 **Phase 01.2 canonical traceability:** SRV-13 and SRV-14 are endpoint-deployment requirements owned by Phase 01.2. Their acceptance evidence is the trusted-provisioning-to-service install path, dual-location token cleanup, and redacted diagnostics; they are not satisfied by the earlier Phase 1 enrollment API work alone.
 
@@ -162,8 +162,8 @@
 | SRV-10 | Phase 3 | Pending |
 | SRV-11 | Phase 1 | Complete |
 | SRV-12 | Phase 1 | Complete |
-| SRV-13 | Phase 01.2 | Pending |
-| SRV-14 | Phase 01.2 | Pending |
+| SRV-13 | Phase 01.2 | Complete |
+| SRV-14 | Phase 01.2 | Complete |
 | POL-01 | Phase 2 | Pending |
 | POL-02 | Phase 2 | Pending |
 | POL-03 | Phase 2 | Pending |

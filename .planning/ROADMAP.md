@@ -119,7 +119,7 @@ Plans:
 **Goal:** As a lab operator, I want the endpoint deployment script to obtain the enrollment token automatically from trusted provisioning, so that I can install and start DlpWindowsService without manually copying a short-lived secret.
 **Requirements**: SRV-13, SRV-14, TST-05, AGT-01
 **Depends on:** Phase 1
-**Plans:** 2/3 plans complete
+**Plans:** 3/3 plans complete
 
 Plans:
 
@@ -133,7 +133,7 @@ Plans:
 
 **Wave 3** *(gap closure; blocked on Waves 1-2 completion)*
 
-- [ ] 01.2-03-PLAN.md (Wave 3) — Repair PostgreSQL authority-query argument integrity and prove ordinary/replacement live transitions with fail-closed evidence and recovery
+- [x] 01.2-03-PLAN.md (Wave 3) — Repair PostgreSQL authority-query argument integrity and prove ordinary/replacement live transitions with fail-closed evidence and recovery
 
 ### Phase 01.1: Add docs for those env var DLP_DEVICE_ID, DLP_SERVER_URL, DLP_ROOT_CA_PEM, DLP_CONFIGURATION_PUBLIC_KEY_HEX. Add docs to guide how to collect/create all env vars for setting up (INSERTED)
 
@@ -209,7 +209,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. First Encrypted-Drive Vertical Slice | 41/32 | Complete    | 2026-08-28 |
 | 1.1. Add env-var docs | 1/1 | Complete    | 2026-08-28 |
-| 1.2. Automatic enrollment token acquisition | 2/3 | In Progress|  |
+| 1.2. Automatic enrollment token acquisition | 3/3 | Complete    | 2026-08-29 |
 | 2. Policy Enforcement and User Feedback | 0/TBD | Not started | - |
 | 3. Audit, Offline Operation, and Fleet Control | 0/TBD | Not started | - |
 | 4. Hardening and MVP Release | 0/TBD | Not started | - |
