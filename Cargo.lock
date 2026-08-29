@@ -718,6 +718,7 @@ dependencies = [
  "dlp-agent-core",
  "dlp-crypto",
  "dlp-domain",
+ "dlp-policy",
  "dlp-protocol",
  "ldap3",
  "rcgen",

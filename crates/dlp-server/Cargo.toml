@@ -14,6 +14,7 @@ axum = { version = "=0.8.9", features = ["http2"] }
 dlp-agent-core = { path = "../dlp-agent-core" }
 dlp-crypto = { path = "../dlp-crypto" }
 dlp-domain = { path = "../dlp-domain" }
+dlp-policy = { path = "../dlp-policy", version = "=0.1.0" }
 dlp-protocol = { path = "../dlp-protocol" }
 ldap3 = { version = "=0.11.5", default-features = false, features = ["tls-rustls"] }
 rcgen = { version = "=0.14.8", features = ["pem", "x509-parser"] }
