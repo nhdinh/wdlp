@@ -26,10 +26,10 @@ created: 2026-08-29
 |---|---:|---|---|
 | 02-01-01 | 1 | POL-04/06/09, D-05/07/10/11 | `policy_enforcement.rs::read_export_tracer`; discoverability gate then exact test |
 | 02-01-02 | 1 | POL-01..10, D-05..14 | `policy_v2.rs`; `rtk cargo test --locked -p dlp-policy --test policy_v2` |
-| 02-02-01 | 2 | SRV-02/05, POL-07 | `policy_lifecycle.rs::policy_roles_and_immutable_publish`; discoverability gate then exact test |
+| 02-02-01 | 2 | SRV-02/05, POL-07 | Owns server `dlp-policy` dependency/lock plus `policy_lifecycle.rs::policy_roles_and_immutable_publish`; list gate, cargo-tree dependency gate, exact bootstrap/role/publish test |
 | 02-02-02 | 2 | SRV-05/06/07 | `policy_lifecycle.rs::policy_bundle_contract`; discoverability gate then exact test and full target |
 | 02-03-01 | 3 | SRV-02/05/07, POL-07 | `policy_cli.rs::policy_lifecycle_tracer`; discoverability gate then exact test |
-| 02-03-02 | 3 | SRV-02/05/07 | Full `rtk cargo test --locked -p dlpctl --test policy_cli` |
+| 02-03-02 | 3 | SRV-02/05/07 | Full `rtk cargo test --locked -p dlpctl --test policy_cli`, including mTLS principal grant/revoke and last-admin recovery protection |
 | 02-04-01 | 4 | SRV-06/07 | Plan 02-02-owned `policy_bundle_contract`, extended and re-run with list gate |
 | 02-04-02 | 4 | POL-07, AGT-10 | `policy_activation.rs::activation_tracer`; list gate, exact test, then full target |
 | 02-05-01 | 5 | SRV-07, AGT-10 | `session_lifecycle.rs::real_drive_host_policy_snapshot`; list gate and built host |
@@ -45,13 +45,14 @@ created: 2026-08-29
 | 02-10-01 | 9 | DRV-08, UI-01/03 | `companion_grants.rs::toast_projection`; list gate, exact test, built companion |
 | 02-10-02 | 9 | AGT-10, DRV-05, UI-01/02 | `companion_grants.rs::companion_lifecycle`; list gate, exact test, session suite |
 | 02-11-01 | 10 | all production behaviors, TST-07 | Full workspace plus `Invoke-Phase2PolicySmoke.ps1 -Case All` |
-| 02-11-02 | 10 | 22 requirements, D-01..19, 33 edges, prohibitions | Evidence digest/state gate plus plan/coverage validation |
+| 02-11-02 | 10 | 22 requirements, D-01..19, 33 edges, deferred exclusions, prohibitions | `Assert-Phase2PlanCoverage.Tests.ps1` mutation fixtures, then standalone `Assert-Phase2PlanCoverage.ps1 -Mode Seal` |
 
 ## Wave 0 Ownership
 
 - [ ] `crates/dlp-policy/tests/policy_v2.rs` — 02-01 Task 2.
 - [ ] `crates/dlp-windows-drive/tests/policy_enforcement.rs` — 02-01 Task 1, expanded by 02-07 Task 2.
 - [ ] `crates/dlp-server/tests/policy_lifecycle.rs` — 02-02 Tasks 1-2; exact `policy_bundle_contract` created there, extended/re-run by 02-04 Task 1.
+- [ ] `crates/dlp-server/Cargo.toml` and `Cargo.lock` — 02-02 Task 1 adds the exact server-local `dlp-policy` dependency before the first compiler call; Task 2 reuses it.
 - [ ] `crates/dlpctl/tests/policy_cli.rs` — 02-03 Tasks 1-2.
 - [ ] `crates/dlp-agent-core/tests/policy_activation.rs` — 02-04 Task 2 and 02-06 Task 1.
 - [ ] Expand `crates/dlp-windows-service/tests/session_lifecycle.rs` for policy snapshot bootstrap/hot update — 02-05 Tasks 1-2.
@@ -60,6 +61,7 @@ created: 2026-08-29
 - [ ] `crates/dlp-windows-service/tests/companion_grants.rs` — 02-08 Tasks 1-2, 02-09 Task 2, and 02-10 Tasks 1-2.
 - [ ] Expand `crates/dlp-windows-service/tests/session_lifecycle.rs` for synchronous decision/grant transport — 02-09 Task 1.
 - [ ] `tests/windows/Invoke-Phase2PolicySmoke.ps1` — 02-11 Task 1.
+- [ ] `tests/windows/Assert-Phase2PlanCoverage.ps1`, `Assert-Phase2PlanCoverage.Tests.ps1`, and `fixtures/phase2-plan-coverage/cases.json` — 02-11 Task 2 exact-set seal plus missing/extra/deferred/prohibition failure fixtures.
 - [ ] PostgreSQL lifecycle evidence uses configured test URL or LAB-SERVER01; missing connectivity blocks rather than passing source-only checks.
 
 ## Production-Path and Manual Checks

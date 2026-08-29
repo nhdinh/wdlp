@@ -547,7 +547,7 @@ All four research questions below are resolved as Phase 2 execution contracts by
 1. **[RESOLVED] How are existing administrator certificates bootstrapped into the new role model?**
    - What we know: current TLS authentication yields an administrator identity without an `admin`/`auditor` repository lookup. [VERIFIED: crates/dlp-server/src/tls.rs:1-260]
    - Resolved uncertainty: canonical principal key and first-admin bootstrap path.
-   - Resolution: Plan 02-02 modifies `crates/dlp-server/src/tls.rs` so, only after rustls chain verification, it forms an opaque principal from SHA-256 of the verified issuer-certificate DER plus SHA-256 of the canonical verified leaf-certificate DER. `AuthenticatedAdmin` carries this opaque principal—not either certificate subject—through route middleware to persisted `admin`/`auditor` lookup. The plan seeds the currently configured administrator through a forward migration/operator-safe path and tests equal-subject/different-DER collisions, unregistered fingerprints, and rejected header/body/query role claims. No bearer/header fallback is added, so the contract supports D-01/D-02 without weakening mTLS. [RESOLVED: 02-02 Task 1]
+   - Resolution: Plan 02-02 modifies `crates/dlp-server/src/tls.rs` so, only after rustls chain verification, it forms `AdministratorPrincipalV1` from the separately hashed issuer DER and canonical leaf DER; subjects and serial text never authorize. The operator supplies the first pair through `DLP_INITIAL_ADMIN_PRINCIPAL_SHA256` using exact lowercase `<64-hex-issuer>:<64-hex-leaf>` syntax. After migrations and before listener bind, a locked repository transition refuses a zero-admin server without this input, inserts one initial admin plus a single-consumption marker/audit record, treats an exact replay as idempotent, and rejects malformed or different replay input. Tests cover no-admin startup, unregistered fingerprints, equal-subject/different-DER, issuer substitution, leaf substitution, and header/body/query caller-role spoofing. Ongoing recovery/rotation is through mTLS-admin-only principal grant/revoke plus last-admin protection, exposed through `dlpctl` in Plan 02-03; there is no bearer/header/unauthenticated reset path. [RESOLVED: 02-02 Task 1; 02-03 Task 2]
 
 2. **[RESOLVED] How are authenticated content digests established for files created before Phase 2?**
    - What we know: the current `EncryptedManifestV1` codec in `format.rs` has no plaintext digest. [VERIFIED: crates/dlp-storage/src/format.rs:141-193]
@@ -579,7 +579,9 @@ All four research questions below are resolved as Phase 2 execution contracts by
 **Missing dependencies with no fallback:** none if lab/CI PostgreSQL is reachable; otherwise server integration tests are blocked. [ASSUMED]  
 **Missing dependencies with fallback:** local Docker and `pg_isready`; use existing lab/CI infrastructure or install them before the relevant wave. [ASSUMED]
 
-## Validation Architecture
+## Validation Architecture (Historical Research-Time Map)
+
+> **Historical only — not executable current guidance.** This table records the commands and provisional test names available during research. It intentionally preserves unprefixed and superseded examples for provenance. Executors MUST use `02-VALIDATION.md` and the owning PLAN task's `<verify>` block as the authoritative RTK-prefixed, zero-match-safe command map; no command in this research-time section may be used as a current gate.
 
 ### Test Framework
 
