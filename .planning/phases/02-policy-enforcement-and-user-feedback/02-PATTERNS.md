@@ -45,7 +45,7 @@
 | `crates/dlp-storage/tests/policy_staging.rs` | test | file-I/O | `crates/dlp-storage/tests/operations.rs` | exact |
 | `crates/dlp-windows-drive/tests/policy_enforcement.rs` | test | request-response | `crates/dlp-windows-drive/tests/callback_contract.rs` | exact |
 | `crates/dlp-windows-service/tests/companion_grants.rs` | test | event-driven | `crates/dlp-windows-service/tests/session_lifecycle.rs` | role-match |
-| `tests/e2e/policy_distribution.rs` | test | request-response | `tests/e2e/server_enrollment.rs` | exact |
+| `crates/dlp-server/tests/policy_distribution.rs` | test | request-response | `tests/e2e/server_enrollment.rs` | exact behavior; crate-local placement for Cargo auto-discovery |
 | `tests/windows/Invoke-Phase2PolicySmoke.ps1` | test | batch | `tests/windows/Invoke-Phase1Matrix.ps1` | exact |
 
 ## Pattern Assignments
@@ -414,9 +414,9 @@ Test draft mutation, validation failure, immutable publish, duplicate-version co
 
 ---
 
-### `tests/e2e/policy_distribution.rs` (test, request-response)
+### `crates/dlp-server/tests/policy_distribution.rs` (test, request-response)
 
-**Analog:** Signed configuration distribution in `tests/e2e/server_enrollment.rs` lines 200-269.
+**Analog:** Signed configuration distribution in `tests/e2e/server_enrollment.rs` lines 200-269. The new test is placed under `crates/dlp-server/tests/` so `cargo test -p dlp-server --test policy_distribution` discovers it without an additional `[[test]]` registration.
 
 Exercise the real path: administrator publishes and assigns; authenticated device fetches only its assignment; server reconstructs canonical signed bytes; agent verifies/activates; the evaluator produces the expected decision; an invalid or older assignment leaves LKG active. Assert device audience, monotonic version, content digest, signature, and exact canonical round-trip.
 

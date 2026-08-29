@@ -341,11 +341,11 @@ DATA_C3W6J8LP_END
 
 ## Runtime State Inventory
 
-This phase is a schema/configuration/storage migration even though it is not a rename. The inventory prevents source-only planning from missing deployed state. [VERIFIED: crates/dlp-server/migrations/202608070001_walking_skeleton.sql:1-92; crates/dlp-storage/src/manifest.rs:1-207]
+This phase is a schema/configuration/storage migration even though it is not a rename. The inventory prevents source-only planning from missing deployed state. [VERIFIED: migrations/202608070001_walking_skeleton.sql:1-92; crates/dlp-storage/src/format.rs:1-193]
 
 | Category | Items Found | Action Required |
 |----------|-------------|-----------------|
-| Stored data | PostgreSQL currently stores per-device signed configuration schema/version history but has no policy draft/version/assignment tables. [VERIFIED: crates/dlp-server/migrations/202608070001_walking_skeleton.sql:1-92] Encrypted file manifests carry generation, file ID, logical length, and chunk lengths but no authenticated plaintext digest. [VERIFIED: crates/dlp-storage/src/manifest.rs:20-84] Agent cache stores content-addressed bundles plus current/LKG pointers. [VERIFIED: crates/dlp-agent-core/src/config_cache.rs:93-241] | Add forward-only SQL migrations; preserve old signed rows; version the encrypted manifest and backfill authenticated digests or prevent hash-policy assignment until the affected files have trusted digests; preserve current/LKG across activation failures. |
+| Stored data | PostgreSQL currently stores per-device signed configuration schema/version history but has no policy draft/version/assignment tables. [VERIFIED: migrations/202608070001_walking_skeleton.sql:1-92] Encrypted file manifests carry generation, file ID, logical length, and chunk lengths but no authenticated plaintext digest. [VERIFIED: crates/dlp-storage/src/format.rs:141-193] Agent cache stores content-addressed bundles plus current/LKG pointers. [VERIFIED: crates/dlp-agent-core/src/config_cache.rs:93-241] | Add forward-only SQL migrations; preserve old signed rows; version the encrypted manifest and backfill authenticated digests or prevent hash-policy assignment until the affected files have trusted digests; preserve current/LKG across activation failures. |
 | Live service config | Endpoint verification currently has one `key_id` and one verifying key, and server TLS treats authenticated administrator-CA peers as one administrator role. [VERIFIED: crates/dlp-crypto/src/lib.rs:230-326; crates/dlp-server/src/tls.rs:1-260] | Migrate to a bounded trust set/transition state and repository-resolved `admin`/`auditor` principals. Define bootstrap mapping for existing administrator certificates before enabling role checks. |
 | OS-registered state | Windows service and per-user drive hosts already exist; no companion notification registration is present. [VERIFIED: crates/dlp-windows-service/src/session.rs:1-320; repository file inventory] Unpackaged desktop notifications require application identity/registration and activation wiring. [CITED: https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/desktop-toasts/] | Install/register the companion per user or per machine as selected by installer design, establish AppUserModelID/activation registration, and integrate its start/stop with authenticated user sessions. Verify registration on Windows 10 and 11. |
 | Secrets/env vars | Existing configuration verification and signing material must remain valid through rotation; no secret-key rename is required. [VERIFIED: crates/dlp-crypto/src/lib.rs:230-326] | Add old/new public-key overlap state without exposing server signing keys. Preserve existing env/config names during migration. |
@@ -376,7 +376,7 @@ This phase is a schema/configuration/storage migration even though it is not a r
 
 ### Pitfall 4: Hash Rules on Legacy Files
 
-**What goes wrong:** A full-file hash condition silently does not match or forces a full reread because legacy manifests lack an authenticated digest. [VERIFIED: crates/dlp-storage/src/manifest.rs:20-84]  
+**What goes wrong:** A full-file hash condition silently does not match or forces a full reread because legacy manifests lack an authenticated digest. [VERIFIED: crates/dlp-storage/src/format.rs:141-193]
 **Why it happens:** Adding a field to new writes does not migrate old files.  
 **How to avoid:** Specify a manifest-version migration/backfill and assignment readiness gate; until then, a required missing digest is `inspection_failed`. [VERIFIED: 02-CONTEXT.md D-12,D-14]  
 **Warning signs:** Tests cover only files created after the upgrade.
@@ -534,30 +534,32 @@ DATA_B5T1Y9DU_END
 | A3 | Outstanding Proceed-once grants should be memory-only and expire on service restart. | Architecture Pattern 6 | Product may require restart continuity, which needs protected persistence and replay design. |
 | A4 | Compiled regex machines should not be serialized; endpoint should reconstruct from canonical definitions. | Anti-Patterns | A stable, authenticated portable representation might later be justified, but version coupling is high. |
 | A5 | Proposed new test paths and helper API names are appropriate. | Validation / Code Examples | Planner should map them to actual module ownership and avoid unnecessary public APIs. |
-| A6 | Every allow decision gets an event, with `allow_and_audit` distinguished by explicit audit semantics. | Open Questions | Requirement language may intend different retention/transport behavior; decision-time creation still must be testable. |
+| A6 | Every allow decision gets an event, with `allow_and_audit` distinguished by explicit audit semantics. | Resolved Phase 2 contract | Plans 02-04/02-05 make decision-time creation testable while leaving durable transport to the later phase boundary. |
 | A7 | Missing local Docker and PostgreSQL readiness can be covered by the existing lab/CI topology. | Environment Availability | Server integration tests may block locally until a database is provided. |
 
-## Open Questions
+## Open Questions — RESOLVED
 
-1. **How are existing administrator certificates bootstrapped into the new role model?**
+All four research questions below are resolved as Phase 2 execution contracts by the locked CONTEXT decisions and the corresponding existing plans. These resolutions record the already-planned contracts; they do not add user decisions.
+
+1. **[RESOLVED] How are existing administrator certificates bootstrapped into the new role model?**
    - What we know: current TLS authentication yields an administrator identity without an `admin`/`auditor` repository lookup. [VERIFIED: crates/dlp-server/src/tls.rs:1-260]
-   - What's unclear: canonical principal key (subject alone versus issuer+serial/fingerprint) and first-admin migration command.
-   - Recommendation: key roles by issuer plus canonical certificate serial/fingerprint, seed current administrator credentials in a forward migration/operator command, and never accept role from request data. [ASSUMED]
+   - Resolved uncertainty: canonical principal key and first-admin bootstrap path.
+   - Resolution: Plan 02-02 keys the persisted principal by trusted issuer plus canonical leaf fingerprint, assigns exactly `admin` or `auditor`, seeds the currently configured administrator through a forward migration/operator-safe path, and rejects request-supplied roles. This is the server-side authorization contract supporting D-01/D-02 without changing the locked lifecycle. [RESOLVED: 02-02 Task 1]
 
-2. **How are authenticated content digests established for files created before Phase 2?**
-   - What we know: the current manifest has no plaintext digest. [VERIFIED: crates/dlp-storage/src/manifest.rs:20-84]
-   - What's unclear: eager maintenance migration versus lazy recomputation on authenticated full read.
-   - Recommendation: version the manifest, compute a digest on every successful new import, and gate deployment of digest-dependent rules until legacy files are backfilled; missing required digest fails with `inspection_failed`. [ASSUMED]
+2. **[RESOLVED] How are authenticated content digests established for files created before Phase 2?**
+   - What we know: the current `EncryptedManifestV1` codec in `format.rs` has no plaintext digest. [VERIFIED: crates/dlp-storage/src/format.rs:141-193]
+   - Resolved uncertainty: eager maintenance migration versus lazy recomputation on authenticated full read.
+   - Resolution: Plan 02-04 versions the explicit `EncryptedManifestV1` encode/decode contract, authenticates a full-file digest for each newly committed import, lazily backfills only after an authenticated complete legacy read, and applies D-14 `inspection_failed` whenever a required digest is still missing. This directly implements D-12 through D-14. [RESOLVED: 02-04 Task 1]
 
-3. **What exact evidence distinction is required between `allow` and `allow_and_audit` in Phase 2?**
+3. **[RESOLVED] What exact evidence distinction is required between `allow` and `allow_and_audit` in Phase 2?**
    - What we know: success criteria require decision-time enforcement events, while durable offline queuing/upload belongs to Phase 3. [VERIFIED: .planning/ROADMAP.md:35-76; 02-CONTEXT.md Phase Boundary]
-   - What's unclear: whether `allow` emits the same event class/retention as `allow_and_audit`.
-   - Recommendation: create a normalized decision event for every operation; mark `allow_and_audit` as mandatory audit evidence for the Phase 3 sink and document the Phase 2 in-memory/local handoff behavior. [ASSUMED]
+   - Resolved uncertainty: whether `allow` emits the same event class/retention as `allow_and_audit`.
+   - Resolution: Plans 02-04 and 02-05 create one normalized synchronous event for every decision; `allow_and_audit` sets `mandatory_audit=true`, ordinary `allow` sets it false, and both allow the immediate operation. Phase 2 keeps the event handoff local/in-memory, consistent with the Phase Boundary and D-18; durable offline transport remains outside this phase. [RESOLVED: 02-04 Task 2; 02-05 Task 2]
 
-4. **What is the exact rotation overlap/removal policy?**
+4. **[RESOLVED] What is the exact rotation overlap/removal policy?**
    - What we know: ADR-005 requires old-key authorization and allows re-enrollment for endpoints that miss the overlap. [VERIFIED: .planning/docs/adrs/ADR-005-policy-signing.md:72-126]
-   - What's unclear: overlap duration and whether old-key retirement is time- or version-based.
-   - Recommendation: make transition activation monotonic by bundle version and carry an explicit not-after bundle/time bound; retain LKG but never use an expired key for new bundles. [ASSUMED]
+   - Resolved uncertainty: overlap duration and whether old-key retirement is time- or version-based.
+   - Resolution: Plan 02-03 requires an already-trusted old key to authorize a transition carrying both a monotonic not-after bundle version and an epoch-seconds not-after bound. Equality at both bounds is accepted; exceeding either rejects old-key use, preserves LKG, and endpoints that miss the overlap follow ADR-005 re-enrollment. This preserves D-04 next-poll activation and introduces no trust-on-first-use path. [RESOLVED: 02-03 Task 2]
 
 ## Environment Availability
 
@@ -630,7 +632,7 @@ The Windows access-denied value is exactly `0xC0000022`; add a named adapter con
 - [ ] `crates/dlp-storage/tests/policy_staging.rs` — candidate inspect/commit/abort and digest migration. [ASSUMED]
 - [ ] `crates/dlp-windows-drive/tests/policy_enforcement.rs` — timing and status contracts. [ASSUMED]
 - [ ] `crates/dlp-windows-service/tests/companion_grants.rs` — authenticated routing, grants, expiry, replay, restart. [ASSUMED]
-- [ ] `tests/e2e/policy_distribution.rs` — publish/assign/poll/activate end-to-end. [ASSUMED]
+- [ ] `crates/dlp-server/tests/policy_distribution.rs` — publish/assign/poll/activate end-to-end, auto-discovered as the `dlp-server` integration target. [ASSUMED]
 - [ ] `tests/windows/Invoke-Phase2PolicySmoke.ps1` — real toast activation, mounted-drive behavior, two-user isolation, revoked device. [ASSUMED]
 - [ ] Database fixture availability for SQLx integration tests; Docker is absent locally. [VERIFIED: environment probe] [ASSUMED]
 
@@ -671,7 +673,7 @@ OWASP ASVS 5.0.0 is the current stable release and organizes these controls unde
 - `crates/dlp-policy/src/lib.rs` — evaluator rule model, deterministic ordering, tests. [VERIFIED: crates/dlp-policy/src/lib.rs:1-155]
 - `crates/dlp-agent-core/src/config_cache.rs` — signed verification, replay checks, staging, atomic current/LKG. [VERIFIED: crates/dlp-agent-core/src/config_cache.rs:1-360]
 - `crates/dlp-windows-drive/src/filesystem.rs` — enforcement callback order and current immediate write flush. [VERIFIED: crates/dlp-windows-drive/src/filesystem.rs:411-599]
-- `crates/dlp-storage/src/store.rs` and `manifest.rs` — staged generations and persisted manifest state. [VERIFIED: crates/dlp-storage/src/store.rs:329-446; crates/dlp-storage/src/manifest.rs:20-84]
+- `crates/dlp-storage/src/store.rs` and `format.rs` — staged generations and persisted manifest codec state. [VERIFIED: crates/dlp-storage/src/store.rs:329-446; crates/dlp-storage/src/format.rs:141-193]
 - `crates/dlp-windows-service/src/pipe.rs` and `session.rs` — authenticated IPC and per-user lifecycle. [VERIFIED: crates/dlp-windows-service/src/pipe.rs:50-489; crates/dlp-windows-service/src/session.rs:1-320]
 - ADR-004, ADR-005, and threat model — canonical policy/signing/trust decisions. [VERIFIED: .planning/docs/adrs/ADR-004-policy-expression.md:1-185; .planning/docs/adrs/ADR-005-policy-signing.md:1-177; .planning/docs/THREAT-MODEL.md:1-180]
 - Official `regex` and `aho-corasick` documentation plus registry/legitimacy checks — APIs, limits, current packages. [VERIFIED: https://docs.rs/regex/latest/regex/] [VERIFIED: https://docs.rs/aho-corasick/latest/aho_corasick/]
