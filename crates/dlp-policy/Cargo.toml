@@ -9,4 +9,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+aho-corasick = "=1.1.5"
 dlp-domain = { path = "../dlp-domain" }
+regex = "=1.13.1"

@@ -695,7 +695,9 @@ dependencies = [
 name = "dlp-policy"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "dlp-domain",
+ "regex",
 ]
 
 [[package]]
