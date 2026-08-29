@@ -2,9 +2,7 @@ use dlp_domain::{
     DecisionReason, EnforcementAction, EnforcementEvent, Operation, PolicyInput, StoreId, UserSid,
 };
 use dlp_policy::{CompiledPolicyV2, DetectorCeilings, PolicyDocumentV2, PolicyRuleV2};
-use dlp_storage::{
-    CapturedStoreIdentity, LocalEncryptedStore, StoreKey, VirtualPath,
-};
+use dlp_storage::{CapturedStoreIdentity, LocalEncryptedStore, StoreKey, VirtualPath};
 use dlp_windows_drive::{DlpFileSystemContext, EnforcementEventSink};
 use std::sync::{Arc, Mutex};
 use winfsp::FspError;
@@ -36,13 +34,16 @@ fn store_with_file(
         UserSid::parse("S-1-5-21-2000").expect("SID"),
         StoreId::parse("policy-store").expect("store ID"),
     );
-    let mut store = LocalEncryptedStore::open(root, identity.clone(), StoreKey::from_bytes([9; 32]))
-        .expect("encrypted store");
+    let mut store =
+        LocalEncryptedStore::open(root, identity.clone(), StoreKey::from_bytes([9; 32]))
+            .expect("encrypted store");
     let path = VirtualPath::parse(file_name).expect("virtual path");
     let handle = store
         .create_or_open(&path, true, true)
         .expect("create file");
-    store.write_handle(handle, 0, plaintext).expect("stage file");
+    store
+        .write_handle(handle, 0, plaintext)
+        .expect("stage file");
     store.flush_handle(handle).expect("publish file");
     store.close_handle(handle).expect("close file");
     (identity, store, path)
@@ -132,5 +133,10 @@ fn read_export_tracer() {
     assert_eq!(first_decision.rule_id.as_deref(), Some("a-block"));
     assert_eq!(first_decision.action, EnforcementAction::Block);
     assert_eq!(first_decision.reason, DecisionReason::EqualPriorityConflict);
-    assert!(first_decision.observations.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(
+        first_decision
+            .observations
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+    );
 }

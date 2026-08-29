@@ -95,13 +95,15 @@ typed_identifier!(StoreId, "store id", allow_dot = false);
 typed_identifier!(FileId, "file id", allow_dot = false);
 typed_identifier!(BundleVersion, "bundle version", allow_dot = false);
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct PolicyInput {
     pub file_name: String,
     pub extension: String,
     pub path: String,
     pub owner: UserSid,
     pub size_bytes: u64,
+    pub operation: Operation,
+    content_prefix: Option<Vec<u8>>,
 }
 
 impl PolicyInput {
@@ -115,7 +117,7 @@ impl PolicyInput {
         let file_name = file_name.into();
         let extension = extension.into();
         let path = path.into();
-        if file_name.is_empty() || extension.is_empty() || path.is_empty() {
+        if file_name.is_empty() || path.is_empty() {
             return Err(DomainError::new(
                 DomainErrorKind::InvalidPolicyInput,
                 "policy input",
@@ -127,19 +129,77 @@ impl PolicyInput {
             path,
             owner,
             size_bytes,
+            operation: Operation::Read,
+            content_prefix: None,
         })
+    }
+
+    pub const fn with_operation(mut self, operation: Operation) -> Self {
+        self.operation = operation;
+        self
+    }
+
+    pub fn with_content_prefix(mut self, content: &[u8]) -> Self {
+        self.content_prefix = Some(content.to_vec());
+        self
+    }
+
+    pub fn content_prefix(&self) -> Option<&[u8]> {
+        self.content_prefix.as_deref()
     }
 
     pub fn canonical_bytes(&self) -> Vec<u8> {
         format!(
-            "file_name={};extension={};path={};owner={};size_bytes={}",
+            "file_name={};extension={};path={};owner={};size_bytes={};operation={}",
             self.file_name,
             self.extension,
             self.path,
             self.owner.to_wire(),
-            self.size_bytes
+            self.size_bytes,
+            self.operation.as_str()
         )
         .into_bytes()
+    }
+}
+
+impl fmt::Debug for PolicyInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PolicyInput")
+            .field("file_name", &self.file_name)
+            .field("extension", &self.extension)
+            .field("path", &self.path)
+            .field("owner", &self.owner)
+            .field("size_bytes", &self.size_bytes)
+            .field("operation", &self.operation)
+            .field(
+                "content_prefix",
+                &self.content_prefix.as_ref().map(Vec::len),
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Operation {
+    Read,
+    Write,
+    Import,
+    Export,
+    Copy,
+    Delete,
+}
+
+impl Operation {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Import => "import",
+            Self::Export => "export",
+            Self::Copy => "copy",
+            Self::Delete => "delete",
+        }
     }
 }
 
@@ -180,6 +240,7 @@ pub enum DecisionReason {
     EqualPriorityConflict,
     DefaultAction,
     EmptyPolicy,
+    InspectionFailed,
 }
 
 impl DecisionReason {
@@ -189,6 +250,41 @@ impl DecisionReason {
             Self::EqualPriorityConflict => "equal_priority_conflict",
             Self::DefaultAction => "default_action",
             Self::EmptyPolicy => "empty_policy",
+            Self::InspectionFailed => "inspection_failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum DecisionObservation {
+    RuleMatched {
+        rule_id: String,
+    },
+    InputUnavailable {
+        rule_id: String,
+        field: String,
+    },
+    DetectorMatch {
+        rule_id: String,
+        detector_id: String,
+        start: usize,
+        end: usize,
+    },
+}
+
+impl DecisionObservation {
+    fn canonical_text(&self) -> String {
+        match self {
+            Self::RuleMatched { rule_id } => format!("rule_matched:{rule_id}"),
+            Self::InputUnavailable { rule_id, field } => {
+                format!("input_unavailable:{rule_id}:{field}")
+            }
+            Self::DetectorMatch {
+                rule_id,
+                detector_id,
+                start,
+                end,
+            } => format!("detector_match:{rule_id}:{detector_id}:{start}:{end}"),
         }
     }
 }
@@ -198,15 +294,67 @@ pub struct PolicyDecision {
     pub action: EnforcementAction,
     pub reason: DecisionReason,
     pub rule_id: Option<String>,
+    pub observations: Vec<DecisionObservation>,
 }
 
 impl PolicyDecision {
     pub fn canonical_bytes(&self) -> Vec<u8> {
         format!(
-            "action={};reason={};rule_id={}",
+            "action={};reason={};rule_id={};observations={}",
             self.action.as_str(),
             self.reason.as_str(),
             self.rule_id.as_deref().unwrap_or(""),
+            self.observations
+                .iter()
+                .map(DecisionObservation::canonical_text)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+        .into_bytes()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnforcementEvent {
+    pub policy_version: String,
+    pub rule_id: Option<String>,
+    pub action: EnforcementAction,
+    pub operation: Operation,
+    pub reason: DecisionReason,
+    pub observations: Vec<DecisionObservation>,
+    pub mandatory_audit: bool,
+}
+
+impl EnforcementEvent {
+    pub fn from_decision(
+        policy_version: impl Into<String>,
+        operation: Operation,
+        decision: &PolicyDecision,
+    ) -> Self {
+        Self {
+            policy_version: policy_version.into(),
+            rule_id: decision.rule_id.clone(),
+            action: decision.action,
+            operation,
+            reason: decision.reason,
+            observations: decision.observations.clone(),
+            mandatory_audit: decision.action == EnforcementAction::AllowAndAudit,
+        }
+    }
+
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        let decision = PolicyDecision {
+            action: self.action,
+            reason: self.reason,
+            rule_id: self.rule_id.clone(),
+            observations: self.observations.clone(),
+        };
+        format!(
+            "policy_version={};operation={};mandatory_audit={};{}",
+            self.policy_version,
+            self.operation.as_str(),
+            self.mandatory_audit,
+            String::from_utf8_lossy(&decision.canonical_bytes())
         )
         .into_bytes()
     }
@@ -250,6 +398,7 @@ mod tests {
             action: EnforcementAction::Block,
             reason: DecisionReason::MatchedRule,
             rule_id: Some("rule-42".to_owned()),
+            observations: Vec::new(),
         };
         let error = DomainError::new(DomainErrorKind::InvalidIdentifier, "device-secret");
 

@@ -8,6 +8,8 @@ pub const STATUS_DISK_FULL: i32 = 0xC000_007Fu32 as i32;
 pub const STATUS_OBJECT_NAME_INVALID: i32 = 0xC000_0033u32 as i32;
 pub const STATUS_OBJECT_NAME_NOT_FOUND: i32 = 0xC000_0034u32 as i32;
 pub const STATUS_OBJECT_NAME_COLLISION: i32 = 0xC000_0035u32 as i32;
+/// `STATUS_ACCESS_DENIED`: an authoritative policy decision denied the operation.
+pub const STATUS_ACCESS_DENIED: i32 = 0xC000_0022u32 as i32;
 pub const STATUS_SHARING_VIOLATION: i32 = 0xC000_0043u32 as i32;
 pub const STATUS_DELETE_PENDING: i32 = 0xC000_0056u32 as i32;
 pub const STATUS_IO_DEVICE_ERROR: i32 = 0xC000_0185u32 as i32;

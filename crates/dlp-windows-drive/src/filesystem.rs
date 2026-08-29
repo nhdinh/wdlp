@@ -1,22 +1,30 @@
 //! SID-bound WinFsp callbacks over the portable encrypted store.
 
 use crate::status::{
-    FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
-    FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
-    FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
-    FILE_NOTIFY_CHANGE_SIZE, STATUS_NOT_SUPPORTED, path_to_ntstatus, to_ntstatus,
+    FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME,
+    FILE_ACTION_RENAMED_OLD_NAME, FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME,
+    FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE, STATUS_ACCESS_DENIED,
+    STATUS_NOT_SUPPORTED, path_to_ntstatus, to_ntstatus,
 };
+use dlp_domain::{
+    DecisionReason, EnforcementAction, EnforcementEvent, Operation, PolicyDecision, PolicyInput,
+};
+use dlp_policy::CompiledPolicyV2;
 use dlp_storage::{
-    CapturedStoreIdentity, EntryMetadata, FileHandle, LocalEncryptedStore, StorageError, VirtualPath,
+    CapturedStoreIdentity, EntryMetadata, FileHandle, LocalEncryptedStore, StorageError,
+    VirtualPath,
 };
-use std::{ffi::c_void, sync::Mutex};
+use std::{
+    ffi::c_void,
+    sync::{Arc, Mutex},
+};
 use winfsp::{
     FspError, Result, U16CStr,
     filesystem::{
         DirInfo, DirMarker, FileInfo, FileSecurity, FileSystemContext, OpenFileInfo, VolumeInfo,
         WideNameInfo,
     },
-    notify::{NotifyingFileSystemContext, NotifyInfo, Notifier},
+    notify::{Notifier, NotifyInfo, NotifyingFileSystemContext},
 };
 
 /// A handle cannot replace the mount's captured identity; it only refers to a parsed virtual path.
@@ -25,6 +33,37 @@ pub struct DlpFileHandle {
     handle: Option<FileHandle>,
     directory: bool,
     delete_requested: Mutex<bool>,
+}
+
+/// Synchronous, redacted evidence destination. Implementations must not retain plaintext.
+pub trait EnforcementEventSink: Send + Sync {
+    fn record(&self, event: EnforcementEvent);
+}
+
+/// Immutable decision/evidence port used by WinFsp callbacks.
+pub trait PolicyEnforcementPort: Send + Sync {
+    fn evaluate(&self, input: &PolicyInput) -> PolicyDecision;
+    fn record(&self, event: EnforcementEvent);
+    fn policy_version(&self) -> &str;
+}
+
+struct CompiledPolicyPort {
+    policy: Arc<CompiledPolicyV2>,
+    sink: Arc<dyn EnforcementEventSink>,
+}
+
+impl PolicyEnforcementPort for CompiledPolicyPort {
+    fn evaluate(&self, input: &PolicyInput) -> PolicyDecision {
+        self.policy.evaluate(input)
+    }
+
+    fn record(&self, event: EnforcementEvent) {
+        self.sink.record(event);
+    }
+
+    fn policy_version(&self) -> &str {
+        self.policy.policy_version()
+    }
 }
 
 impl DlpFileHandle {
@@ -71,10 +110,30 @@ pub struct DlpFileSystemContext {
     identity: CapturedStoreIdentity,
     store: Mutex<LocalEncryptedStore>,
     pending_notifications: Mutex<Vec<NotifyInfo<255>>>,
+    enforcement: Option<Arc<dyn PolicyEnforcementPort>>,
 }
 
 impl DlpFileSystemContext {
     pub fn new(identity: CapturedStoreIdentity, store: LocalEncryptedStore) -> Result<Self> {
+        Self::build(identity, store, None)
+    }
+
+    pub fn with_policy(
+        identity: CapturedStoreIdentity,
+        store: LocalEncryptedStore,
+        policy: Arc<CompiledPolicyV2>,
+        sink: Arc<dyn EnforcementEventSink>,
+    ) -> Result<Self> {
+        let enforcement: Arc<dyn PolicyEnforcementPort> =
+            Arc::new(CompiledPolicyPort { policy, sink });
+        Self::build(identity, store, Some(enforcement))
+    }
+
+    fn build(
+        identity: CapturedStoreIdentity,
+        store: LocalEncryptedStore,
+        enforcement: Option<Arc<dyn PolicyEnforcementPort>>,
+    ) -> Result<Self> {
         if store.identity() != &identity {
             return Err(FspError::NTSTATUS(
                 crate::status::STATUS_OBJECT_NAME_INVALID,
@@ -84,11 +143,73 @@ impl DlpFileSystemContext {
             identity,
             store: Mutex::new(store),
             pending_notifications: Mutex::new(Vec::new()),
+            enforcement,
         })
     }
 
     pub fn store_identity(&self) -> &CapturedStoreIdentity {
         &self.identity
+    }
+
+    /// Reads authenticated bytes, evaluates export policy, records evidence, then exposes bytes.
+    pub fn read_export(&self, path: &VirtualPath, buffer: &mut [u8], offset: u64) -> Result<u32> {
+        let bytes = self
+            .store
+            .lock()
+            .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?
+            .read_path(path)
+            .map_err(Self::storage_error)?;
+        self.enforce_export_and_copy(path, &bytes, buffer, offset)
+    }
+
+    fn enforce_export_and_copy(
+        &self,
+        path: &VirtualPath,
+        bytes: &[u8],
+        buffer: &mut [u8],
+        offset: u64,
+    ) -> Result<u32> {
+        let offset = usize::try_from(offset)
+            .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_OBJECT_NAME_INVALID))?;
+
+        if let Some(enforcement) = &self.enforcement {
+            let file_name = path.display_name().ok_or(FspError::NTSTATUS(
+                crate::status::STATUS_OBJECT_NAME_INVALID,
+            ))?;
+            let extension = file_name
+                .rsplit_once('.')
+                .map_or("", |(_, extension)| extension);
+            let input = PolicyInput::new(
+                file_name,
+                extension,
+                path.display_path(),
+                self.identity.user_sid().clone(),
+                bytes.len() as u64,
+            )
+            .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_OBJECT_NAME_INVALID))?
+            .with_operation(Operation::Export)
+            .with_content_prefix(bytes);
+            let decision = enforcement.evaluate(&input);
+            enforcement.record(EnforcementEvent::from_decision(
+                enforcement.policy_version(),
+                Operation::Export,
+                &decision,
+            ));
+            if matches!(
+                decision.action,
+                EnforcementAction::Block
+                    | EnforcementAction::Warn
+                    | EnforcementAction::RequireJustification
+            ) || decision.reason == DecisionReason::InspectionFailed
+            {
+                return Err(FspError::NTSTATUS(STATUS_ACCESS_DENIED));
+            }
+        }
+
+        let available = bytes.get(offset..).unwrap_or_default();
+        let copied = available.len().min(buffer.len());
+        buffer[..copied].copy_from_slice(&available[..copied]);
+        u32::try_from(copied).map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))
     }
 
     fn storage_error(error: StorageError) -> FspError {
@@ -537,18 +658,13 @@ impl FileSystemContext for DlpFileSystemContext {
         let handle = context.handle.ok_or(FspError::NTSTATUS(
             crate::status::STATUS_OBJECT_NAME_INVALID,
         ))?;
-        let offset = usize::try_from(offset)
-            .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_OBJECT_NAME_INVALID))?;
-        let mut store = self
+        let bytes = self
             .store
             .lock()
-            .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?;
-        let bytes = store.read_handle(handle).map_err(Self::storage_error)?;
-        let available = bytes.get(offset..).unwrap_or_default();
-        let copied = available.len().min(buffer.len());
-        // `read_path` authenticates the encrypted record before this copy.
-        buffer[..copied].copy_from_slice(&available[..copied]);
-        u32::try_from(copied).map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))
+            .map_err(|_| FspError::NTSTATUS(crate::status::STATUS_IO_DEVICE_ERROR))?
+            .read_handle(handle)
+            .map_err(Self::storage_error)?;
+        self.enforce_export_and_copy(&context.path()?, &bytes, buffer, offset)
     }
 
     fn write(
