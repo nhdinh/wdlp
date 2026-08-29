@@ -1,0 +1,1 @@
+No external API integration: Phase 2 uses existing first-party DLP HTTP routes plus local Windows, WinFsp, PostgreSQL, and Rust runtime APIs; it introduces no third-party service API or SDK integration.
